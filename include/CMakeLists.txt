@@ -1,0 +1,24 @@
+
+message(STATUS "Initiating Headers ...")
+
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/sycl DESTINATION "${CMAKE_INSTALL_PREFIX}/include/"
+	FILES_MATCHING
+	PATTERN "*.h"
+	PATTERN "*.hpp"
+)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/utilities DESTINATION "${CMAKE_INSTALL_PREFIX}/include/"
+    FILES_MATCHING
+    PATTERN "*.h"
+    PATTERN "*.hpp"
+)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/kem DESTINATION "${CMAKE_INSTALL_PREFIX}/include/"
+	FILES_MATCHING
+	PATTERN "*.h"
+	PATTERN "*.hpp"
+)
+
+
+message(STATUS "Headers Done!")
