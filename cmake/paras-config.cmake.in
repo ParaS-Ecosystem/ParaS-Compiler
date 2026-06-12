@@ -1,0 +1,35 @@
+get_filename_component(PACKAGE_PREFIX_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../" ABSOLUTE)
+
+####################################################################################
+# === Paths ===
+set(PARAS_LIB_PATH "${PACKAGE_PREFIX_DIR}/lib")
+set(PARAS_INCLUDE_PATH "${PACKAGE_PREFIX_DIR}/include")
+
+####################################################################################
+# === Device Selection ===
+
+# Declare cache variable so CMake recognizes it
+#if(NOT DEFINED PARAS_TARGETS)
+#  set(PARAS_TARGETS "" CACHE STRING "Target devices for ParaSCC (e.g. cuda:sm_70 or cpu)")
+#endif()
+
+# Use environment if not set via -D
+#if(PARAS_TARGETS STREQUAL "")
+#  if(DEFINED ENV{PARAS_TARGETS})
+#    set(PARAS_TARGETS "$ENV{PARAS_TARGETS}")
+#  else()
+#	message(STATUS "No PARAS_TARGETS provided. Using CPU-only mode.")
+#    set(PARAS_TARGETS "cpu")
+#  endif()
+#endif()
+
+#mark_as_advanced(PARAS_TARGETS) # ensures CMake knows it’s consumed
+
+message(STATUS "Using ParaSCC target: ${PARAS_TARGETS}")
+
+####################################################################################
+# === Compiler Setup ===
+
+# Always use parascc directly
+set(CMAKE_CXX_COMPILER "${PACKAGE_PREFIX_DIR}/bin/parascc" CACHE STRING "ParaSCC compiler" FORCE)
+####################################################################################
