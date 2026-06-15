@@ -155,7 +155,7 @@ public:
     }
 
     std::string tempFile =
-        "/tmp/files/paras_tmp_" +
+        "/tmp/paras_tmp_" +
         std::to_string(
             std::chrono::system_clock::now().time_since_epoch().count()) +
         ".cpp";
