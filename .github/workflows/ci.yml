@@ -25,19 +25,20 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get install -y \
-            git make ninja-build \
+            git make ninja-build cmake \
             gcc g++ gfortran \
             llvm-21 llvm-21-dev llvm-21-tools \
-            clang-21 clang-tools-21 \
-            cmake
+            clang-21 clang-tools-21 libclang-21-dev \
+            libffi-dev libedit-dev libncurses-dev \
+            libcurl4-openssl-dev zlib1g-dev libxml2-dev libzstd-dev
 
       - name: Verify toolchain
         run: |
           clang-21 --version
           clang++-21 --version
           llvm-config-21 --version
-          cmake --version
-          ninja --version
+          ls /usr/lib/llvm-21/lib/cmake/llvm
+          ls /usr/lib/llvm-21/lib/cmake/clang
 
       - name: Configure ParaS
         run: |
@@ -50,6 +51,9 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++-21 \
             -DPARAS_BASE_COMPILER=clang++-21 \
             -DPARAS_INSTALL_PREFIX=$HOME/paras-install \
+            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
+            -DClang_DIR=/usr/lib/llvm-21/lib/cmake/clang \
+            -DCMAKE_PREFIX_PATH=/usr/lib/llvm-21 \
             -DCMAKE_CXX_FLAGS="-std=c++17"
 
       - name: Build ParaS
