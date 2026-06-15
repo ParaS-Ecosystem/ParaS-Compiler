@@ -1,0 +1,61 @@
+name: ParaS CI
+
+on:
+  pull_request:
+    branches: [ main ]
+
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install LLVM 21 and dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            wget git make ninja-build \
+            gcc g++ gfortran \
+            llvm-21 llvm-21-dev llvm-21-tools \
+            clang-21 clang-tools-21 \
+            cmake
+
+      - name: Verify toolchain
+        run: |
+          clang-21 --version
+          clang++-21 --version
+          llvm-config-21 --version
+          cmake --version
+          ninja --version
+
+      - name: Configure ParaS
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_C_COMPILER=clang-21 \
+            -DCMAKE_CXX_COMPILER=clang++-21 \
+            -DPARAS_BASE_COMPILER=clang++-21 \
+            -DPARAS_INSTALL_PREFIX=$HOME/paras-install \
+            -DCMAKE_CXX_FLAGS="-std=c++17"
+
+      - name: Build ParaS
+        run: |
+          cmake --build build -j$(nproc)
+
+      - name: Install ParaS
+        run: |
+          cmake --install build
+
+      - name: Verify ParaS installation
+        run: |
+          ls -la $HOME/paras-install/bin || true
+          $HOME/paras-install/bin/parascc --help || true
+          $HOME/paras-install/bin/parascc --version || true
