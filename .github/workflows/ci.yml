@@ -89,14 +89,22 @@ jobs:
         run: |
           cmake --install build
 
-      - name: Verify installation
+      - name: Verify installation and run example
         run: |
           ls -R $HOME/paras-install
 
           if [ -f "$HOME/paras-install/bin/parascc" ]; then
             chmod +x $HOME/paras-install/bin/parascc
-            $HOME/paras-install/bin/parascc --version || true
-            $HOME/paras-install/bin/parascc --help || true
+            export PATH=$HOME/paras-install/bin:$PATH
+            export LD_LIBRARY_PATH=$HOME/paras-install/lib:$LD_LIBRARY_PATH
+
+            echo "ParaS Compiler Version:"
+            parascc --version || true
+
+            echo "Running ParaS SYCL example:"
+            cd examples/sycl-codes
+            parascc heat_equation.cpp
+            ./a.out
           else
             echo "ERROR: parascc not found!"
             exit 1
