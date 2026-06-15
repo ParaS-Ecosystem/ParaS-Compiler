@@ -25,7 +25,7 @@ std::string generate_output_filename() {
   auto now = std::chrono::system_clock::now();
   auto now_sec = std::chrono::system_clock::to_time_t(now);
   std::string filename =
-      "/tmp/files/paras_pp_" + std::to_string(now_sec) + ".cpp";
+      "/tmp/paras_pp_" + std::to_string(now_sec) + ".cpp";
   return filename;
 }
 
