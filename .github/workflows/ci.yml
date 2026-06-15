@@ -3,23 +3,29 @@ name: ParaS CI
 on:
   pull_request:
     branches: [ main ]
-
   push:
     branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install LLVM 21 and dependencies
+      - name: Add LLVM apt repository
         run: |
           sudo apt-get update -y
+          sudo apt-get install -y wget gnupg lsb-release software-properties-common
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+
+      - name: Install dependencies
+        run: |
           sudo apt-get install -y \
-            wget git make ninja-build \
+            git make ninja-build \
             gcc g++ gfortran \
             llvm-21 llvm-21-dev llvm-21-tools \
             clang-21 clang-tools-21 \
