@@ -1,71 +1,108 @@
 name: ParaS CI
 
 on:
-  pull_request:
-    branches: [ main ]
   push:
-    branches: [ main ]
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
+    name: Build ParaS Compiler
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Add LLVM apt repository
+      - name: Add LLVM 21 repository
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y wget gnupg lsb-release software-properties-common
+          sudo apt-get install -y \
+            wget \
+            gnupg \
+            lsb-release \
+            software-properties-common
+
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 21
 
       - name: Install dependencies
         run: |
+          sudo apt-get update -y
           sudo apt-get install -y \
-            git make ninja-build cmake \
-            gcc g++ gfortran \
-            llvm-21 llvm-21-dev llvm-21-tools \
-            clang-21 clang-tools-21 libclang-21-dev \
-            libffi-dev libedit-dev libncurses-dev \
-            libcurl4-openssl-dev zlib1g-dev libxml2-dev libzstd-dev
+            build-essential \
+            gcc \
+            g++ \
+            gfortran \
+            cmake \
+            ninja-build \
+            git \
+            llvm-21 \
+            llvm-21-dev \
+            llvm-21-tools \
+            clang-21 \
+            clang-tools-21 \
+            libclang-21-dev \
+            libffi-dev \
+            libedit-dev \
+            libncurses-dev \
+            libcurl4-openssl-dev \
+            zlib1g-dev \
+            libxml2-dev \
+            libzstd-dev
 
       - name: Verify toolchain
         run: |
           clang-21 --version
           clang++-21 --version
           llvm-config-21 --version
-          ls /usr/lib/llvm-21/lib/cmake/llvm
-          ls /usr/lib/llvm-21/lib/cmake/clang
+          cmake --version
+          ninja --version
 
       - name: Configure ParaS
         run: |
           mkdir -p build
           cd build
+
           cmake .. \
             -G Ninja \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_C_COMPILER=clang-21 \
-            -DCMAKE_CXX_COMPILER=clang++-21 \
-            -DPARAS_BASE_COMPILER=clang++-21 \
+            -DCMAKE_C_COMPILER=/usr/bin/clang-21 \
+            -DCMAKE_CXX_COMPILER=/usr/bin/clang++-21 \
+            -DPARAS_BASE_COMPILER=/usr/bin/clang++-21 \
             -DPARAS_INSTALL_PREFIX=$HOME/paras-install \
             -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
             -DClang_DIR=/usr/lib/llvm-21/lib/cmake/clang \
             -DCMAKE_PREFIX_PATH=/usr/lib/llvm-21 \
-            -DCMAKE_CXX_FLAGS="-std=c++17"
+            -DCMAKE_CXX_STANDARD=20
 
       - name: Build ParaS
         run: |
-          cmake --build build -j$(nproc)
+          cmake --build build --parallel $(nproc)
 
       - name: Install ParaS
         run: |
           cmake --install build
 
-      - name: Verify ParaS installation
+      - name: Verify installation
         run: |
-          ls -la $HOME/paras-install/bin || true
-          $HOME/paras-install/bin/parascc --help || true
-          $HOME/paras-install/bin/parascc --version || true
+          echo "Installed files:"
+          ls -R $HOME/paras-install
+
+          if [ -f "$HOME/paras-install/bin/parascc" ]; then
+            chmod +x $HOME/paras-install/bin/parascc
+
+            echo "ParaS Compiler Version:"
+            $HOME/paras-install/bin/parascc --version || true
+
+            echo "ParaS Compiler Help:"
+            $HOME/paras-install/bin/parascc --help || true
+          else
+            echo "ERROR: parascc not found!"
+            exit 1
+          fi
