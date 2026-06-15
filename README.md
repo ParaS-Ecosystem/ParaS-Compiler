@@ -103,7 +103,6 @@ You may add these commands to your `~/.bashrc` or `~/.zshrc` to make the changes
 If you encounter any issues or would like to request a feature, you can:
 
 - Open an issue in the GitHub repository under the **Issues** section.
-- Contact the development team at **paras@cdac.in**.
 
 ---
 
