@@ -2,17 +2,21 @@ name: ParaS CI
 
 on:
   push:
-    branches:
-      - main
-
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   build:
     name: Build ParaS Compiler
     runs-on: ubuntu-24.04
+
+    env:
+      CC: /usr/bin/clang-21
+      CXX: /usr/bin/clang++-21
+      CPLUS_INCLUDE_PATH: /usr/include/c++/14:/usr/include/x86_64-linux-gnu/c++/14:/usr/include
+      C_INCLUDE_PATH: /usr/include
+      LIBRARY_PATH: /usr/lib/gcc/x86_64-linux-gnu/14:/usr/lib/x86_64-linux-gnu
 
     steps:
       - name: Checkout repository
@@ -21,12 +25,7 @@ jobs:
       - name: Add LLVM 21 repository
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y \
-            wget \
-            gnupg \
-            lsb-release \
-            software-properties-common
-
+          sudo apt-get install -y wget gnupg lsb-release software-properties-common
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 21
@@ -36,9 +35,10 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y \
             build-essential \
-            gcc \
-            g++ \
+            gcc-14 \
+            g++-14 \
             gfortran \
+            libstdc++-14-dev \
             cmake \
             ninja-build \
             git \
@@ -58,17 +58,17 @@ jobs:
 
       - name: Verify toolchain
         run: |
-          clang-21 --version
-          clang++-21 --version
+          /usr/bin/clang-21 --version
+          /usr/bin/clang++-21 --version
           llvm-config-21 --version
-          cmake --version
-          ninja --version
+          g++-14 --version
+          ls /usr/include/c++/14/type_traits
+          ls /usr/include/c++/14/cstdlib
 
       - name: Configure ParaS
         run: |
           mkdir -p build
           cd build
-
           cmake .. \
             -G Ninja \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -91,16 +91,11 @@ jobs:
 
       - name: Verify installation
         run: |
-          echo "Installed files:"
           ls -R $HOME/paras-install
 
           if [ -f "$HOME/paras-install/bin/parascc" ]; then
             chmod +x $HOME/paras-install/bin/parascc
-
-            echo "ParaS Compiler Version:"
             $HOME/paras-install/bin/parascc --version || true
-
-            echo "ParaS Compiler Help:"
             $HOME/paras-install/bin/parascc --help || true
           else
             echo "ERROR: parascc not found!"
