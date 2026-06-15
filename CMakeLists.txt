@@ -8,9 +8,9 @@ set(CMAKE_C_COMPILER clang)
 set(CMAKE_CXX_COMPILER clang++)
 
 # Add the GCC toolchain flags
-set(CMAKE_CXX_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "CXX flags" FORCE)
-set(CMAKE_EXE_LINKER_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "Linker flags" FORCE)
-set(CMAKE_SHARED_LINKER_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "Shared linker flags" FORCE)
+##set(CMAKE_CXX_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "CXX flags" FORCE)
+##set(CMAKE_EXE_LINKER_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "Linker flags" FORCE)
+##set(CMAKE_SHARED_LINKER_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "Shared linker flags" FORCE)
 
 if(NOT CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 20)
