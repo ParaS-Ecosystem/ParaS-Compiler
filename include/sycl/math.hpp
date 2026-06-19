@@ -217,6 +217,51 @@ inline double pow(double x, double y) { return ::pow(x, y); }
 PARAS_KERNEL_HD
 inline float pow(float x, float y) { return ::powf(x, y); }
 
+PARAS_KERNEL_HD
+inline int abs(int x) { return (x < 0) ? -x : x; }
+
+PARAS_KERNEL_HD
+inline long abs(long x) { return (x < 0) ? -x : x; }
+
+PARAS_KERNEL_HD
+inline long long abs(long long x) { return (x < 0) ? -x : x; }
+
+PARAS_KERNEL_HD
+inline float abs(float x) { return ::fabsf(x); }
+
+PARAS_KERNEL_HD
+inline double abs(double x) { return ::fabs(x); }
+
+PARAS_KERNEL_HD
+inline float fabs(float x) { return ::fabsf(x); }
+
+PARAS_KERNEL_HD
+inline double fabs(double x) { return ::fabs(x); }
+
+PARAS_KERNEL_HD
+inline float cbrt(float x) { return ::cbrtf(x); }
+
+PARAS_KERNEL_HD
+inline double cbrt(double x) { return ::cbrt(x); }
+
+PARAS_KERNEL_HD
+inline float rcbrt(float x) { return 1.0f / ::cbrtf(x); }
+
+PARAS_KERNEL_HD
+inline double rcbrt(double x) { return 1.0 / ::cbrt(x); }
+
+PARAS_KERNEL_HD
+inline float hypot(float x, float y) { return ::hypotf(x, y); }
+
+PARAS_KERNEL_HD
+inline double hypot(double x, double y) { return ::hypot(x, y); }
+
+PARAS_KERNEL_HD
+inline float rhypot(float x, float y) { return 1.0f / ::hypotf(x, y); }
+
+PARAS_KERNEL_HD
+inline double rhypot(double x, double y) { return 1.0 / ::hypot(x, y); }
+
 template <typename T> struct plus {
   PARAS_KERNEL_HD
   constexpr T operator()(const T &a, const T &b) const { return a + b; }
