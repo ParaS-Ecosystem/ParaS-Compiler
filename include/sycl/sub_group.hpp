@@ -21,15 +21,14 @@
 #ifndef __PARAS_SUB_GROUP_HPP__
 #define __PARAS_SUB_GROUP_HPP__
 
+#include "kem_gpu/gpu_utilities.hpp"
+
 #include "atomic_ref.hpp"
 #include "math.hpp"
 #include "sycl/id.hpp"
 #include "sycl/range.hpp"
 #include <cstdint>
 #include <type_traits>
-
-#define PARAS_KERNEL_D
-#define PARAS_KERNEL_HD
 
 namespace sycl {
 
@@ -83,7 +82,7 @@ public:
 template <typename Group>
 PARAS_KERNEL_HD inline bool any_of_group(Group g, bool pred) {
   if constexpr (std::is_same_v<Group, sub_group>)
-    return paras_any_sync(0xffffffff, pred);
+    return paras_any_sync(paras_active_mask(), pred);
   else
     return pred;
 }
@@ -92,13 +91,15 @@ template <typename Group, typename T, typename BinaryOperation>
 PARAS_KERNEL_HD inline T reduce_over_group(Group g, T value,
                                            BinaryOperation binary_op) {
   if constexpr (std::is_same_v<Group, sub_group>) {
+    const unsigned activeMask = paras_active_mask();
+
     for (int offset = g.get_local_linear_range() / 2; offset > 0;
          offset >>= 1) {
-      T other = paras_shfl_down(0xffffffff, value, offset);
+      T other = paras_shfl_down(activeMask, value, offset);
       value = binary_op(value, other);
     }
 
-    return paras_shfl(0xffffffff, value, 0);
+    return paras_shfl(activeMask, value, 0);
   } else {
     return value;
   }
@@ -108,12 +109,14 @@ template <typename T, typename BinaryOperation>
 PARAS_KERNEL_HD inline T reduce_over_group(sub_group g, T value,
                                            BinaryOperation binary_op) {
 #if PARAS_GPU_BACKEND
+  const unsigned activeMask = paras_active_mask();
+
   for (int offset = g.get_local_linear_range() / 2; offset > 0; offset >>= 1) {
-    T other = paras_shfl_down(0xffffffff, value, offset);
+    T other = paras_shfl_down(activeMask, value, offset);
     value = binary_op(value, other);
   }
 
-  return paras_shfl(0xffffffff, value, 0);
+  return paras_shfl(activeMask, value, 0);
 #else
   return value;
 #endif
@@ -123,7 +126,7 @@ template <typename Group, typename T>
 PARAS_KERNEL_HD inline T
 select_from_group(Group g, T value, typename Group::id_type remote_local_id) {
   if constexpr (std::is_same_v<Group, sub_group>) {
-    return paras_shfl(0xffffffff, value, remote_local_id[0]);
+    return paras_shfl(paras_active_mask(), value, remote_local_id[0]);
   } else {
     return value;
   }

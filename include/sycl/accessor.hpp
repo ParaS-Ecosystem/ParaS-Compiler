@@ -32,6 +32,12 @@
 #include <iterator>
 #include <vector>
 
+#include <cstddef>
+#include <type_traits>
+#include <utility>
+
+#include "kem_gpu/gpu_utilities.hpp"
+
 namespace sycl {
 
 template <typename T, int Dimensions, typename AllocatorT> class buffer;
@@ -115,29 +121,32 @@ template <typename DataT, int Dimensions = 1> class local_accessor {
 public:
   using value_type = DataT;
   using reference = value_type &;
-  using const_reference = DataT &;
+  using const_reference = const value_type &;
+  using size_type = size_t;
+
   template <access::decorated IsDecorated>
   using accessor_ptr =
       multi_ptr<value_type, access::address_space::local_space, IsDecorated>;
-  using size_type = size_t;
 
   local_accessor() = default;
 
   template <int D = Dimensions, typename std::enable_if_t<D == 0> * = nullptr>
   explicit local_accessor(handler &cghRef, const property_list &propList = {})
-      : local_ptr_{static_cast<DataT *>(cghRef.local_alloc<DataT>(1))},
-        props_{propList} {}
+      : local_offset_bytes_(cghRef.template local_alloc_offset<DataT>(1)),
+        ele_count_{}, props_(propList) {}
 
   local_accessor(range<Dimensions> allocationRange, handler &cghRef,
                  const property_list &propList = {})
-      : local_ptr_{static_cast<DataT *>(
-            cghRef.local_alloc<DataT>(allocationRange.size()))},
-        ele_count_{allocationRange}, props_{propList} {}
+      : local_offset_bytes_(
+            cghRef.template local_alloc_offset<DataT>(allocationRange.size())),
+        ele_count_(allocationRange), props_(propList) {}
 
   void swap(local_accessor &other) {
     using std::swap;
-    swap(local_ptr_, other.local_ptr_);
+
+    swap(local_offset_bytes_, other.local_offset_bytes_);
     swap(ele_count_, other.ele_count_);
+    swap(props_, other.props_);
   }
 
   size_type byte_size() const noexcept { return size() * sizeof(DataT); }
@@ -159,28 +168,28 @@ public:
 
   PARAS_KERNEL_HD
   const local_accessor &operator=(const value_type &val) const {
-    *local_ptr_ = val;
+    *resolved_pointer() = val;
     return *this;
   }
 
   template <int D = Dimensions, typename std::enable_if_t<D == 0> * = nullptr>
-  operator reference() const {
-    return *local_ptr_;
+  PARAS_KERNEL_HD operator reference() const {
+    return *resolved_pointer();
   }
 
-  template <int D = Dimensions, typename std::enable_if_t<(D > 1), int> = 0>
-  reference operator[](size_type index) const {
-    return local_ptr_[linear_id(index)];
+  template <int D = Dimensions, typename std::enable_if_t<(D > 0), int> = 0>
+  PARAS_KERNEL_HD reference operator[](const id<Dimensions> &index) const {
+    return resolved_pointer()[linear_id(index)];
   }
 
   template <int D = Dimensions, typename std::enable_if_t<(D == 1), int> = 0>
   PARAS_KERNEL_HD reference operator[](size_type index) const {
-    return local_ptr_[index];
+    return resolved_pointer()[index];
   }
 
   template <access::decorated IsDecorated>
   PARAS_KERNEL_HD accessor_ptr<IsDecorated> get_multi_ptr() const noexcept {
-    return accessor_ptr<IsDecorated>{static_cast<DataT *>(local_ptr_)};
+    return accessor_ptr<IsDecorated>{resolved_pointer()};
   }
 
   PARAS_KERNEL_HD
@@ -190,21 +199,35 @@ public:
 
   PARAS_KERNEL_HD
   operator accessor_ptr<access::decorated::legacy>() const noexcept {
-    return accessor_ptr<access::decorated::legacy>{
-        static_cast<DataT *>(local_ptr_)};
+    return accessor_ptr<access::decorated::legacy>{resolved_pointer()};
   }
 
 private:
-  DataT *local_ptr_{};
-  range<Dimensions> ele_count_{};
-  range<Dimensions> ele_cnt_{};
-  property_list props_;
+  size_type local_offset_bytes_ = 0;
 
-  size_type linear_id(const id<Dimensions> &idnx) {
+  range<Dimensions> ele_count_{};
+  property_list props_{};
+
+  PARAS_KERNEL_HD
+  DataT *resolved_pointer() const noexcept {
+#if defined(__CUDA_ARCH__)
+    unsigned char *const base = paras_get_dynamic_shared_memory();
+
+    return reinterpret_cast<DataT *>(base + local_offset_bytes_);
+#else
+    return nullptr;
+#endif
+  }
+
+  PARAS_KERNEL_HD
+  size_type linear_id(const id<Dimensions> &index) const noexcept {
     size_type linear = 0;
-    for (int i = 0; i < Dimensions; i++) {
-      linear = linear * ele_cnt_[i] + idnx[i];
+
+    for (int i = 0; i < Dimensions; ++i) {
+      linear = linear * static_cast<size_type>(ele_count_[i]) +
+               static_cast<size_type>(index[i]);
     }
+
     return linear;
   }
 };
