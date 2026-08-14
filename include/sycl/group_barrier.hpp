@@ -22,9 +22,7 @@
 #define __PARAS_GROUP_BARRIER_HPP__
 
 #include "sub_group.hpp"
-
-#define PARAS_KERNEL_D
-#define PARAS_KERNEL_HD
+#include "kem_gpu/gpu_utilities.hpp"
 
 namespace sycl {
 
@@ -34,7 +32,7 @@ group_barrier(Group, memory_scope scope = Group::fence_scope) {
 #if PARAS_GPU_BACKEND
 
   if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>) {
-    paras_syncwarp();
+    paras_syncwarp(paras_active_mask());
   } else {
     paras_syncthreads();
   }

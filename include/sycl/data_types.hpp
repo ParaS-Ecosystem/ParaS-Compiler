@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include "kem_gpu/gpu_utilities.hpp"
 
 namespace sycl {

@@ -22,11 +22,8 @@
 #define __PARAS_ND_RANGE_HPP__
 
 #include "id.hpp"
-#include "kem/utils.hpp"
 #include "range.hpp"
-
-#define PARAS_KERNEL_D
-#define PARAS_KERNEL_HD
+#include "kem_gpu/gpu_utilities.hpp"
 
 namespace sycl {
 
