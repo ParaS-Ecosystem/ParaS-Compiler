@@ -18,18 +18,36 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __PARAS_INTEROP_HANDLER_HPP__
-#define __PARAS_INTEROP_HANDLER_HPP__
+#ifndef __PARAS_INTEROP_HANDLE_HPP__
+#define __PARAS_INTEROP_HANDLE_HPP__
+
+#include "device.hpp"
+
+struct CUstream_st;
 
 namespace sycl {
 
+class queue;
+class handler;
+
 class interop_handle {
+private:
   void *backend_ptr_;
+  backend backend_;
+
+  interop_handle(void *p, backend b) : backend_ptr_(p), backend_(b) {}
+
+  friend class handler;
 
 public:
-  interop_handle(void *p) : backend_ptr_(p) {}
+  interop_handle() = delete;
+
+  backend get_backend() const noexcept { return backend_; }
 
   void *get_native_queue();
+
+  template <backend Backend>
+  backend_return_t<Backend, queue> get_native_queue() const;
 };
 
 } // namespace sycl
