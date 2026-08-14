@@ -52,8 +52,6 @@ public:
 
   void wait() const {
     wait_deps();
-    while (!m_ready)
-      std::this_thread::yield();
   }
 
   void wait_and_throw() const { wait(); }

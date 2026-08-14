@@ -23,9 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
-
-#define PARAS_KERNEL_D
-#define PARAS_KERNEL_HD
+#include "kem_gpu/gpu_utilities.hpp"
 
 namespace sycl {
 
@@ -114,19 +112,20 @@ public:
 
   template <typename Ptr>
   PARAS_KERNEL_HD void load(std::size_t offset, Ptr ptr) noexcept {
-
+    const std::size_t base = offset * static_cast<std::size_t>(N);
     for (int j = 0; j < N; ++j) {
-      data[j] = ptr[offset + j];
+      data[j] = ptr[base + static_cast<std::size_t>(j)];
     }
   }
 
   template <typename Ptr>
   PARAS_KERNEL_HD void store(std::size_t offset, Ptr ptr) const noexcept {
-
+    const std::size_t base = offset * static_cast<std::size_t>(N);
     for (int j = 0; j < N; ++j) {
-      ptr[offset + j] = data[j];
+      ptr[base + static_cast<std::size_t>(j)] = data[j];
     }
   }
+  
 };
 
 template <typename T, int N>
