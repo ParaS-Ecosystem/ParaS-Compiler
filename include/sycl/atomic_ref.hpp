@@ -29,9 +29,6 @@
 #include <atomic>
 #endif
 
-#define PARAS_KERNEL_D
-#define PARAS_KERNEL_HD
-
 namespace sycl {
 
 enum class memory_order { relaxed, acquire, release, acq_rel, seq_cst };

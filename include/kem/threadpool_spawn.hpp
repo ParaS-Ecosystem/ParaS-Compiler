@@ -23,9 +23,10 @@
 
 #include "sycl/handler.hpp"
 
-template <typename Func> void threadpool::spawn_1D(Func f) {
+template <typename Func> sycl::event threadpool::spawn_1D(Func f) {
   sycl::handler cgh(*this);
   f(cgh);
+  return sycl::event{} ;
 }
 
 template <typename Func> sycl::event threadpool::spawn_1D_event(Func f) {
