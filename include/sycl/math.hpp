@@ -21,11 +21,10 @@
 #ifndef __PARAS_MATH_HPP__
 #define __PARAS_MATH_HPP__
 
+#include "kem_gpu/gpu_utilities.hpp"
+#include "utilities/internal_utils.hpp"
 #include <algorithm>
 #include <cmath>
-
-#define PARAS_KERNEL_D
-#define PARAS_KERNEL_HD
 
 namespace sycl {
 
@@ -44,11 +43,19 @@ inline double tan(double x) { return ::tan(x); }
 PARAS_KERNEL_HD
 inline double sqrt(double x) { return ::sqrt(x); }
 
+PARAS_KERNEL_HD
+inline float sqrt(float x) { return ::sqrtf(x); }
+
 #if PARAS_GPU_BACKEND
 PARAS_KERNEL_HD
 inline double rsqrt(double x) { return ::rsqrt(x); }
+
+PARAS_KERNEL_HD
+inline float rsqrt(float x) { return ::rsqrtf(x); }
 #else
 inline double rsqrt(double x) { return 1.0 / std::sqrt(x); }
+
+inline float rsqrt(float x) { return 1.0f / std::sqrt(x); }
 #endif
 
 PARAS_KERNEL_HD
@@ -91,7 +98,13 @@ PARAS_KERNEL_HD
 inline double rint(double x) { return ::rint(x); }
 
 PARAS_KERNEL_HD
-inline double isfinite(double x) { return std::isfinite(x); }
+inline float rint(float x) { return ::rintf(x); }
+
+PARAS_KERNEL_HD
+inline bool isfinite(double x) { return std::isfinite(x); }
+
+PARAS_KERNEL_HD
+inline bool isfinite(float x) { return std::isfinite(x); }
 
 template <typename T> PARAS_KERNEL_HD inline T tanh(T x) {
 #if PARAS_GPU_BACKEND
@@ -105,14 +118,47 @@ template <typename T> PARAS_KERNEL_HD inline T tanh(T x) {
 PARAS_KERNEL_HD
 inline double fma(double x, double y, double z) { return ::fma(x, y, z); }
 
-PARAS_KERNEL_HD
-inline double fmax(double x, double y) { return ::fmax(x, y); }
+template <typename T, typename U>
+PARAS_KERNEL_HD inline std::enable_if_t<
+    std::is_floating_point_v<std::common_type_t<T, U>>,
+    std::common_type_t<T, U>>
+fmax(T x, U y) {
+  using R = std::common_type_t<T, U>;
 
-PARAS_KERNEL_HD
-inline double fmin(double x, double y) { return ::fmin(x, y); }
+  if constexpr (std::is_same_v<R, float>) {
+    return ::fmaxf(static_cast<R>(x), static_cast<R>(y));
+  } else {
+    return ::fmax(static_cast<R>(x), static_cast<R>(y));
+  }
+}
 
-PARAS_KERNEL_HD
-inline double fdim(double x, double y) { return ::fdim(x, y); }
+template <typename T, typename U>
+PARAS_KERNEL_HD inline std::enable_if_t<
+    std::is_floating_point_v<std::common_type_t<T, U>>,
+    std::common_type_t<T, U>>
+fmin(T x, U y) {
+  using R = std::common_type_t<T, U>;
+
+  if constexpr (std::is_same_v<R, float>) {
+    return ::fminf(static_cast<R>(x), static_cast<R>(y));
+  } else {
+    return ::fmin(static_cast<R>(x), static_cast<R>(y));
+  }
+}
+
+template <typename T, typename U>
+PARAS_KERNEL_HD inline std::enable_if_t<
+    std::is_floating_point_v<std::common_type_t<T, U>>,
+    std::common_type_t<T, U>>
+fdim(T x, U y) {
+  using R = std::common_type_t<T, U>;
+
+  if constexpr (std::is_same_v<R, float>) {
+    return ::fdimf(static_cast<R>(x), static_cast<R>(y));
+  } else {
+    return ::fdim(static_cast<R>(x), static_cast<R>(y));
+  }
+}
 
 PARAS_KERNEL_HD
 inline int popcount(unsigned int x) {
@@ -127,15 +173,15 @@ inline int popcount(unsigned int x) {
 
 template <typename T, typename U> PARAS_KERNEL_HD inline auto max(T a, U b) {
   using type = std::common_type_t<T, U>;
-  type x = static_cast<type>(x);
-  type y = static_cast<type>(y);
+  const type x = static_cast<type>(a);
+  const type y = static_cast<type>(b);
   return (x > y) ? x : y;
 }
 
 template <typename T, typename U> PARAS_KERNEL_HD inline auto min(T a, U b) {
   using type = std::common_type_t<T, U>;
-  type x = static_cast<type>(x);
-  type y = static_cast<type>(y);
+  const type x = static_cast<type>(a);
+  const type y = static_cast<type>(b);
   return (x < y) ? x : y;
 }
 
@@ -217,50 +263,113 @@ inline double pow(double x, double y) { return ::pow(x, y); }
 PARAS_KERNEL_HD
 inline float pow(float x, float y) { return ::powf(x, y); }
 
-PARAS_KERNEL_HD
-inline int abs(int x) { return (x < 0) ? -x : x; }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T ceil(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::ceilf(x);
+  } else {
+    return ::ceil(x);
+  }
+}
 
-PARAS_KERNEL_HD
-inline long abs(long x) { return (x < 0) ? -x : x; }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T floor(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::floorf(x);
+  } else {
+    return ::floor(x);
+  }
+}
 
-PARAS_KERNEL_HD
-inline long long abs(long long x) { return (x < 0) ? -x : x; }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T trunc(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::truncf(x);
+  } else {
+    return ::trunc(x);
+  }
+}
 
-PARAS_KERNEL_HD
-inline float abs(float x) { return ::fabsf(x); }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T round(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::roundf(x);
+  } else {
+    return ::round(x);
+  }
+}
 
-PARAS_KERNEL_HD
-inline double abs(double x) { return ::fabs(x); }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T nearbyint(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::nearbyintf(x);
+  } else {
+    return ::nearbyint(x);
+  }
+}
 
-PARAS_KERNEL_HD
-inline float fabs(float x) { return ::fabsf(x); }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T llrint(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::llrintf(x);
+  } else {
+    return ::llrint(x);
+  }
+}
 
-PARAS_KERNEL_HD
-inline double fabs(double x) { return ::fabs(x); }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T llround(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::llroundf(x);
+  } else {
+    return ::llround(x);
+  }
+}
 
-PARAS_KERNEL_HD
-inline float cbrt(float x) { return ::cbrtf(x); }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T lrint(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::lrintf(x);
+  } else {
+    return ::lrint(x);
+  }
+}
 
-PARAS_KERNEL_HD
-inline double cbrt(double x) { return ::cbrt(x); }
-
-PARAS_KERNEL_HD
-inline float rcbrt(float x) { return 1.0f / ::cbrtf(x); }
-
-PARAS_KERNEL_HD
-inline double rcbrt(double x) { return 1.0 / ::cbrt(x); }
-
-PARAS_KERNEL_HD
-inline float hypot(float x, float y) { return ::hypotf(x, y); }
-
-PARAS_KERNEL_HD
-inline double hypot(double x, double y) { return ::hypot(x, y); }
-
-PARAS_KERNEL_HD
-inline float rhypot(float x, float y) { return 1.0f / ::hypotf(x, y); }
-
-PARAS_KERNEL_HD
-inline double rhypot(double x, double y) { return 1.0 / ::hypot(x, y); }
+template <typename T,
+          std::enable_if_t<std::is_same_v<std::remove_cv_t<T>, float> ||
+                               std::is_same_v<std::remove_cv_t<T>, double>,
+                           int> = 0>
+PARAS_KERNEL_HD inline T lround(T x) {
+  if constexpr (std::is_same_v<T, float>) {
+    return ::lroundf(x);
+  } else {
+    return ::lround(x);
+  }
+}
 
 template <typename T> struct plus {
   PARAS_KERNEL_HD
