@@ -28,10 +28,13 @@
 #include <vector>
 
 #include "aspect.hpp"
+#include "kem_gpu/gpu_utilities.hpp"
 
 namespace paras_extension {
 struct device_ctor_tag {};
 } // namespace paras_extension
+
+struct CUstream_st;
 
 namespace sycl {
 
@@ -56,6 +59,9 @@ struct version {};
 struct driver_version {};
 struct max_compute_units {};
 struct max_work_group_size {};
+struct sub_group_sizes {
+  using return_type = std::vector<std::size_t>;
+};
 struct local_mem_type {};
 struct global_mem_size {};
 struct queue_profiling {};
@@ -64,6 +70,8 @@ struct queue_profiling {};
 } // namespace info
 
 enum class backend { cuda, host, hip };
+
+class queue;
 
 template <backend Backend, class T> struct backend_return;
 
@@ -74,10 +82,26 @@ template <backend Backend, class T>
 backend_return_t<Backend, T> get_native(const T &n_obj);
 
 class platform {
+
 public:
   platform() = default;
+
   explicit platform(std::string name) : name_(std::move(name)) {}
+
   const std::string &get_name() const noexcept { return name_; }
+
+  static std::vector<platform> get_platforms() {
+
+    std::vector<platform> platforms;
+
+#ifdef PARAS_CUDA_BACKEND
+    platforms.emplace_back("CUDA");
+#endif
+
+    platforms.emplace_back("Host");
+
+    return platforms;
+  }
 
 private:
   std::string name_{"host"};
@@ -92,7 +116,8 @@ public:
          std::uint32_t max_compute_units, std::size_t max_work_group_size,
          std::uint64_t global_mem_size_bytes,
          info::local_mem_type local_mem_type, bool is_cpu, bool is_gpu,
-         bool is_accelerator, int native_id, bool queue_profiling);
+         bool is_accelerator, int native_id,
+         bool queue_profiling); ////////
 
   template <typename DeviceSelector>
   explicit device(const DeviceSelector &) : device() {}
@@ -155,7 +180,7 @@ private:
   bool is_gpu_{false};
   bool is_accelerator_{false};
 
-  int native_id_{0};
+  int native_id_{0}; // CUDA / ROCm device index
   bool have_queue_profiling_;
 };
 
@@ -185,6 +210,14 @@ inline auto device::get_info<info::device::max_work_group_size>() const {
   return max_work_group_size_;
 }
 
+template <>
+inline auto device::get_info<info::device::sub_group_sizes>() const {
+  if (is_gpu_) {
+    return std::vector<std::size_t>{32};
+  }
+  return std::vector<std::size_t>{1};
+}
+
 template <> inline auto device::get_info<info::device::local_mem_type>() const {
   return local_mem_type_;
 }
@@ -209,6 +242,18 @@ template <> struct backend_return<backend::hip, device> {
 
 template <> struct backend_return<backend::host, device> {
   using type = int;
+};
+
+template <> struct backend_return<backend::cuda, queue> {
+  using type = CUstream_st *;
+};
+
+template <> struct backend_return<backend::hip, queue> {
+  using type = void *;
+};
+
+template <> struct backend_return<backend::host, queue> {
+  using type = void *;
 };
 
 template <> inline int get_native<backend::cuda, device>(const device &dev) {
