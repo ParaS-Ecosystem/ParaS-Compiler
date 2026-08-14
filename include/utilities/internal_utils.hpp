@@ -1,23 +1,14 @@
-/**
- * Copyright (c) 2026 Centre for Development of Advanced Computing (C-DAC)
- *
- * This file is part of the ParaS Compiler, a component of the ParaS Ecosystem.
+/**<
+ * Copyright 2025 The ParaS-Compiler Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 #ifndef __PARAS_INTERNAL_UTILS_HPP__
 #define __PARAS_INTERNAL_UTILS_HPP__
 
@@ -29,8 +20,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+// #include <cuda_runtime.h>
 
-// #include "../kem_gpu/gpu_utilities.hpp"
+#include "../kem_gpu/gpu_utilities.hpp"
 
 namespace paras_extension {
 
@@ -112,8 +104,17 @@ public:
     void *ptr = nullptr;
 
     cudaError_t err = cudaMallocManaged(&ptr, bytes);
+    // if(err != cudaSuccess) {
+    //   throw std::runtime_error("cudaMallocManaged failed") ;
+    // }
+
     if (err != cudaSuccess) {
-      throw std::runtime_error("cudaMallocManaged failed");
+      std::cerr << "cudaMallocManaged failed:"
+                << " bytes=" << bytes << ", error=" << cudaGetErrorString(err)
+                << ", code=" << static_cast<int>(err) << "\n";
+
+      throw std::runtime_error(std::string("cudaMallocManaged failed: ") +
+                               cudaGetErrorString(err));
     }
 
     return ptr;
@@ -142,7 +143,22 @@ public:
     return alloc_bytes(alignof(T), sizeof(T) * elements);
   }
 
-  static void free(address ptr) noexcept { std::free(ptr); }
+  static void free(address ptr) noexcept {
+    if (ptr == nullptr) {
+      return;
+    }
+
+#if PARAS_GPU_BACKEND
+    cudaError_t err = cudaFree(ptr);
+
+    if (err != cudaSuccess) {
+      std::cerr << "cudaFree for local memory failed: "
+                << cudaGetErrorString(err) << "\n";
+    }
+#else
+    std::free(ptr);
+#endif
+  }
 };
 
 class local_memory {
@@ -152,4 +168,11 @@ public:
 
 } // namespace paras_extension
 
-#endif
+namespace detail {
+
+template <typename T>
+using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
+} // namespace detail
+
+#endif // __PARAS_INTERNAL_UTILS_HPP__
