@@ -29,8 +29,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+// #include <cuda_runtime.h>
 
-// #include "../kem_gpu/gpu_utilities.hpp"
+#include "../kem_gpu/gpu_utilities.hpp"
 
 namespace paras_extension {
 
@@ -112,8 +113,14 @@ public:
     void *ptr = nullptr;
 
     cudaError_t err = cudaMallocManaged(&ptr, bytes);
+
     if (err != cudaSuccess) {
-      throw std::runtime_error("cudaMallocManaged failed");
+      std::cerr << "cudaMallocManaged failed:"
+                << " bytes=" << bytes << ", error=" << cudaGetErrorString(err)
+                << ", code=" << static_cast<int>(err) << "\n";
+
+      throw std::runtime_error(std::string("cudaMallocManaged failed: ") +
+                               cudaGetErrorString(err));
     }
 
     return ptr;
@@ -142,7 +149,22 @@ public:
     return alloc_bytes(alignof(T), sizeof(T) * elements);
   }
 
-  static void free(address ptr) noexcept { std::free(ptr); }
+  static void free(address ptr) noexcept {
+    if (ptr == nullptr) {
+      return;
+    }
+
+#if PARAS_GPU_BACKEND
+    cudaError_t err = cudaFree(ptr);
+
+    if (err != cudaSuccess) {
+      std::cerr << "cudaFree for local memory failed: "
+                << cudaGetErrorString(err) << "\n";
+    }
+#else
+    std::free(ptr);
+#endif
+  }
 };
 
 class local_memory {
@@ -152,4 +174,11 @@ public:
 
 } // namespace paras_extension
 
-#endif
+namespace detail {
+
+template <typename T>
+using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
+} // namespace detail
+
+#endif // __PARAS_INTERNAL_UTILS_HPP__
