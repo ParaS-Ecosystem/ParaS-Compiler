@@ -7,11 +7,6 @@ message(STATUS "Configuring paras v1.0")
 set(CMAKE_C_COMPILER clang)
 set(CMAKE_CXX_COMPILER clang++)
 
-# Add the GCC toolchain flags
-##set(CMAKE_CXX_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "CXX flags" FORCE)
-##set(CMAKE_EXE_LINKER_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "Linker flags" FORCE)
-##set(CMAKE_SHARED_LINKER_FLAGS "--gcc-toolchain=/usr/local/" CACHE STRING "Shared linker flags" FORCE)
-
 if(NOT CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 20)
 endif()
@@ -66,17 +61,13 @@ endif()
 add_subdirectory(include)
 add_subdirectory(src)
 
-######################## New module ##############################################################
-
-# ================== ParaSCC Install Module ==================
 
 include(CMakePackageConfigHelpers)
+
 
 set(PARAS_INSTALL_CMAKE_DIR "lib/cmake/paras" CACHE PATH "Install path for CMake config files")
 set(PARAS_INSTALL_COMPILER_DIR bin)
 
-
-# ================== Generate config and version files ==================
 
 configure_package_config_file(
   ${PROJECT_SOURCE_DIR}/cmake/paras-config.cmake.in
@@ -92,7 +83,6 @@ write_basic_package_version_file(
   COMPATIBILITY SameMajorVersion
 )
 
-# ================== Install config and version files ==================
 
 install(FILES
   ${PROJECT_BINARY_DIR}/paras-config.cmake
@@ -100,7 +90,6 @@ install(FILES
   DESTINATION ${PARAS_INSTALL_CMAKE_DIR}
 )
 
-# ================== Export targets ==================
 
 install(EXPORT install_exports
   FILE paras-targets.cmake
@@ -108,10 +97,9 @@ install(EXPORT install_exports
   DESTINATION ${PARAS_INSTALL_CMAKE_DIR}
 )
 
-# ================== Mark advanced ==================
 
 mark_as_advanced(PARAS_INSTALL_CMAKE_DIR)
 
 message(STATUS "ParaSCC CMake configuration installed to ${PARAS_INSTALL_CMAKE_DIR}")
 
-message(STATUS "====================================")
+message(STATUS "==================================================")

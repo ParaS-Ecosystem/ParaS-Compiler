@@ -24,9 +24,7 @@
 #include "access.hpp"
 #include <cstddef>
 #include <type_traits>
-
-#define PARAS_KERNEL_D
-#define PARAS_KERNEL_HD
+#include "kem_gpu/gpu_utilities.hpp"
 
 namespace sycl {
 
