@@ -22,11 +22,14 @@
 
 namespace preprocessor {
 std::string generate_output_filename() {
-  auto now = std::chrono::system_clock::now();
-  auto now_sec = std::chrono::system_clock::to_time_t(now);
-  std::string filename =
-      "/tmp/paras_pp_" + std::to_string(now_sec) + ".cpp";
-  return filename;
+  std::string model = "/tmp/paras_pp_%%%%%%%%.cpp";
+  llvm::SmallString<128> result;
+  if (std::error_code EC = llvm::sys::fs::createUniqueFile(model, result)) {
+    llvm::errs() << "paras: cannot create temp file: " << EC.message() << "\n";
+    exit(EXIT_FAILURE);
+  }
+  return std::string(result.str());
+
 }
 
 void process_file(const std::string &inputfile, const std::string &outputfile,

@@ -154,12 +154,16 @@ public:
       return;
     }
 
-    std::string tempFile =
-        "/tmp/paras_tmp_" +
-        std::to_string(
-            std::chrono::system_clock::now().time_since_epoch().count()) +
-        ".cpp";
+    std::string tmpModel = "/tmp/paras_tmp_%%%%%%%%.cpp";
+    llvm::SmallString<128> tempPathSV;
     std::error_code EC;
+    if ((EC = llvm::sys::fs::createUniqueFile(tmpModel, tempPathSV))) {
+      llvm::errs() << "Issue with creating temp file: " << EC.message() << "\n";
+      return;
+    }
+
+    std::string tempFile(tempPathSV.str());
+
     llvm::raw_fd_ostream outFile(tempFile, EC);
     if (EC) {
       llvm::errs() << "Issue with creating " << tempFile << "\n";
