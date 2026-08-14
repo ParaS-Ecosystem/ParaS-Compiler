@@ -20,6 +20,7 @@
 
 #include "sycl/device.hpp"
 #include "sycl/aspect.hpp"
+#include "utilities/gpu_detection.hpp"
 #include "utilities/internal_utils.hpp"
 
 #include <thread>
@@ -138,13 +139,11 @@ std::vector<device> device::get_devices(info::device_type type) {
     out.emplace_back(device{});
   }
 
-  /* Done for only CPU version
   if (type == info::device_type::gpu || type == info::device_type::all) {
     auto gpus = ::paras_extension::detect_all_gpus();
     out.insert(out.end(), gpus.begin(), gpus.end());
   }
-  */
-
+  
   return out;
 }
 

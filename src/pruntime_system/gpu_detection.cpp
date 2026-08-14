@@ -129,6 +129,53 @@ static inline std::vector<std::string> split_csv_4(const std::string &ln) {
   return tok;
 }
 
+static inline std::vector<std::size_t>
+get_visible_nvidia_indices(const std::size_t physicalDeviceCount) {
+  std::vector<std::size_t> indices;
+
+  const char *env = std::getenv("CUDA_VISIBLE_DEVICES");
+
+  if (env == nullptr) {
+    for (std::size_t i = 0; i < physicalDeviceCount; ++i) {
+      indices.push_back(i);
+    }
+    return indices;
+  }
+
+  std::string visibleDevices(env);
+  trim_inplace(visibleDevices);
+
+  if (visibleDevices.empty() || visibleDevices == "-1") {
+    return indices;
+  }
+
+  std::size_t start = 0;
+  while (start <= visibleDevices.size()) {
+    const std::size_t end = visibleDevices.find(',', start);
+    std::string token = visibleDevices.substr(
+        start, end == std::string::npos ? std::string::npos : end - start);
+    trim_inplace(token);
+
+    char *parseEnd = nullptr;
+    const long physicalId = std::strtol(token.c_str(), &parseEnd, 10);
+
+    if (parseEnd != token.c_str() && *parseEnd == '\0' && physicalId >= 0 &&
+        static_cast<std::size_t>(physicalId) < physicalDeviceCount) {
+      const std::size_t index = static_cast<std::size_t>(physicalId);
+      if (std::find(indices.begin(), indices.end(), index) == indices.end()) {
+        indices.push_back(index);
+      }
+    }
+
+    if (end == std::string::npos) {
+      break;
+    }
+    start = end + 1;
+  }
+
+  return indices;
+}
+
 std::vector<sycl::device> detect_nvidia_gpus() {
   std::vector<sycl::device> out;
 
@@ -139,17 +186,20 @@ std::vector<sycl::device> detect_nvidia_gpus() {
           "--format=csv,noheader,nounits 2>/dev/null",
           lines) ||
       lines.empty()) {
-    return {};
+    return out;
   }
 
   static const std::string cuda_ver = detect_cuda_version_from_nvidia_smi();
+  const auto visibleIndices = get_visible_nvidia_indices(lines.size());
 
-  for (size_t i = 0; i < lines.size(); ++i) {
-    const auto &ln = lines[i];
+  for (std::size_t logicalId = 0; logicalId < visibleIndices.size();
+       ++logicalId) {
+    const std::size_t physicalId = visibleIndices[logicalId];
+    const auto &ln = lines[physicalId];
     auto tokens = split_csv_4(ln);
 
     std::string name = tokens[0].empty() ? "NVIDIA GPU" : tokens[0];
-    std::string mem = tokens[1].empty() ? "0" : tokens[1]; // MiB
+    std::string mem = tokens[1].empty() ? "0" : tokens[1];
     std::string drv = tokens[2].empty() ? "Unknown" : tokens[2];
     std::string cap = tokens[3].empty() ? "unknown" : tokens[3];
 
@@ -158,23 +208,23 @@ std::vector<sycl::device> detect_nvidia_gpus() {
     trim_inplace(drv);
     trim_inplace(cap);
 
-    int qprof = std::stoi(cap);
-
     const unsigned long mem_mib = parse_ul_or0(mem);
-    const std::uint64_t mem_bytes = (std::uint64_t)mem_mib * 1024ULL * 1024ULL;
+    const std::uint64_t mem_bytes =
+        static_cast<std::uint64_t>(mem_mib) * 1024ULL * 1024ULL;
+    const unsigned int computeUnits = get_compute_units_nvidia(name);
 
-    const unsigned int cus = get_compute_units_nvidia(name);
-
-    std::string version_str = "Compute Capability " + cap;
-    if (!cuda_ver.empty())
-      version_str += " | CUDA Version " + cuda_ver;
+    std::string versionString = "Compute Capability " + cap;
+    if (!cuda_ver.empty()) {
+      versionString += " | CUDA Version " + cuda_ver;
+    }
 
     out.emplace_back(::paras_extension::device_ctor_tag{}, name, "NVIDIA", drv,
-                     version_str, cus, 1024, mem_bytes,
+                     versionString, computeUnits, 1024, mem_bytes,
                      sycl::info::local_mem_type::local, false, true, false,
-                     static_cast<int>(i), qprof < 2.0 ? false : true);
+                     static_cast<int>(logicalId), true);
   }
 #endif
+
   return out;
 }
 
