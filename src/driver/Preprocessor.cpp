@@ -18,6 +18,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "llvm/ADT/SmallString.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
+
 #include "paras/Preprocessor.hpp"
 
 namespace preprocessor {
