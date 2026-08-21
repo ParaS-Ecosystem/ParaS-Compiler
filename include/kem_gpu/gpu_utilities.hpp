@@ -48,6 +48,28 @@ inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
 #endif
 #endif
 
+#ifndef __paras_if_target_host
+#if PARAS_GPU_BACKEND
+#define __paras_if_target_host(...)                                            \
+  if constexpr (false) {                                                       \
+    __VA_ARGS__                                                                \
+  }
+#else
+#define ____paras_if_target_host(...)                                          \
+  if constexpr (true) {                                                        \
+    __VA_ARGS__                                                                \
+  }
+#endif
+#endif
+
+#ifndef __paras_if_target_host
+#if PARAS_GPU_BACKEND
+#define __paras_if_target_host false
+#else
+#define __paras_if_target_host true
+#endif
+#endif
+
 #if defined(__CUDA_ARCH__)
 #define PARAS_KERNEL_D __device__
 #else
@@ -120,11 +142,28 @@ inline void paras_syncthreads() {
 
 #if PARAS_GPU_BACKEND
 
+#ifdef GMX_DEVICE_ATTRIBUTE
+#undef GMX_DEVICE_ATTRIBUTE
+#endif
+#define GMX_DEVICE_ATTRIBUTE __host__ __device__
+
+#ifdef GMX_HOSTDEVICE_ATTRIBUTE
+#undef GMX_HOSTDEVICE_ATTRIBUTE
+#endif
+#define GMX_HOSTDEVICE_ATTRIBUTE __host__ __device__
+
 template <typename PointerType, typename IndexType, bool aligned>
 PARAS_KERNEL_HD inline PointerType indexedAddress(PointerType address,
                                                   IndexType index) {
   return address + index;
 }
+
+#ifdef GMX_ALWAYS_INLINE
+#undef GMX_ALWAYS_INLINE
+#endif
+#define GMX_ALWAYS_INLINE inline
+
+#endif
 
 #ifndef PARAS_CUDA_BACKEND
 #if defined(__CUDA_ARCH__) || defined(__CUDACC__)
@@ -134,5 +173,5 @@ PARAS_KERNEL_HD inline PointerType indexedAddress(PointerType address,
 #endif
 #endif
 
-#endif
+
 #endif // End of gpu_utilities
