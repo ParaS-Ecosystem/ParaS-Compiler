@@ -1,6 +1,6 @@
 # ParaS Compiler
 
-ParaS (pronounced **paa-ruhs**) is an implementation of the **SYCL 2020** specification, developed to enable architecture and device agnostic unified programming model. It follows the principle of **"Code Once, Execute on All"**. The current release provides seamless execution on **CPU platforms**.
+ParaS (pronounced **paa-ruhs**) is an implementation of the **SYCL 2020** specification, developed to enable architecture and device agnostic unified programming model. It follows the principle of **"Code Once, Execute on All"**. The current release provides seamless execution on **CPU** and **GPU** platforms.
 
 ---
 
@@ -17,12 +17,13 @@ ParaS (pronounced **paa-ruhs**) is an implementation of the **SYCL 2020** specif
 
 ## Introduction
 
-ParaS is designed to provide a portable SYCL programming environment that allows developers to write code once and execute it across different hardware architectures. The current version supports CPU execution, with future support planned for additional backends.
+ParaS is designed to provide a portable SYCL programming environment that allows developers to write code once and execute it across different hardware architectures. The current version supports **CPUs** and **NVIDIA GPUs** execution, with future support planned for additional backends.
 
 ---
 
 ## Requirements
 
+### For CPU
 | Software | Version |
 |----------|----------|
 | Operating System | Linux |
@@ -30,9 +31,15 @@ ParaS is designed to provide a portable SYCL programming environment that allows
 | Build System | CMake v3.28 or later |
 | Build Generator | Unix Makefiles or Ninja |
 
+### For GPU
+| Software | Version |
+|----------|----------|
+| CUDA Drivers | v560.28.03 |
+| CUDA Runtime | v12.2.91 |
+
 > **Note**
 >
-> The current version of ParaS supports **CPU devices only**.
+> The current version of ParaS supports **CPUs** and **NVIDIA GPUs**.
 
 ---
 
@@ -73,10 +80,18 @@ make install
 
 ## Usage
 
+### For CPU compilation
 To compile a SYCL source file (for example, `sample1.cpp`):
 
 ```bash
 parascc sample1.cpp <compiler_flags>
+```
+
+### For NVIDIA GPU compilation
+To compile a SYCL source file (for example, `sample1.cpp`):
+
+```bash
+parascc -parasdevice cuda:sm_xy sample1.cpp <compiler_flags>
 ```
 
 > **Note**
