@@ -36,6 +36,7 @@
 #include <clang/Tooling/Tooling.h>
 #include <cstdlib>
 #include <fstream>
+#include <filesystem>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/Program.h>
 #include <memory>
@@ -56,6 +57,16 @@
 bool is_link_only = false;
 std::string GlobalOutFile = "";
 std::vector<std::string> markForDeletion;
+std::vector<std::string> transformedSourceFiles;
+std::vector<std::string> finalCompilerArgs;
+
+static bool isCppSourceFile(const std::string &arg) {
+  auto endsWith = [](const std::string &str, const std::string &suffix) {
+    return str.size() >= suffix.size() &&
+           str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+  };
+  return endsWith(arg, ".cpp") || endsWith(arg, ".cc") || endsWith(arg, ".cxx");
+}
 
 static llvm::cl::OptionCategory Tooling("paras-expfinder");
 
@@ -174,10 +185,7 @@ public:
     outFile.flush();
     outFile.close();
 
-    std::vector<std::string> command = compilerFlags;
-    command.push_back(tempFile);
-    executor::executor(command, bkend_target);
-    llvm::outs() << "Reached end of EndSourceFileAction\n";
+    transformedSourceFiles.push_back(tempFile);
     markForDeletion.push_back(tempFile);
   }
 
@@ -293,45 +301,68 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
     }
   }
 
-  std::string sourceFile;
-  auto it =
-      std::find_if(args.begin() + 1, args.end(), [&](const std::string &arg) {
-        return endsWith(arg, ".cpp") || endsWith(arg, ".cc") ||
-               endsWith(arg, ".cxx");
-      });
+  std::vector<std::string> sourceFiles;
+  std::vector<std::string> preprocessedSourceFiles;
 
-  if (it != args.end())
-    sourceFile = *it;
-  if (!sourceFile.empty()) {
+  for (size_t i = 1; i < args.size(); ++i) {
+    if (isCppSourceFile(args[i]))
+      sourceFiles.push_back(args[i]);
+  }
+
+  std::vector<std::string> originalSourceDirs;
+  for (const auto &sourceFile : sourceFiles) {
+    std::error_code pathEc;
+    std::filesystem::path absSource =
+        std::filesystem::absolute(sourceFile, pathEc);
+    if (pathEc)
+      continue;
+
+    std::string sourceDir = absSource.parent_path().string();
+    if (!sourceDir.empty() &&
+        std::find(originalSourceDirs.begin(), originalSourceDirs.end(),
+                  sourceDir) == originalSourceDirs.end()) {
+      originalSourceDirs.push_back(std::move(sourceDir));
+    }
+  }
+
+  for (const auto &sourceFile : sourceFiles) {
     std::string ppoutputfile = preprocessor::generate_output_filename();
     preprocessor::process_file(sourceFile, ppoutputfile, bkend_target);
-    sourceFile = ppoutputfile;
-    markForDeletion.push_back(sourceFile);
+    preprocessedSourceFiles.push_back(ppoutputfile);
+    markForDeletion.push_back(ppoutputfile);
   }
 
   std::vector<std::string> row0, row1, row2;
   row0.push_back(args[0]);
 
-  if (!sourceFile.empty())
-    row0.push_back(sourceFile);
-  else
+  for (const auto &ppSource : preprocessedSourceFiles)
+    row0.push_back(ppSource);
+
+  if (sourceFiles.empty())
     is_link_only = true;
 
   std::vector<std::string> tool_flags;
-  for (std::string itr : args) {
-    if (itr == "-h" || itr == "--pversion" || itr == "--otf") {
-      tool_flags.push_back(itr);
-      args.erase(std::remove(args.begin(), args.end(), itr), args.end());
+  for (size_t i = 1; i < args.size();) {
+    if (args[i] == "-h" || args[i] == "--pversion" || args[i] == "--otf") {
+      tool_flags.push_back(args[i]);
+      args.erase(args.begin() + i);
+    } else {
+      ++i;
     }
   }
+
   if (!outfile_flag.empty()) {
     tool_flags.push_back("--outfile");
     tool_flags.push_back(outfile_flag);
   }
 
   row0.insert(row0.end(), tool_flags.begin(), tool_flags.end());
-
   row0.push_back("--");
+  for (const auto &sourceDir : originalSourceDirs) {
+    row0.push_back("-iquote");
+    row0.push_back(sourceDir);
+  }
+  
   if (found) {
     row0.push_back("-x");
     row0.push_back(bkend_target[0]);
@@ -367,8 +398,7 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
 
   for (int i = 1; i < args.size(); i++) {
     const std::string &current = args[i];
-    if (current == sourceFile || endsWith(current, ".cpp") ||
-        endsWith(current, ".cc") || endsWith(current, ".cxx")) {
+    if (isCppSourceFile(current)) {
       have_cpp = true;
       continue;
     }
@@ -385,8 +415,22 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
     is_link_only = true;
   }
 
+  finalCompilerArgs.assign(args.begin() + 1, args.end());
+  finalCompilerArgs.push_back("-I");
+  finalCompilerArgs.push_back(parasIncludePath);
+
+  for (const auto &sourceDir : originalSourceDirs) {
+    finalCompilerArgs.push_back("-iquote");
+    finalCompilerArgs.push_back(sourceDir);
+  }
+
   row2.push_back("-I");
   row2.push_back(parasIncludePath);
+
+  for (const auto &sourceDir : originalSourceDirs) {
+    row2.push_back("-iquote");
+    row2.push_back(sourceDir);
+  }
 
   if (is_link_only)
     bkend_target[3] = "is_link_only";
@@ -434,7 +478,39 @@ int main(int argc, const char **argv) {
   clang::tooling::ClangTool tool(options.getCompilations(),
                                  options.getSourcePathList());
 
-  return tool.run(std::make_unique<ParasFrontendActionFactory>(compilerFlags[2],
-                                                               compilerFlags[3])
-                      .get());
+  int transformStatus = tool.run(std::make_unique<ParasFrontendActionFactory>(
+                                     compilerFlags[2], compilerFlags[3])
+                                     .get());
+  if (transformStatus != 0)
+    return transformStatus;
+
+  if (OnlyTransform || !WriteToFile.empty())
+    return 0;
+
+  size_t transformedIndex = 0;
+  std::vector<std::string> finalCommand;
+  finalCommand.reserve(finalCompilerArgs.size());
+
+  for (const auto &arg : finalCompilerArgs) {
+    if (isCppSourceFile(arg)) {
+      if (transformedIndex >= transformedSourceFiles.size()) {
+        llvm::errs()
+            << "parascc: internal error: missing transformed source for " << arg
+            << "\n";
+        return 1;
+      }
+      finalCommand.push_back(transformedSourceFiles[transformedIndex++]);
+    } else {
+      finalCommand.push_back(arg);
+    }
+  }
+
+  if (transformedIndex != transformedSourceFiles.size()) {
+    llvm::errs()
+        << "parascc: internal error: transformed source count mismatch\n";
+    return 1;
+  }
+
+  executor::executor(finalCommand, compilerFlags[3]);
+  return 0;
 }
