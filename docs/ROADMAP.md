@@ -25,7 +25,7 @@ ParaS Compiler is positioned as the compiler foundation of the broader ParaS Eco
 The current open-source repository provides the initial public base for ParaS Compiler. As available in the repository at the time of preparing this roadmap:
 
 - ParaS Compiler is described as an implementation of the **SYCL 2020 specification**.
-- The current release focuses on **CPU execution support**.
+- The current release focuses on **CPU and Nvidia GPU execution support**.
 - Build support is provided through **CMake**.
 - The compiler is built using **Clang/LLVM v21.1.0** as the base compiler.
 - The repository contains initial source, headers, examples, CMake files and GitHub workflow structure.
@@ -136,7 +136,6 @@ Planned work:
 - Add a SYCL feature-compliance matrix.
 - Stabilize support for:
   - Queues
-  - Buffers and accessors
   - Unified Shared Memory where applicable
   - Kernels and command groups
   - Device discovery
@@ -215,27 +214,7 @@ Expected outcome:
 
 ---
 
-### 6.2 NVIDIA GPU Backend Enablement
-
-**Goal:** Reintroduce and stabilize NVIDIA GPU support in the open-source ParaS Compiler roadmap.
-
-Planned work:
-
-- Define CUDA backend integration plan.
-- Add build options for CUDA-enabled systems.
-- Add NVIDIA device discovery support.
-- Add HPC Applications with GPUs.
-- Add backend tests for memory movement and kernel launch.
-- Add performance validation on common SYCL kernels.
-- Document limitations and supported CUDA versions.
-
-Expected outcome:
-
-- Developers can use ParaS Compiler for CPU and NVIDIA GPU execution through one programming model.
-
----
-
-### 6.3 AMD GPU Backend Enablement
+### 6.2 AMD GPU Backend Enablement
 
 **Goal:** Enable AMD GPU support to strengthen portability on modern HPC systems.
 
@@ -254,7 +233,7 @@ Expected outcome:
 
 ---
 
-### 6.4 RISC-V CPU Exploration
+### 6.3 RISC-V CPU Exploration
 
 **Goal:** Prepare ParaS Compiler for emerging RISC-V HPC platforms.
 
@@ -272,7 +251,7 @@ Expected outcome:
 
 ---
 
-### 6.5 Future Accelerator Support
+### 6.4 Future Accelerator Support
 
 **Goal:** Keep the architecture open for NPUs, AI accelerators and future XPUs.
 
@@ -394,27 +373,7 @@ Expected outcome:
 
 ---
 
-## 11. Community Roadmap
-
-**Goal:** Build a contributor community around portable HPC-AI programming.
-
-Planned work:
-
-- Mark beginner-friendly issues using `good first issue`.
-- Mark roadmap tasks using `roadmap` and `help wanted` labels.
-- Host periodic community meetings or office hours.
-- Publish contributor tutorials.
-- Encourage universities, research labs, startups and HPC centres to contribute examples and backend validation.
-- Create public discussions for design proposals.
-- Add a lightweight proposal process for major features.
-
-Expected outcome:
-
-- ParaS Compiler grows beyond a code release into a collaborative open-source effort.
-
----
-
-## 12. Suggested Milestones
+## 11. Suggested Milestones
 
 ### Milestone 0: Open-Source Foundation
 
@@ -496,7 +455,7 @@ Indicative status target:
 
 ---
 
-## 13. Contribution Areas
+## 12. Contribution Areas
 
 The project welcomes contributions in the following areas:
 
@@ -532,7 +491,7 @@ Suggested labels for GitHub issues:
 
 ---
 
-## 14. Definition of Done for Roadmap Items
+## 13. Definition of Done for Roadmap Items
 
 A roadmap item should be considered complete only when it includes:
 
@@ -545,7 +504,7 @@ A roadmap item should be considered complete only when it includes:
 
 ---
 
-## 15. Notes to Contributors
+## 14. Notes to Contributors
 
 This roadmap is intentionally open and may evolve based on community feedback, hardware availability, standards evolution and ecosystem requirements.
 
@@ -559,7 +518,7 @@ Contributors are encouraged to:
 
 ---
 
-## 16. Summary
+## 15. Summary
 
 ParaS Compiler begins its open-source journey with a focused SYCL 2020 CPU execution base. The proposed roadmap moves the project toward a mature, multi-backend, performance-portable compiler infrastructure that can serve Indian and global HPC-AI application developers.
 
