@@ -115,8 +115,23 @@ template <typename T> PARAS_KERNEL_HD inline T tanh(T x) {
 #endif
 }
 
-PARAS_KERNEL_HD
-inline double fma(double x, double y, double z) { return ::fma(x, y, z); }
+template <typename T, typename U, typename V>
+PARAS_KERNEL_HD inline std::enable_if_t<
+    std::is_floating_point_v<std::common_type_t<T, U, V>>,
+    std::common_type_t<T, U, V>>
+fma(T x, U y, V z) {
+  using R = std::common_type<T, U, V> ;
+
+  R a = static_cast<R>(x) ;
+  R b = static_cast<R>(y) ;
+  R c = static_cast<R>(z) ;
+
+  if constexpr (std::is_same_v<R, float>) {
+    return ::fmaf(a, b, c) ;
+  } else {
+    return ::fma(a, b, c) ;
+  }
+}
 
 template <typename T, typename U>
 PARAS_KERNEL_HD inline std::enable_if_t<
@@ -125,10 +140,13 @@ PARAS_KERNEL_HD inline std::enable_if_t<
 fmax(T x, U y) {
   using R = std::common_type_t<T, U>;
 
+  R a = static_cast<R>(x) ;
+  R b = static_cast<R>(y) ;
+
   if constexpr (std::is_same_v<R, float>) {
-    return ::fmaxf(static_cast<R>(x), static_cast<R>(y));
+    return ::fmaxf(a, b);
   } else {
-    return ::fmax(static_cast<R>(x), static_cast<R>(y));
+    return ::fmax(a, b);
   }
 }
 
@@ -139,10 +157,13 @@ PARAS_KERNEL_HD inline std::enable_if_t<
 fmin(T x, U y) {
   using R = std::common_type_t<T, U>;
 
+  R a = static_cast<R>(x) ;
+  R b = static_cast<R>(y) ; 
+
   if constexpr (std::is_same_v<R, float>) {
-    return ::fminf(static_cast<R>(x), static_cast<R>(y));
+    return ::fminf(a, b);
   } else {
-    return ::fmin(static_cast<R>(x), static_cast<R>(y));
+    return ::fmin(a, b);
   }
 }
 
