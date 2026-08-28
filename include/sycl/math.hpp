@@ -116,14 +116,14 @@ template <typename T> PARAS_KERNEL_HD inline T tanh(T x) {
 }
 
 template <typename T, typename U, typename V>
-PARAS_KERNEL_HD inline st::enable_if_t<
+PARAS_KERNEL_HD inline std::enable_if_t<
     std::is_floating_point_v<std::common_type_t<T, U, V>>,
     std::common_type_t<T, U, V>>
 fma(T x, U y, V z) {
   using R = std::common_type<T, U, V> ;
 
   R a = static_cast<R>(x) ;
-  R b = static_cast<R>(Y) ;
+  R b = static_cast<R>(y) ;
   R c = static_cast<R>(z) ;
 
   if constexpr (std::is_same_v<R, float>) {
