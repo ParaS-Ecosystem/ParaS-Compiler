@@ -157,10 +157,13 @@ PARAS_KERNEL_HD inline std::enable_if_t<
 fmin(T x, U y) {
   using R = std::common_type_t<T, U>;
 
+  R a = static_cast<R>(x) ;
+  R b = static_cast<R>(y) ; 
+
   if constexpr (std::is_same_v<R, float>) {
-    return ::fminf(static_cast<R>(x), static_cast<R>(y));
+    return ::fminf(a, b);
   } else {
-    return ::fmin(static_cast<R>(x), static_cast<R>(y));
+    return ::fmin(a, b);
   }
 }
 
