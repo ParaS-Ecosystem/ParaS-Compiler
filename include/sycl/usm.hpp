@@ -28,21 +28,15 @@
 namespace sycl {
 
 template <typename T>
-T *malloc_shared(size_t n, const queue &, const property_list &propList = {}) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
+T *malloc_shared(size_t n, const queue &, const property_list &propList = {});
 
 template <typename T>
-T *malloc_host(size_t n, const queue &, const property_list &propList = {}) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
+T *malloc_host(size_t n, const queue &, const property_list &propList = {}); 
 
 template <typename T>
-T *malloc_device(size_t n, const queue &, const property_list &propList = {}) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
+T *malloc_device(size_t n, const queue &, const property_list &propList = {});
 
-inline void free(void *ptr, const queue &) { std::free(ptr); }
+void free(void *ptr, const queue &);
 
 } // namespace sycl
 
