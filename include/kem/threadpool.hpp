@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <cstring>
 #include <functional>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -74,6 +75,7 @@ public:
   template <typename Func> void spawn_ND(Func f);
 
   template <typename CGF> sycl::event submit(CGF &&cgf) {
+    std::lock_guard<std::mutex> lock(submit_mutex_);
     sycl::handler cgh(*this);
     std::forward<CGF>(cgf)(cgh);
     return sycl::event{};
@@ -139,6 +141,7 @@ private:
   sycl::context ctx_{};
   sycl::device dev_{};
   sycl::property_list props_{};
+  std::mutex submit_mutex_;
 };
 
 #include "threadpool_execute_1D.hpp"

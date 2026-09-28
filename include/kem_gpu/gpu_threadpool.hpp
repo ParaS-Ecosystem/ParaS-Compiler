@@ -34,6 +34,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -144,9 +145,11 @@ public:
     return *this;
   }
 
-  template <typename Func> void submit(Func cgf) {
+  template <typename Func> sycl::event submit(Func cgf) {
+    std::lock_guard<std::mutex> lock(submit_mutex_);
     sycl::handler cgh(*this);
     cgf(cgh);
+    return sycl::event{};
   }
 
   static unsigned gpu_get_num_threads();
@@ -280,6 +283,7 @@ private:
   sycl::context ctx_{};
   sycl::property_list props_;
   sycl::queue queue_;
+  std::mutex submit_mutex_;
 
   void initialize_stream_for_device() {
     stream = nullptr;

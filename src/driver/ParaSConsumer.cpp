@@ -171,6 +171,12 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
                                           "sycl::queue")))))))))
               .bind("vardecl-6")),
       &vdr_callback);
+
+  matchers.addMatcher(
+      clang::ast_matchers::traverse(
+          clang::TK_IgnoreUnlessSpelledInSource,
+          clang::ast_matchers::cxxNewExpr().bind("new-queue")),
+      &vdr_callback);
 }
 
 void ParaSConsumer::HandleTranslationUnit(clang::ASTContext &context) {
