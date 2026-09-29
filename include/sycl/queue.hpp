@@ -90,9 +90,17 @@ public:
     });
   }
 
-  event memset(void *ptr, int value, size_t numBytes);
+  event memset(void *ptr, int value, size_t numBytes) {
+    return submit([=](sycl::handler &cgh) {
+      cgh.memset(ptr, value, numBytes);
+    });
+  }
   template <typename T> event copy(const T *src, T *dest, size_t count);
-  event memcpy(void *dest, const void *src, size_t numBytes);
+  event memcpy(void *dest, const void *src, size_t numBytes) {
+    return submit([=](sycl::handler &cgh) {
+      cgh.memcpy(dest, src, numBytes);
+    });
+  }
 
 private:
   mutable std::shared_ptr<cuda_threadpool> gpu_pool_{};
