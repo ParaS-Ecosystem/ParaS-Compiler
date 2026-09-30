@@ -23,6 +23,7 @@
 #include <llvm/Support/CommandLine.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <sys/wait.h>
 
 namespace executor {
@@ -53,9 +54,27 @@ std::string find_clangxx(const char *argv0) {
   return "clang++";
 }
 
+std::string base_compiler() {
+  const char *env = std::getenv("PARAS_CXX");
+  return (env && *env) ? std::string(env) : std::string(PARAS_BASE_COMPILER);
+}
+
+static void appendRuntimeLinkFlags(std::vector<std::string> &command) {
+  std::string parasLibPath = PARAS_INSTALL_PREFIX + std::string("/lib");
+  command.push_back("-L");
+  command.push_back(parasLibPath);
+  command.push_back("-Wl,-rpath," + parasLibPath);
+  command.push_back("-lDeviceDiscoveryModule");
+  const std::string gccLib = PARAS_GCC_LIBDIR;
+  if (!gccLib.empty()) {
+    command.push_back("-L" + gccLib);
+    command.push_back("-Wl,-rpath," + gccLib);
+  }
+}
+
 int executor(std::vector<std::string> command,
              std::vector<std::string> bkend_target) {
-  std::string program_name = PARAS_BASE_COMPILER;
+  std::string program_name = base_compiler();
   command.insert(command.begin(), program_name);
 
   if (!bkend_target[0].empty()) {
@@ -75,19 +94,13 @@ int executor(std::vector<std::string> command,
       prefix.push_back(bkend_target[2]);
     }
     command.insert(command.begin() + 1, prefix.begin(), prefix.end());
-    command.push_back("-L");
-    std::string parasLibPath = PARAS_INSTALL_PREFIX + std::string("/lib");
-    command.push_back(parasLibPath);
-    command.push_back("-lDeviceDiscoveryModule");
+    appendRuntimeLinkFlags(command);
   } else {
     if (!bkend_target[2].empty()) {
       command.insert(command.begin() + 1, "-resource-dir");
       command.insert(command.begin() + 2, bkend_target[2]);
     }
-    command.push_back("-L");
-    std::string parasLibPath = PARAS_INSTALL_PREFIX + std::string("/lib");
-    command.push_back(parasLibPath);
-    command.push_back("-lDeviceDiscoveryModule");
+    appendRuntimeLinkFlags(command);
   }
 
   std::vector<char *> args;
