@@ -231,10 +231,6 @@ template <typename T> T *malloc_host(size_t n, const threadpool &) {
   return static_cast<T *>(std::malloc(sizeof(T) * n));
 }
 
-template <typename T> T *malloc_device(size_t n, const threadpool &) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
-
 template <typename T>
 T *malloc_device(size_t n, const device &dev, const context &ctx,
                  const property_list &propList = {}) {
