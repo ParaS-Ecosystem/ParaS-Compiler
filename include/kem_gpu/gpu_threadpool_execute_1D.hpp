@@ -25,7 +25,7 @@
 #include "sycl/range.hpp"
 #include "sycl/id.hpp"
 #include <cstddef>
-#include <cuda_runtime.h>
+#include "kem_gpu/gpu_runtime_api.hpp"
 #include <stdexcept>
 #include <string>
 

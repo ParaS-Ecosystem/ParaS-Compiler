@@ -78,7 +78,11 @@ public:
   bool is_in_order() const { return props_.has_in_order(); }
 
   backend get_backend() const {
+#if PARAS_HIP_BACKEND
+    return dev_.is_gpu() ? backend::hip : backend::host;
+#else
     return dev_.is_gpu() ? backend::cuda : backend::host;
+#endif
   }
 
   template <typename KernelName = void, typename Func, int dim>
