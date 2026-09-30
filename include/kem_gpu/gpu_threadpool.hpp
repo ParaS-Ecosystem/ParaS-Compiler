@@ -179,6 +179,10 @@ public:
   template <typename Func> void gpu_execute_2D(const sycl::range<2> &r, Func f);
 
   template <typename Func>
+
+  void gpu_execute_3D(const sycl::range<3> &r, Func f);
+
+  template <typename Func>
   void gpu_execute_nd_range_1D(const sycl::nd_range<1> &r, Func f,
                                std::size_t sharedMemoryBytes = 0);
 
@@ -196,8 +200,10 @@ public:
       gpu_execute_1D(r, f);
     } else if constexpr (dim == 2) {
       gpu_execute_2D(r, f);
+    } else if constexpr (dim == 3) {
+      gpu_execute_3D(r, f);
     } else {
-      static_assert(dim <= 2, "Only 1D/2D supported");
+      static_assert(dim <= 3, "Only 1D/2D/3D supported");
     }
     return sycl::event{};
   }

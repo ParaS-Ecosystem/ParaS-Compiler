@@ -31,39 +31,33 @@
 #include <string>
 #include <type_traits>
 
-template <typename Wrapped>
+template <typename Func>
 __global__ void gpu_execute_2D_grid_kernel(std::size_t rows, std::size_t cols,
-                                           Wrapped f) {
+                                           Func f) {
   const std::size_t row = blockIdx.y * blockDim.y + threadIdx.y;
   const std::size_t col = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (row < rows && col < cols) {
-    if constexpr (std::is_invocable_v<Wrapped, sycl::item<2>>) {
-      f(sycl::item<2>(row, col));
-    }
-    if constexpr (std::is_invocable_v<Wrapped, sycl::id<2>>) {
-      f(sycl::id<2>(row, col));
-    }
+    sycl::detail::invoke_range_kernel<2>(f, sycl::id<2>(row, col),
+                                         sycl::range<2>(rows, cols));
   }
 }
 
-template <typename Func> struct index_descriptors {
-  Func f;
-
-  PARAS_KERNEL_HD
-  void operator()(sycl::item<2> item) const {
-    if constexpr (std::is_invocable_v<const Func &, sycl::item<2>>) {
-      f(item);
-    }
+template <typename Func>
+__global__ void gpu_execute_3D_linear_kernel(std::size_t X, std::size_t Y,
+                                             std::size_t Z, Func f) {
+  const std::size_t total = X * Y * Z;
+  const std::size_t stride = static_cast<std::size_t>(gridDim.x) * blockDim.x;
+  for (std::size_t lin =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       lin < total; lin += stride) {
+    const std::size_t k = lin % Z;
+    const std::size_t j = (lin / Z) % Y;
+    const std::size_t i = lin / (Y * Z);
+    sycl::detail::invoke_range_kernel<3>(f, sycl::id<3>(i, j, k),
+                                         sycl::range<3>(X, Y, Z));
   }
-
-  PARAS_KERNEL_HD
-  void operator()(sycl::id<2> id) const {
-    if constexpr (std::is_invocable_v<const Func &, sycl::id<2>>) {
-      f(id);
-    }
-  }
-};
+}
 
 template <typename Func>
 void cuda_threadpool::gpu_execute_2D(const sycl::range<2> &r, Func f) {
@@ -81,12 +75,36 @@ void cuda_threadpool::gpu_execute_2D(const sycl::range<2> &r, Func f) {
   const dim3 grid(static_cast<unsigned int>((cols + block.x - 1) / block.x),
                   static_cast<unsigned int>((rows + block.y - 1) / block.y));
 
-  index_descriptors<Func> wrapped{f};
   (void)cudaGetLastError();
-  gpu_execute_2D_grid_kernel<<<grid, block, 0, stream>>>(rows, cols, wrapped);
+  gpu_execute_2D_grid_kernel<<<grid, block, 0, stream>>>(rows, cols, f);
   paras_cuda_detail::check(cudaGetLastError(), "2D kernel launch failed");
   paras_cuda_detail::check(cudaStreamSynchronize(stream),
                            "2D kernel execution failed");
+}
+
+template <typename Func>
+void cuda_threadpool::gpu_execute_3D(const sycl::range<3> &r, Func f) {
+  ensure_stream();
+  const std::size_t X = r[0], Y = r[1], Z = r[2];
+  const std::size_t total = X * Y * Z;
+  if (total == 0) {
+    return;
+  }
+
+  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
+                           "cudaSetDevice before 3D kernel");
+
+  constexpr unsigned int threadsPerBlock = 256;
+  const std::size_t wanted = (total + threadsPerBlock - 1) / threadsPerBlock;
+  const unsigned int blocks = static_cast<unsigned int>(
+      wanted < 65535u * 32u ? wanted : 65535u * 32u);
+
+  (void)cudaGetLastError();
+  gpu_execute_3D_linear_kernel<<<blocks, threadsPerBlock, 0, stream>>>(X, Y, Z,
+                                                                       f);
+  paras_cuda_detail::check(cudaGetLastError(), "3D kernel launch failed");
+  paras_cuda_detail::check(cudaStreamSynchronize(stream),
+                           "3D kernel execution failed");
 }
 
 #endif

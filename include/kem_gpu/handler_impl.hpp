@@ -47,8 +47,10 @@ void handler::parallel_for(range<dim> r, Func f) {
     }
   } else if constexpr (dim == 2) {
     gpu_pool_->gpu_execute_2D(r, f);
+  } else if constexpr (dim == 3) {
+    gpu_pool_->gpu_execute_3D(r, f);
   } else {
-    static_assert(dim <= 2, "Only 1D/2D supported");
+    static_assert(dim <= 3, "Only 1D/2D/3D supported");
   }
 }
 
