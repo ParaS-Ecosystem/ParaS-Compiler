@@ -38,9 +38,8 @@ void threadpool::execute_3D(const sycl::range<3>& r, Func f) {
     size_t chunk = (total + NT - 1) / NT;
     for (unsigned t = 0; t < NT; t++) {
         size_t start = t * chunk;
-        size_t end = std::min(start + chunk, total);
-        if (start >= end)
-            break;
+        size_t end   = std::min(start + chunk, total);
+        if (start >= end) break;
         threads.emplace_back([=]() {
             for (size_t idx = start; idx < end; idx++) {
                 size_t i = idx / (Y * Z);
@@ -51,7 +50,6 @@ void threadpool::execute_3D(const sycl::range<3>& r, Func f) {
             }
         });
     }
-    for (auto& th : threads)
-        th.join();
+    for (auto &th : threads) th.join();
 }
 #endif
