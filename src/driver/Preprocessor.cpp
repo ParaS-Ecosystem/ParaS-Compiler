@@ -18,80 +18,82 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "paras/Preprocessor.hpp"
-#include "paras/ParaSTempDir.hpp"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
-namespace preprocessor {
+#include "paras/Preprocessor.hpp"
 
+namespace preprocessor {
 std::string generate_output_filename() {
-    std::string model = parasTempDir() + "/paras_pp_%%%%%%%%.cpp";
-    llvm::SmallString<128> result;
-    if (std::error_code EC = llvm::sys::fs::createUniqueFile(model, result)) {
-        llvm::errs() << "paras: cannot create temp file: " << EC.message() << "\n";
-        exit(EXIT_FAILURE);
-    }
-    return std::string(result.str());
+  std::string model = "/tmp/paras_pp_%%%%%%%%.cpp";
+  llvm::SmallString<128> result;
+  if (std::error_code EC = llvm::sys::fs::createUniqueFile(model, result)) {
+    llvm::errs() << "paras: cannot create temp file: " << EC.message() << "\n";
+    exit(EXIT_FAILURE);
+  }
+  return std::string(result.str());
+
 }
 
-void process_file(const std::string& inputfile, const std::string& outputfile,
+void process_file(const std::string &inputfile, const std::string &outputfile,
                   std::vector<std::string> bkend_target) {
-    std::ifstream fin(inputfile);
-    if (!fin) {
-        perror("Error");
-        exit(EXIT_FAILURE);
+  std::ifstream fin(inputfile);
+  if (!fin) {
+    perror("Error");
+    exit(EXIT_FAILURE);
+  }
+  std::ofstream fout(outputfile);
+  if (!fout) {
+    std::cerr << "Cannot open output file: " << outputfile << "\n";
+    return;
+  }
+
+  std::regex sycl_include(R"(^\s*#include\s*[<\"]sycl(\/sycl)?\.hpp[>\"])");
+
+  std::vector<std::string> lines;
+  std::string line;
+  bool found_sycl = false;
+
+  while (std::getline(fin, line)) {
+    if (std::regex_search(line, sycl_include))
+      found_sycl = true;
+
+    lines.push_back(line);
+  }
+
+  bool inserted = false;
+
+  if (!found_sycl) {
+    if (!bkend_target[0].empty()) {
+
+      if (bkend_target[0] == "cuda" || bkend_target[0] == "hip") {
+        fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
+      }
+    } else {
+      fout << "#include \"kem/threadpool.hpp\"\n";
     }
-    std::ofstream fout(outputfile);
-    if (!fout) {
-        std::cerr << "Cannot open output file: " << outputfile << "\n";
-        return;
-    }
+    inserted = true;
+  }
 
-    std::regex sycl_include(R"(^\s*#include\s*[<\"]sycl(\/sycl)?\.hpp[>\"])");
+  for (const auto &l : lines) {
+    fout << l << "\n";
 
-    std::vector<std::string> lines;
-    std::string line;
-    bool found_sycl = false;
-
-    while (std::getline(fin, line)) {
-        if (std::regex_search(line, sycl_include))
-            found_sycl = true;
-
-        lines.push_back(line);
-    }
-
-    bool inserted = false;
-
-    if (!found_sycl) {
-        if (!bkend_target[0].empty()) {
-            if (bkend_target[0] == "cuda" || bkend_target[0] == "hip") {
-                fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
-            }
-        } else {
-            fout << "#include \"kem/threadpool.hpp\"\n";
+    if (!inserted && std::regex_search(l, sycl_include)) {
+      if (!bkend_target[0].empty()) {
+        if (bkend_target[0] == "cuda" || bkend_target[0] == "hip") {
+          fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
         }
-        inserted = true;
+      } else {
+        fout << "#include \"kem/threadpool.hpp\"\n";
+      }
+
+      inserted = true;
     }
+  }
 
-    for (const auto& l : lines) {
-        fout << l << "\n";
-
-        if (!inserted && std::regex_search(l, sycl_include)) {
-            if (!bkend_target[0].empty()) {
-                if (bkend_target[0] == "cuda" || bkend_target[0] == "hip") {
-                    fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
-                }
-            } else {
-                fout << "#include \"kem/threadpool.hpp\"\n";
-            }
-
-            inserted = true;
-        }
-    }
-    fin.close();
-    fout.close();
+  fin.close();
+  fout.close();
 }
 
 }
