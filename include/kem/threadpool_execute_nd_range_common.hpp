@@ -25,6 +25,7 @@
 #include <string>
 
 #include "kem/host_group_runtime.hpp"
+#include "kem/nd_range_validate.hpp"
 #include "sycl/nd_item.hpp"
 #include "sycl/nd_range.hpp"
 
@@ -42,6 +43,7 @@ inline sycl::id<D> delinearize(std::size_t lin, const sycl::range<D>& r) {
 
 template <int D, typename Func>
 void execute_nd_range(const sycl::nd_range<D>& r, Func& f) {
+    paras_detail::validate_nd_range(r);
 
     const sycl::range<D> GR  = r.get_global_range();
     const sycl::range<D> LR  = r.get_local_range();
