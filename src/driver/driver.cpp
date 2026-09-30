@@ -678,10 +678,18 @@ int main(int argc, const char **argv) {
   clang::tooling::ClangTool tool(options.getCompilations(),
                                  options.getSourcePathList());
 
+  const bool gpuBackend = !compilerFlags[3][0].empty();
+  clang::IgnoringDiagConsumer ignorePreparseDiags;
+  if (gpuBackend && !std::getenv("PARAS_SHOW_PREPARSE_DIAGS"))
+    tool.setDiagnosticConsumer(&ignorePreparseDiags);
+
   int transformStatus = tool.run(std::make_unique<ParasFrontendActionFactory>(
                                      compilerFlags[2], compilerFlags[3])
                                      .get());
-  if (transformStatus != 0)
+  const size_t sourceCount = std::count_if(
+      finalCompilerArgs.begin(), finalCompilerArgs.end(), isCppSourceFile);
+  if (transformStatus != 0 &&
+      !(gpuBackend && transformedSourceFiles.size() == sourceCount))
     return transformStatus;
 
   if (OnlyTransform || !WriteToFile.empty())
