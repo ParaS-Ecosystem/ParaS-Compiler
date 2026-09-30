@@ -694,8 +694,6 @@ PARAS_KERNEL_HD inline auto min(T a, U b) {
     return (x < y) ? x : y;
 }
 
-/* ===================== LOG FUNCTIONS ===================== */
-
 PARAS_KERNEL_HD
 inline float logf(float x) {
     return ::logf(x);
@@ -767,10 +765,6 @@ PARAS_KERNEL_HD inline T logb(T x) {
     return logb(x);
 #endif
 }
-
-/* ===================== LOG FUNCTIONS ===================== */
-
-/* ===================== POW FUNCTIONS ===================== */
 
 PARAS_KERNEL_HD
 inline double exp2(double x) {
@@ -887,10 +881,6 @@ PARAS_KERNEL_HD
 inline float pow(float x, float y) {
     return ::powf(x, y);
 }
-
-/* ===================== POW FUNCTIONS ===================== */
-
-/* ============= FABS / NEXTAFTER / ROUNDING FUNCTIONS ============= */
 
 template <typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>
 PARAS_KERNEL_HD inline T abs(T x) {
@@ -1083,10 +1073,6 @@ PARAS_KERNEL_HD inline vec<T, N> rint(const vec<T, N>& v) {
         result[i] = rint(v[i]);
     return result;
 }
-
-/* ============= FABS / NEXTAFTER / ROUNDING FUNCTIONS ============= */
-
-/* ============================== SYCL Functional Objects ============================== */
 
 template <typename T = void>
 struct plus {

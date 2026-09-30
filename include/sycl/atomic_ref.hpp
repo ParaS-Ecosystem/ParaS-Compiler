@@ -34,12 +34,8 @@
 
 namespace sycl {
 
-/* ================= enums ================= */
-
 enum class memory_order { relaxed, acquire, release, acq_rel, seq_cst };
 enum class memory_scope { work_item, sub_group, work_group, device, system };
-
-/* ================= order traits ================= */
 
 template <memory_order>
 struct memory_order_traits;
@@ -117,7 +113,6 @@ inline void atomic_fence(memory_order order, memory_scope scope) noexcept {
 #endif
 }
 
-/* ================= atomic_ref ================= */
 namespace paras_atomic_detail {
 PARAS_KERNEL_HD
 inline constexpr int to_builtin(memory_order o) {
@@ -177,7 +172,6 @@ public:
     PARAS_KERNEL_HD
     atomic_ref(const atomic_ref&) noexcept = default;
 
-    /* ================= basic ops ================= */
     PARAS_KERNEL_HD
     void store(T v, memory_order o = default_write_order,
                memory_scope = default_scope) const noexcept {
@@ -208,7 +202,6 @@ public:
         return v;
     }
 
-    /* ================= compare_exchange ================= */
     PARAS_KERNEL_HD
     bool compare_exchange_weak(T& expected, T desired, memory_order success, memory_order failure,
                                memory_scope = default_scope) const noexcept {
@@ -239,7 +232,6 @@ public:
         return compare_exchange_strong(expected, desired, order, order, scope);
     }
 
-    /* ================= arithmetic ================= */
     PARAS_KERNEL_HD
     T fetch_add(operand_type v, memory_order o = default_read_modify_write_order,
                 memory_scope = default_scope) const noexcept {
@@ -260,7 +252,6 @@ public:
         }
     }
 
-    /* ================= bitwise (integral only) ================= */
     PARAS_KERNEL_HD
     T fetch_or(T v, memory_order o = default_read_modify_write_order,
                memory_scope = default_scope) const noexcept {
@@ -279,7 +270,6 @@ public:
         return __atomic_fetch_and(ptr, v, paras_atomic_detail::to_builtin(o));
     }
 
-    /* ================= min / max ================= */
     PARAS_KERNEL_HD
     T fetch_min(T v, memory_order o = default_read_modify_write_order,
                 memory_scope = default_scope) const noexcept {
@@ -300,7 +290,6 @@ public:
         }
     }
 
-    /* ================= operators ================= */
     PARAS_KERNEL_HD T operator+=(operand_type v) const noexcept { return fetch_add(v) + v; }
     PARAS_KERNEL_HD T operator-=(operand_type v) const noexcept { return fetch_sub(v) - v; }
     PARAS_KERNEL_HD T operator|=(T v) const noexcept { return fetch_or(v) | v; }

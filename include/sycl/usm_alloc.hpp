@@ -68,4 +68,4 @@ inline usm::alloc lookup_host_alloc(const void* p) {
 } // namespace paras_usm_detail
 } // namespace sycl
 
-#endif // SYCL_USM_ALLOC_HPP
+#endif

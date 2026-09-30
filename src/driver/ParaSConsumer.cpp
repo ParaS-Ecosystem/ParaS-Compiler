@@ -71,7 +71,7 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter& r, clang::Rewriter& headerRewriter
                                                      hasName("sycl::range"),
                                                      hasTemplateArgument(
                                                          0, templateArgument().bind("rangeDim"))))),
-                                  // cgh.parallel_for(sycl::nd_range<N>(...), func)
+
                                   hasArgument(0, hasType(classTemplateSpecializationDecl(
                                                      hasName("sycl::nd_range"),
                                                      hasTemplateArgument(0, templateArgument().bind(

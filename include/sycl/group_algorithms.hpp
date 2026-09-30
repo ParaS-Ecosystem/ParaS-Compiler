@@ -30,8 +30,6 @@
 
 namespace sycl {
 
-/* ================= shift_group_left ================= */
-
 template <typename Group, typename T>
 PARAS_KERNEL_HD inline T shift_group_left(Group g, T x, typename Group::linear_id_type delta = 1) {
 #if PARAS_GPU_BACKEND
@@ -47,8 +45,6 @@ PARAS_KERNEL_HD inline T shift_group_left(Group g, T x, typename Group::linear_i
 #endif
 }
 
-/* ================= shift_group_right ================= */
-
 template <typename Group, typename T>
 PARAS_KERNEL_HD inline T shift_group_right(Group g, T x, typename Group::linear_id_type delta = 1) {
 #if PARAS_GPU_BACKEND
@@ -63,8 +59,6 @@ PARAS_KERNEL_HD inline T shift_group_right(Group g, T x, typename Group::linear_
     return x;
 #endif
 }
-
-/* ================= joint algorithms (SYCL 2020 4.17.4.x) ================= */
 
 template <typename Group, typename Ptr, typename T, typename BinaryOperation>
 PARAS_KERNEL_HD inline T joint_reduce(Group g, Ptr first, Ptr last, T init,
@@ -157,8 +151,6 @@ PARAS_KERNEL_HD inline OutPtr joint_inclusive_scan(Group g, InPtr first, InPtr l
                                     binary_op);
 }
 
-/* ================= group_broadcast ================= */
-
 template <typename Group, typename T>
 PARAS_KERNEL_HD inline T group_broadcast(Group g, T x, typename Group::id_type local_id) {
 #if PARAS_GPU_BACKEND
@@ -195,8 +187,6 @@ PARAS_KERNEL_HD inline T group_broadcast(Group g, T x) {
     return group_broadcast(g, x, typename Group::linear_id_type(0));
 }
 
-/* ================= all_of_group / none_of_group ================= */
-
 template <typename Group>
 PARAS_KERNEL_HD inline bool all_of_group(Group g, bool pred) {
 #if PARAS_GPU_BACKEND
@@ -227,13 +217,11 @@ PARAS_KERNEL_HD inline bool none_of_group(Group g, T x, Predicate pred) {
     return !any_of_group(g, pred(x));
 }
 
-/* ================= inclusive_scan_over_group / exclusive_scan_over_group ================= */
-
 template <typename Group, typename V, typename BinaryOperation>
 PARAS_KERNEL_HD inline V inclusive_scan_over_group(Group g, V x, BinaryOperation binary_op) {
 #if PARAS_GPU_BACKEND
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>) {
-        const std::uint64_t mask = paras_active_mask(); // 64 lanes on AMD
+        const std::uint64_t mask = paras_active_mask();
         const auto lane = g.get_local_linear_id();
         for (typename Group::linear_id_type offset = 1; offset < g.get_local_linear_range();
              offset <<= 1) {
@@ -286,8 +274,6 @@ PARAS_KERNEL_HD inline T inclusive_scan_over_group(Group g, V x, BinaryOperation
     return binary_op(init,
                      static_cast<T>(inclusive_scan_over_group(g, static_cast<T>(x), binary_op)));
 }
-
-/* ================= permute_group_by_xor ================= */
 
 template <typename Group, typename T>
 PARAS_KERNEL_HD inline T permute_group_by_xor(Group g, T x,

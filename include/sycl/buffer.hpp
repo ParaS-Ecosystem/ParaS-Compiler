@@ -42,8 +42,8 @@ class buffer {
     struct state {
         T* data = nullptr;
         range<Dimensions> r;
-        std::shared_ptr<T> keep_alive;                         // owned storage or user's shared_ptr
-        std::function<void(const T*, std::size_t)> final_data; // write-back target
+        std::shared_ptr<T> keep_alive;
+        std::function<void(const T*, std::size_t)> final_data;
         bool write_back = true;
 
         ~state() {

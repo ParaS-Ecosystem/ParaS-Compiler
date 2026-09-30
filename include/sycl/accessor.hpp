@@ -83,7 +83,7 @@ template <typename DataT, int Dimensions = 1, access::mode AccessMode = access::
           target AccessTarget = target::device>
 class accessor {
     DataT* base_ = nullptr;
-    DataT* origin_ = nullptr; // base_ + offset_, precomputed for fast indexing
+    DataT* origin_ = nullptr;
     range<Dimensions> buf_range_;
     range<Dimensions> acc_range_;
     id<Dimensions> offset_;

@@ -63,4 +63,4 @@ inline unsigned rocm_threadpool::gpu_get_num_threads() {
 }
 #endif
 
-#endif /** End of gpu_threadpool_execute_common >*/
+#endif

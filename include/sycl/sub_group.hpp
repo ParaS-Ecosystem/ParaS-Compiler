@@ -33,8 +33,6 @@
 
 namespace sycl {
 
-/* ================= sub_group ================= */
-
 class sub_group {
 public:
     using id_type = id<1>;
@@ -111,8 +109,6 @@ public:
     PARAS_KERNEL_HD
     bool leader() const { return get_local_linear_id() == 0; }
 };
-
-/* ================= subgroup algorithms ================= */
 
 #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
 

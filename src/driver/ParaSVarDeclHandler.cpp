@@ -80,7 +80,7 @@ const clang::InitListExpr* failedBracedInit(const clang::Expr* E) {
 
 void makeVecDirectListInit(clang::Rewriter& rewriter, const clang::InitListExpr* ILE,
                            clang::QualType target, const clang::ASTContext& ctx) {
-    static std::set<unsigned> done; // instantiations share the pattern's location
+    static std::set<unsigned> done;
     const clang::SourceManager& SM = ctx.getSourceManager();
     const clang::SourceLocation lbrace = ILE->getLBraceLoc();
     if (lbrace.isInvalid() || lbrace.isMacroID() || SM.isInSystemHeader(lbrace) ||

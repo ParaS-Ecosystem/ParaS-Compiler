@@ -56,7 +56,6 @@ public:
     explicit queue(const decltype(default_selector_v)& selector, const property_list& = {})
         : dev_(selector) {}
 
-  
     template <typename DeviceSelector,
               typename = std::enable_if_t<std::is_invocable_r_v<
                   int, const DeviceSelector&, const device&>>>
