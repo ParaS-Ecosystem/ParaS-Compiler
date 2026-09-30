@@ -65,10 +65,18 @@ lambdaCallOperatorFromExpr(const clang::Expr *expr) {
     type = type->getPointeeType();
 
   const clang::CXXRecordDecl *closure = type->getAsCXXRecordDecl();
-  if (!closure || !closure->isLambda())
+  if (!closure || !closure->hasDefinition())
     return nullptr;
+  closure = closure->getDefinition();
 
-  return closure->getLambdaCallOperator();
+  if (closure->isLambda())
+    return closure->getLambdaCallOperator();
+
+  for (const clang::CXXMethodDecl *method : closure->methods())
+    if (method->getOverloadedOperator() == clang::OO_Call)
+      return method;
+
+  return nullptr;
 }
 
 class ReturnedLambdaFinder
