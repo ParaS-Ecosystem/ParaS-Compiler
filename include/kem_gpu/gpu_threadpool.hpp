@@ -190,8 +190,8 @@ public:
   void gpu_execute_nd_range_3D(const sycl::nd_range<3> &r, Func f,
                                std::size_t sharedMemoryBytes = 0);
 
-  template <typename KernelName, typename Func, int dim>
-  void parallel_for(sycl::range<dim> r, Func f) {
+  template <typename KernelName = void, typename Func, int dim>
+  sycl::event parallel_for(sycl::range<dim> r, Func f) {
     if constexpr (dim == 1) {
       gpu_execute_1D(r, f);
     } else if constexpr (dim == 2) {
@@ -199,10 +199,11 @@ public:
     } else {
       static_assert(dim <= 2, "Only 1D/2D supported");
     }
+    return sycl::event{};
   }
 
-  template <typename KernelName, typename Func, int dim>
-  void parallel_for(const sycl::nd_range<dim> &r, Func f) {
+  template <typename KernelName = void, typename Func, int dim>
+  sycl::event parallel_for(const sycl::nd_range<dim> &r, Func f) {
     if constexpr (dim == 1) {
       gpu_execute_nd_range_1D(r, f);
     } else if constexpr (dim == 2) {
@@ -212,6 +213,7 @@ public:
     } else {
       static_assert(dim <= 3, "Only 1D/2D/3D supported");
     }
+    return sycl::event{};
   }
 
   sycl::event memcpy(void *dest, const void *src, size_t numBytes) {

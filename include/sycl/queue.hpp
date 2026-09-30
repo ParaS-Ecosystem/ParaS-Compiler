@@ -81,11 +81,38 @@ public:
     return dev_.is_gpu() ? backend::cuda : backend::host;
   }
 
-  template <typename KernelName, typename Func, int dim>
-  void parallel_for(range<dim> r, Func f) {}
+  template <typename KernelName = void, typename Func, int dim>
+  event parallel_for(range<dim> r, Func f) {
+    return submit(
+        [&](handler &cgh) { cgh.template parallel_for<KernelName>(r, f); });
+  }
 
-  template <typename KernelName, typename Func, int dim>
-  void parallel_for(const nd_range<dim> &r, Func f) {}
+  template <typename KernelName = void, typename Func, int dim>
+  event parallel_for(range<dim> r, event, Func f) {
+    return parallel_for<KernelName>(r, f);
+  }
+
+  template <typename KernelName = void, typename Func, int dim>
+  event parallel_for(range<dim> r, const std::vector<event> &, Func f) {
+    return parallel_for<KernelName>(r, f);
+  }
+
+  template <typename KernelName = void, typename Func, int dim>
+  event parallel_for(const nd_range<dim> &r, Func f) {
+    return submit(
+        [&](handler &cgh) { cgh.template parallel_for<KernelName>(r, f); });
+  }
+
+  template <typename KernelName = void, typename Func, int dim>
+  event parallel_for(const nd_range<dim> &r, event, Func f) {
+    return parallel_for<KernelName>(r, f);
+  }
+
+  template <typename KernelName = void, typename Func, int dim>
+  event parallel_for(const nd_range<dim> &r, const std::vector<event> &,
+                     Func f) {
+    return parallel_for<KernelName>(r, f);
+  }
 
   template <typename injectCustomFunc>
   event parasSYCL_enqueue_custom_operation(injectCustomFunc cgf) {
