@@ -117,6 +117,24 @@ public:
   DataT &operator[](id<2> idx) const { return ptr_[idx[0] * r_[1] + idx[1]]; }
 };
 
+namespace detail {
+
+template <typename T, int Dims, int Level> struct accessor_subscript {
+  T *ptr;
+  range<Dims> r;
+  size_t lin;
+
+  PARAS_KERNEL_HD
+  decltype(auto) operator[](size_t i) const {
+    const size_t next = lin * r[Level] + i;
+    if constexpr (Level + 1 == Dims)
+      return (ptr[next]);
+    else
+      return accessor_subscript<T, Dims, Level + 1>{ptr, r, next};
+  }
+};
+} // namespace detail
+
 template <typename DataT, int Dimensions = 1> class local_accessor {
 public:
   using value_type = DataT;
@@ -187,6 +205,12 @@ public:
     return resolved_pointer()[index];
   }
 
+  template <int D = Dimensions, typename std::enable_if_t<(D > 1), int> = 0>
+  PARAS_KERNEL_HD auto operator[](size_type index) const {
+    return detail::accessor_subscript<DataT, Dimensions, 1>{
+        resolved_pointer(), ele_count_, index};
+  }
+
   template <access::decorated IsDecorated>
   PARAS_KERNEL_HD accessor_ptr<IsDecorated> get_multi_ptr() const noexcept {
     return accessor_ptr<IsDecorated>{resolved_pointer()};
@@ -215,7 +239,14 @@ private:
 
     return reinterpret_cast<DataT *>(base + local_offset_bytes_);
 #else
-    return nullptr;
+
+    if (paras_host_detail::tl_local_mem)
+      return reinterpret_cast<DataT *>(paras_host_detail::tl_local_mem +
+                                       local_offset_bytes_);
+
+    alignas(std::max_align_t) thread_local unsigned char
+        scratch[paras_host_detail::kHostLocalMemBytes];
+    return reinterpret_cast<DataT *>(scratch + local_offset_bytes_);
 #endif
   }
 

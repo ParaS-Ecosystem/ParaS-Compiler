@@ -20,6 +20,8 @@
 
 #ifndef __GPU_UTILITIES_HPP__
 #define __GPU_UTILITIES_HPP__
+#include "kem/host_group_runtime.hpp"
+#include <cstddef>
 
 #ifndef PARAS_KERNEL_HD
 #if defined(__CUDA_ARCH__) || defined(__CUDACC__)
@@ -137,6 +139,7 @@ inline void paras_syncthreads() {
   __syncthreads();
 #else
 
+  paras_host_detail::work_group_barrier();
 #endif
 }
 

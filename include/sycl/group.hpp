@@ -23,6 +23,7 @@
 
 #include "id.hpp"
 #include "range.hpp"
+#include "atomic_ref.hpp"
 #include "kem_gpu/gpu_utilities.hpp"
 
 namespace sycl {
@@ -34,6 +35,8 @@ public:
   using linear_id_type = size_t;
 
   static constexpr int dimensions = Dimensions;
+
+  static constexpr memory_scope fence_scope = memory_scope::work_group;
 
 private:
   id_type group_id_;

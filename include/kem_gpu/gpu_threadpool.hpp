@@ -158,7 +158,7 @@ public:
 
   template <typename Func> sycl::event spawn_1D_event(Func f);
 
-  template <typename Func> void spawn_ND(Func f);
+  template <typename Func> sycl::event spawn_ND(Func f);
 
   void wait() {
     ensure_stream();
@@ -582,9 +582,10 @@ template <typename Func> sycl::event cuda_threadpool::spawn_1D_event(Func f) {
   return sycl::event();
 }
 
-template <typename Func> void cuda_threadpool::spawn_ND(Func f) {
+template <typename Func> sycl::event cuda_threadpool::spawn_ND(Func f) {
   sycl::handler cgh(*this);
   f(cgh);
+  return sycl::event{};
 }
 
 #include "kem_gpu/handler_impl.hpp"

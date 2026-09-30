@@ -34,8 +34,9 @@ template <typename Func> sycl::event threadpool::spawn_1D_event(Func f) {
   return sycl::event{};
 }
 
-template <typename Func> void threadpool::spawn_ND(Func f) {
+template <typename Func> sycl::event threadpool::spawn_ND(Func f) {
   sycl::handler cgh(*this);
   f(cgh);
+  return sycl::event{};
 }
 #endif

@@ -39,6 +39,9 @@ group_barrier(Group, memory_scope scope = Group::fence_scope) {
 
 #else
 
+  (void)scope;
+  if constexpr (!std::is_same_v<std::decay_t<Group>, sub_group>)
+    paras_syncthreads();
 #endif
 }
 
