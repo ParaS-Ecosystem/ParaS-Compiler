@@ -23,7 +23,7 @@
 
 #include "kem/nd_range_validate.hpp"
 #include <cstddef>
-#include <cuda_runtime.h>
+#include "kem_gpu/gpu_runtime_api.hpp"
 #include <stdexcept>
 #include <sycl/id.hpp>
 #include <sycl/nd_item.hpp>

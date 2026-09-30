@@ -234,7 +234,7 @@ private:
 
   PARAS_KERNEL_HD
   DataT *resolved_pointer() const noexcept {
-#if defined(__CUDA_ARCH__)
+#if PARAS_DEVICE_PASS
     unsigned char *const base = paras_get_dynamic_shared_memory();
 
     return reinterpret_cast<DataT *>(base + local_offset_bytes_);

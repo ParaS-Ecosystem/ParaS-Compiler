@@ -24,8 +24,19 @@
 #include <cstddef>
 #include <cstdint>
 
+#if defined(__HIP__) || defined(__HIPCC__) || defined(__HIP_DEVICE_COMPILE__)
+#include <hip/hip_runtime.h>
+#endif
+
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+#define PARAS_DEVICE_PASS 1
+#else
+#define PARAS_DEVICE_PASS 0
+#endif
+
 #ifndef PARAS_KERNEL_HD
-#if defined(__CUDA_ARCH__) || defined(__CUDACC__)
+#if defined(__CUDA_ARCH__) || defined(__CUDACC__) || defined(__HIP__) ||      \
+    defined(__HIPCC__)
 #define PARAS_KERNEL_HD __host__ __device__
 #else
 #define PARAS_KERNEL_HD
@@ -34,7 +45,7 @@
 
 PARAS_KERNEL_HD
 inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
-#if defined(__CUDA_ARCH__)
+#if PARAS_DEVICE_PASS
   extern __shared__ unsigned char paras_dynamic_shared_memory[];
   return paras_dynamic_shared_memory;
 #else
@@ -43,11 +54,19 @@ inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
 }
 
 #ifndef PARAS_GPU_BACKEND
-#if defined(__CUDA_ARCH__) || defined(__CUDACC__) || defined(__NVPTX__)
-
+#if defined(__CUDA_ARCH__) || defined(__CUDACC__) || defined(__NVPTX__) ||     \
+    defined(__HIP__) || defined(__HIPCC__) || defined(__HIP_DEVICE_COMPILE__)
 #define PARAS_GPU_BACKEND 1
 #else
 #define PARAS_GPU_BACKEND 0
+#endif
+#endif
+
+#ifndef PARAS_HIP_BACKEND
+#if defined(__HIP__) || defined(__HIPCC__) || defined(__HIP_DEVICE_COMPILE__)
+#define PARAS_HIP_BACKEND 1
+#else
+#define PARAS_HIP_BACKEND 0
 #endif
 #endif
 
@@ -58,7 +77,7 @@ inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
     __VA_ARGS__                                                                \
   }
 #else
-#define ____paras_if_target_host(...)                                          \
+#define __paras_if_target_host(...)                                          \
   if constexpr (true) {                                                        \
     __VA_ARGS__                                                                \
   }
@@ -220,7 +239,7 @@ inline void paras_syncwarp(std::uint64_t mask = 0xffffffffu) {
 
 PARAS_KERNEL_HD
 inline void paras_syncthreads() {
-#if defined(__CUDA_ARCH__)
+#if PARAS_DEVICE_PASS
   __syncthreads();
 #else
 

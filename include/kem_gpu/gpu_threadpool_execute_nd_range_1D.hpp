@@ -25,7 +25,7 @@
 #include <cstddef>
 #include <stdexcept>
 
-#include <cuda_runtime.h>
+#include "kem_gpu/gpu_runtime_api.hpp"
 
 #include <sycl/id.hpp>
 #include <sycl/nd_item.hpp>
