@@ -25,7 +25,7 @@
 #include "sycl/device.hpp"
 #include <thread>
 
-#include <cuda_runtime.h>
+#include "kem_gpu/gpu_runtime_api.hpp"
 
 class cuda_threadpool_base {
 public:

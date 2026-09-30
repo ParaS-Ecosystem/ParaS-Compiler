@@ -23,7 +23,7 @@
 
 #include "sycl/id.hpp"
 #include <cstddef>
-#include <cuda_runtime.h>
+#include "kem_gpu/gpu_runtime_api.hpp"
 
 template <typename Func>
 __global__ void gpu_execute_1D_async_kernel(std::size_t n, Func f) {

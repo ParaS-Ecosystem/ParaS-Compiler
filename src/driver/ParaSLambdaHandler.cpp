@@ -164,7 +164,9 @@ const clang::CXXMethodDecl *resolveKernelCallOperator(
 
 void ParaSLambdaHandler::run(
     const clang::ast_matchers::MatchFinder::MatchResult &result) {
-  if (backend_target.empty() || backend_target[0] != "cuda")
+
+  if (backend_target.empty() ||
+      (backend_target[0] != "cuda" && backend_target[0] != "hip"))
     return;
 
   const clang::Expr *kernelExpr =

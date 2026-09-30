@@ -29,8 +29,10 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
 #include "../kem_gpu/gpu_utilities.hpp"
+#if PARAS_GPU_BACKEND
+#include "../kem_gpu/gpu_runtime_api.hpp"
+#endif
 
 namespace paras_extension {
 

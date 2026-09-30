@@ -556,7 +556,7 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
     row0.push_back(bkend_target[0]);
     row0.push_back("--offload-arch=" + bkend_target[1]);
 
-    if (bkend_target[0] == "cuda")
+    if (bkend_target[0] == "cuda" || bkend_target[0] == "hip")
       row0.push_back("--cuda-host-only");
   }
 

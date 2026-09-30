@@ -21,7 +21,7 @@
 #ifndef __PARAS_GPU_THREADPOOL_EXECUTE_COMMON_HPP__
 #define __PARAS_GPU_THREADPOOL_EXECUTE_COMMON_HPP__
 
-#include <cuda_runtime.h>
+#include "kem_gpu/gpu_runtime_api.hpp"
 #include <thread>
 
 using std::cout;

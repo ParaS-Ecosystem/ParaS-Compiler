@@ -41,7 +41,7 @@
 #include <utility>
 #include <vector>
 
-#include <cuda_runtime.h>
+#include "kem_gpu/gpu_runtime_api.hpp"
 #include <iostream>
 
 #include "sycl/handler.hpp"
@@ -53,7 +53,9 @@ class cuda_threadpool {
 
 public:
   sycl::backend get_backend() const {
-#if PARAS_GPU_BACKEND
+#if PARAS_HIP_BACKEND
+    return sycl::backend::hip;
+#elif PARAS_GPU_BACKEND
     return sycl::backend::cuda;
 #else
     return sycl::backend::host;
@@ -373,6 +375,10 @@ private:
   }
 };
 
+#if PARAS_HIP_BACKEND
+using rocm_threadpool = cuda_threadpool;
+#endif
+
 inline cuda_threadpool &sycl::queue::get_or_create_gpu_pool() const {
   if (!gpu_pool_) {
     gpu_pool_ = std::make_shared<cuda_threadpool>(*this);
@@ -549,8 +555,12 @@ sycl::interop_handle::get_native_queue<sycl::backend::cuda>() const {
     return nullptr;
   }
 
+#if PARAS_HIP_BACKEND
+  return nullptr;
+#else
   auto *pool = static_cast<cuda_threadpool *>(backend_ptr_);
   return pool ? pool->stream : nullptr;
+#endif
 }
 
 template <>
@@ -570,7 +580,12 @@ sycl::interop_handle::get_native_queue<sycl::backend::hip>() const {
     return nullptr;
   }
 
-  return backend_ptr_;
+#if PARAS_HIP_BACKEND
+  auto *pool = static_cast<cuda_threadpool *>(backend_ptr_);
+  return pool ? pool->stream : nullptr;
+#else
+  return nullptr;
+#endif
 }
 } // namespace sycl
 

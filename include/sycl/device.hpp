@@ -36,6 +36,8 @@ struct device_ctor_tag {};
 
 struct CUstream_st;
 
+struct ihipStream_t;
+
 namespace sycl {
 
 namespace info {
@@ -94,8 +96,10 @@ public:
 
     std::vector<platform> platforms;
 
-#ifdef PARAS_CUDA_BACKEND
+#if PARAS_CUDA_BACKEND
     platforms.emplace_back("CUDA");
+#elif PARAS_HIP_BACKEND
+    platforms.emplace_back("HIP");
 #endif
 
     platforms.emplace_back("Host");
@@ -219,7 +223,8 @@ inline auto device::get_info<info::device::max_work_group_size>() const {
 template <>
 inline auto device::get_info<info::device::sub_group_sizes>() const {
   if (is_gpu_) {
-    return std::vector<std::size_t>{32};
+
+    return std::vector<std::size_t>{PARAS_HIP_BACKEND ? PARAS_WARP_SIZE : 32};
   }
   return std::vector<std::size_t>{1};
 }
@@ -255,7 +260,7 @@ template <> struct backend_return<backend::cuda, queue> {
 };
 
 template <> struct backend_return<backend::hip, queue> {
-  using type = void *;
+  using type = ihipStream_t *;
 };
 
 template <> struct backend_return<backend::host, queue> {

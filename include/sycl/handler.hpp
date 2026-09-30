@@ -130,7 +130,9 @@ public:
 
     wait_for_dependencies();
     async_mode_ = true;
-    interop_handle ih(static_cast<void *>(gpu_pool_), sycl::backend::cuda);
+    interop_handle ih(static_cast<void *>(gpu_pool_),
+                      PARAS_HIP_BACKEND ? sycl::backend::hip
+                                        : sycl::backend::cuda);
 
     try {
       cgf(ih);
