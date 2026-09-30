@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "paras/ParaSVerbose.hpp"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/RecursiveASTVisitor.h"
@@ -186,9 +187,11 @@ void ParaSLambdaHandler::run(
   if (!processedKernels.insert(kernelKey).second)
     return;
 
-  llvm::outs() << "[ParaS] Found SYCL kernel callable\n";
-  llvm::outs() << "[ParaS] Kernel lambda call operator: "
-               << callOperator->getQualifiedNameAsString() << "\n";
+  if (parasVerbose())
+    llvm::outs() << "[ParaS] Found SYCL kernel callable\n";
+  if (parasVerbose())
+    llvm::outs() << "[ParaS] Kernel lambda call operator: "
+                 << callOperator->getQualifiedNameAsString() << "\n";
 
   ParaSDeviceCallGraph deviceGraph(rewriter);
   deviceGraph.addKernel(callOperator);

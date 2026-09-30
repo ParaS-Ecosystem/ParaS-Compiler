@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "paras/ParaSVerbose.hpp"
 #include "paras/ParaSDeviceCallGraph.hpp"
 
 #include "clang/AST/DeclCXX.h"
@@ -125,9 +126,10 @@ void ParaSDeviceCallGraph::annotate(const clang::FunctionDecl *FD,
   }
 
   if (insertedAny)
-    llvm::outs() << "[ParaS] device-callable: "
-                 << definition->getQualifiedNameAsString()
-                 << " (all redeclarations)\n";
+    if (parasVerbose())
+      llvm::outs() << "[ParaS] device-callable: "
+                   << definition->getQualifiedNameAsString()
+                   << " (all redeclarations)\n";
 }
 
 void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
@@ -202,8 +204,9 @@ void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
       continue;
     }
 
-    llvm::outs() << "[ParaS] device-visible static constexpr variable: "
-                 << VD->getQualifiedNameAsString() << "\n";
+    if (parasVerbose())
+      llvm::outs() << "[ParaS] device-visible static constexpr variable: "
+                   << VD->getQualifiedNameAsString() << "\n";
   }
 }
 
