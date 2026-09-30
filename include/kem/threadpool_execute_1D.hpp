@@ -21,6 +21,7 @@
 #ifndef __PARAS_THREADPOOL_EXECUTE_1D_HPP__
 #define __PARAS_THREADPOOL_EXECUTE_1D_HPP__
 
+#include "sycl/item.hpp"
 #include "sycl/id.hpp"
 #include "sycl/range.hpp"
 #include <algorithm>
@@ -45,7 +46,7 @@ void threadpool::execute_1D(const sycl::range<1> &r, Func f) {
 
     threads.emplace_back([=]() {
       for (size_t i = start; i < end; i++)
-        f(sycl::id<1>(i));
+        sycl::detail::invoke_range_kernel<1>(f, sycl::id<1>(i), r);
     });
   }
 

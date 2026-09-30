@@ -53,11 +53,7 @@ void threadpool::execute_2D(const sycl::range<2> &r, Func f) {
         size_t i = idx / C;
         size_t j = idx % C;
 
-        if constexpr (std::is_invocable_v<Func, sycl::item<2>>) {
-          f(sycl::item<2>(i, j));
-        } else {
-          f(sycl::id<2>(i, j));
-        }
+        sycl::detail::invoke_range_kernel<2>(f, sycl::id<2>(i, j), r);
       }
     });
   }

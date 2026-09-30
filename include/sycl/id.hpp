@@ -76,6 +76,17 @@ public:
     static_assert(Dimensions == 1, "Implicit conversion only valid for id<1>");
     return dims_[0];
   }
+
+  PARAS_KERNEL_HD
+  friend bool operator==(const id &a, const id &b) {
+    for (int d = 0; d < Dimensions; ++d)
+      if (a.dims_[d] != b.dims_[d])
+        return false;
+    return true;
+  }
+
+  PARAS_KERNEL_HD
+  friend bool operator!=(const id &a, const id &b) { return !(a == b); }
 };
 
 id(size_t) -> id<1>;
