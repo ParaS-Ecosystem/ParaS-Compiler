@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "paras/ParaSVerbose.hpp"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/AttrIterator.h"
@@ -212,7 +213,7 @@ private:
 
     ExitCode = llvm::sys::ExecuteAndWait(
         Program, llvm::ArrayRef<llvm::StringRef>(ArgRefs), std::nullopt,
-        std::nullopt, 0, 0);
+         {}, 0, 0);
 
     if (ExitCode != 0) {
       llvm::errs() << Program << " returned non-zero exit code: " << ExitCode
@@ -269,8 +270,9 @@ public:
 
         if (headerPathStr == parasIncludeStr ||
             headerPathStr.compare(0, prefix.size(), prefix) == 0) {
-          llvm::outs() << "[ParaS] skipping runtime-header rewrite: "
-                       << headerPathStr << "\n";
+          if (parasVerbose())
+            llvm::outs() << "[ParaS] skipping runtime-header rewrite: "
+                         << headerPathStr << "\n";
           continue;
         }
       }
@@ -319,8 +321,9 @@ public:
       }
 
       markForDeletion.push_back(rewrittenPath);
-      llvm::outs() << "[ParaS] rewrote header: " << originalPath << " -> "
-                   << rewrittenPath << "\n";
+      if (parasVerbose())
+        llvm::outs() << "[ParaS] rewrote header: " << originalPath << " -> "
+                     << rewrittenPath << "\n";
     }
 
     if (!bkend_target[0].empty()) {
@@ -725,8 +728,9 @@ int main(int argc, const char **argv) {
   if (!overlayPath.empty()) {
     finalCommand.push_back("-ivfsoverlay");
     finalCommand.push_back(overlayPath);
-    llvm::outs() << "[ParaS] using rewritten-header VFS overlay: "
-                 << overlayPath << "\n";
+    if (parasVerbose())
+      llvm::outs() << "[ParaS] using rewritten-header VFS overlay: "
+                   << overlayPath << "\n";
   }
 
   return executor::executor(finalCommand, compilerFlags[3]);
