@@ -448,6 +448,8 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
         }
         args.push_back(backend == "hip" ? "-DPARASDEVICE=2"
                                         : "-DPARASDEVICE=1");
+
+        args.push_back("-DPARAS_OFFLOAD_ARCH=\"" + arch + "\"");
         bkend_target[0] = backend;
         bkend_target[1] = arch;
         args.erase(args.begin() + i, args.begin() + i + 2);
