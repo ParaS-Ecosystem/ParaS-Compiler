@@ -19,306 +19,242 @@
  */
 
 #include "paras/ParaSSubmitHandler.hpp"
-#include "paras/ParaSLog.hpp"
 
-#include <clang/Lex/Lexer.h>
 #include <clang/AST/AST.h>
-#include <algorithm>
+#include <clang/Lex/Lexer.h>
 
-static bool isAssignedToSyclEvent(const clang::CallExpr* CE, const clang::SourceManager& SM) {
-    if (!CE)
-        return false;
+static bool isAssignedToSyclEvent(const clang::CallExpr *CE,
+                                  const clang::SourceManager &SM) {
+  if (!CE)
+    return false;
 
-    clang::SourceLocation beginLoc = CE->getBeginLoc();
-    if (beginLoc.isInvalid())
-        return false;
+  clang::SourceLocation beginLoc = CE->getBeginLoc();
+  if (beginLoc.isInvalid())
+    return false;
 
-    clang::FileID fileID = SM.getFileID(beginLoc);
-    unsigned offset = SM.getFileOffset(beginLoc);
+  clang::FileID fileID = SM.getFileID(beginLoc);
+  unsigned offset = SM.getFileOffset(beginLoc);
 
-    llvm::StringRef code = SM.getBufferData(fileID);
-    if (offset >= code.size())
-        return false;
+  llvm::StringRef code = SM.getBufferData(fileID);
+  if (offset >= code.size())
+    return false;
 
-    size_t lineStart = code.rfind('\n', offset);
-    if (lineStart == llvm::StringRef::npos)
-        lineStart = 0;
+  size_t lineStart = code.rfind('\n', offset);
+  if (lineStart == llvm::StringRef::npos)
+    lineStart = 0;
+  else
+    lineStart++;
+
+  llvm::StringRef beforeCall = code.slice(lineStart, offset);
+
+  return beforeCall.contains("sycl::event");
+}
+
+void SubmitFunctionCallback::run(
+    const clang::ast_matchers::MatchFinder::MatchResult &result) {
+  std::string tpool_func_Call = "";
+
+  if (const clang::TemplateArgument *DimArg =
+          result.Nodes.getNodeAs<clang::TemplateArgument>("rangeDim")) {
+    unsigned N = DimArg->getAsIntegral().getExtValue();
+
+    if (N == 1)
+      tpool_func_Call = "spawn_1D";
     else
-        lineStart++;
+      tpool_func_Call = "spawn_ND";
+  }
 
-    llvm::StringRef beforeCall = code.slice(lineStart, offset);
+  if (const clang::CallExpr *CE =
+          result.Nodes.getNodeAs<clang::CallExpr>("submit-with-parallelfor")) {
+    auto &SM = result.SourceManager;
+    const clang::Expr *Args = CE->getArg(0);
+    auto langopts = result.Context->getLangOpts();
 
-    return beforeCall.contains("sycl::event");
+    clang::CharSourceRange args_range =
+        clang::CharSourceRange::getTokenRange(Args->getSourceRange());
+
+    llvm::StringRef kernel_function_text =
+        clang::Lexer::getSourceText(args_range, *SM, langopts);
+
+    if (kernel_function_text.empty())
+      return;
+
+    const clang::MemberExpr *ME =
+        result.Nodes.getNodeAs<clang::MemberExpr>("memberexpr-pf");
+
+    if (!ME)
+      return;
+
+    clang::Expr *base = ME->getBase();
+    if (!base)
+      return;
+
+    clang::CharSourceRange baseRange =
+        clang::CharSourceRange::getTokenRange(base->getSourceRange());
+
+    llvm::StringRef objectName =
+        clang::Lexer::getSourceText(baseRange, *SM, langopts);
+
+    if (objectName.empty())
+      return;
+
+    if (tpool_func_Call == "spawn_1D" && isAssignedToSyclEvent(CE, *SM)) {
+      tpool_func_Call = "spawn_1D_event";
+    }
+
+    std::string new_text = objectName.str() + "." + tpool_func_Call + "(" +
+                           kernel_function_text.str() + ")";
+
+    rewriter.ReplaceText(CE->getSourceRange(), new_text);
+    HandleHeaders(*SM);
+    return;
+  }
+
+  if (const clang::CallExpr *CE =
+          result.Nodes.getNodeAs<clang::CallExpr>("submitCall")) {
+    if (!CE || CE->getNumArgs() == 0)
+      return;
+
+    const clang::MemberExpr *ME =
+        result.Nodes.getNodeAs<clang::MemberExpr>("memberexpr");
+
+    if (!ME)
+      return;
+
+    const clang::Expr *base = ME->getBase();
+    if (!base)
+      return;
+
+    auto &SM = result.SourceManager;
+    const clang::Expr *Args = CE->getArg(0);
+    auto langopts = result.Context->getLangOpts();
+
+    clang::CharSourceRange args_range =
+        clang::CharSourceRange::getTokenRange(Args->getSourceRange());
+
+    llvm::StringRef lambda_function_text =
+        clang::Lexer::getSourceText(args_range, *SM, langopts);
+
+    if (lambda_function_text.empty())
+      return;
+
+    clang::CharSourceRange baseRange =
+        clang::CharSourceRange::getTokenRange(base->getSourceRange());
+
+    llvm::StringRef objectName =
+        clang::Lexer::getSourceText(baseRange, *SM, langopts);
+
+    if (objectName.empty())
+      return;
+
+    std::string submit_func =
+        isAssignedToSyclEvent(CE, *SM) ? "spawn_1D_event" : "spawn_1D";
+
+    std::string new_text = objectName.str() + "." + submit_func + "(" +
+                           lambda_function_text.str() + ")";
+
+    rewriter.ReplaceText(CE->getSourceRange(), new_text);
+    HandleHeaders(*SM);
+  }
 }
 
-void SubmitFunctionCallback::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
-    if (const auto* waitCall =
-            result.Nodes.getNodeAs<clang::CXXMemberCallExpr>("submit-result-wait")) {
-        const auto* submitCall =
-            result.Nodes.getNodeAs<clang::CXXMemberCallExpr>("submit-result-call");
-        const bool gpuTarget = std::find(bkend_target.begin(), bkend_target.end(), "cuda") !=
-                                   bkend_target.end() ||
-                               std::find(bkend_target.begin(), bkend_target.end(), "hip") !=
-                                   bkend_target.end();
-        if (!gpuTarget || !submitCall || !result.SourceManager)
-            return;
+void SubmitFunctionCallback::HandleHeaders(const clang::SourceManager &SM) {
+  clang::FileID mainFileID = SM.getMainFileID();
+  auto entry = SM.getFileEntryRefForID(mainFileID);
 
-        const clang::SourceManager& SM = *result.SourceManager;
-        const clang::Expr* queueExpr = submitCall->getImplicitObjectArgument();
-        const clang::CXXMethodDecl* waitFn = waitCall->getMethodDecl();
-        if (!queueExpr || queueExpr->isImplicitCXXThis() || !waitFn)
-            return;
+  if (!entry)
+    return;
 
-        const clang::SourceRange waitRange = waitCall->getSourceRange();
-        const clang::SourceRange submitRange = submitCall->getSourceRange();
-        const clang::SourceRange queueRange = queueExpr->getSourceRange();
-        for (clang::SourceLocation L : {waitRange.getBegin(), waitRange.getEnd(),
-                                        submitRange.getEnd(), queueRange.getEnd()})
-            if (L.isInvalid() || L.isMacroID() || SM.isInSystemHeader(L))
-                return;
-        if (!SM.isWrittenInSameFile(waitRange.getBegin(), waitRange.getEnd()))
-            return;
+  llvm::StringRef filepath = entry->getName();
+  const clang::FileEntry &FE = entry->getFileEntry();
+  llvm::StringRef fullpath = FE.tryGetRealPathName();
 
-        for (const PendingSubmitWait& P : pendingSubmitWaits)
-            if (P.waitRange == waitRange)
-                return;
-        pendingSubmitWaits.push_back({waitRange, submitRange, queueRange,
-                                      waitFn->getNameAsString()});
-        return;
-    }
+  if (!fullpath.empty())
+    filepath = fullpath;
 
-    std::string tpool_func_Call = "";
+  std::string filepathStr = filepath.str();
 
-    if (const clang::TemplateArgument* DimArg =
-            result.Nodes.getNodeAs<clang::TemplateArgument>("rangeDim")) {
-        unsigned N = DimArg->getAsIntegral().getExtValue();
+  if (ProcessedFiles.count(filepathStr))
+    return;
 
-        if (N == 1)
-            tpool_func_Call = "spawn_1D";
-        else
-            tpool_func_Call = "spawn_ND";
-    }
+  ProcessedFiles.insert(filepathStr);
 
-    if (const clang::CallExpr* CE =
-            result.Nodes.getNodeAs<clang::CallExpr>("submit-with-parallelfor")) {
-        parasLog() << "[ParaS] matched submit-with-parallelfor at ";
-        CE->getBeginLoc().print(parasLog(), *result.SourceManager);
-        parasLog() << "\n";
+  std::string new_header = "";
 
-        auto& SM = result.SourceManager;
+  for (std::string each_bkend_target : bkend_target) {
+    if (each_bkend_target == "cuda") {
+      new_header = "#include <kem_gpu/gpu_threadpool.hpp>";
+      llvm::StringRef code = SM.getBufferData(mainFileID);
 
-        clang::SourceLocation spellingLoc = SM->getSpellingLoc(CE->getBeginLoc());
-        std::string callSiteKey = spellingLoc.printToString(*SM);
-        if (ProcessedCallSites.count(callSiteKey))
-            return;
-
-        const clang::Expr* Args = CE->getArg(0);
-        auto langopts = result.Context->getLangOpts();
-
-        clang::CharSourceRange args_range =
-            clang::CharSourceRange::getTokenRange(Args->getSourceRange());
-
-        llvm::StringRef kernel_function_text =
-            clang::Lexer::getSourceText(args_range, *SM, langopts);
-
-        if (kernel_function_text.empty())
-            return;
-
-        const clang::MemberExpr* ME = result.Nodes.getNodeAs<clang::MemberExpr>("memberexpr-pf");
-
-        if (!ME)
-            return;
-
-        clang::Expr* base = ME->getBase();
-        if (!base)
-            return;
-
-        clang::CharSourceRange baseRange =
-            clang::CharSourceRange::getTokenRange(base->getSourceRange());
-
-        llvm::StringRef objectName = clang::Lexer::getSourceText(baseRange, *SM, langopts);
-
-        if (objectName.empty())
-            return;
-
-        if (tpool_func_Call == "spawn_1D" && isAssignedToSyclEvent(CE, *SM)) {
-            tpool_func_Call = "spawn_1D_event";
-        }
-
-        std::string new_text =
-            objectName.str() + "." + tpool_func_Call + "(" + kernel_function_text.str() + ")";
-
-        rewriter.ReplaceText(CE->getSourceRange(), new_text);
-        ProcessedCallSites.insert(callSiteKey);
-        HandleHeaders(*SM);
-        return;
-    }
-
-    if (const clang::CallExpr* CE = result.Nodes.getNodeAs<clang::CallExpr>("submitCall")) {
-        if (!CE || CE->getNumArgs() == 0)
-            return;
-
-        auto& SM = result.SourceManager;
-
-        clang::SourceLocation spellingLoc = SM->getSpellingLoc(CE->getBeginLoc());
-        std::string callSiteKey = spellingLoc.printToString(*SM);
-        if (ProcessedCallSites.count(callSiteKey))
-            return;
-
-        const clang::MemberExpr* ME = result.Nodes.getNodeAs<clang::MemberExpr>("memberexpr");
-
-        if (!ME)
-            return;
-
-        const clang::Expr* base = ME->getBase();
-        if (!base)
-            return;
-
-        const clang::Expr* Args = CE->getArg(0);
-        auto langopts = result.Context->getLangOpts();
-
-        clang::CharSourceRange args_range =
-            clang::CharSourceRange::getTokenRange(Args->getSourceRange());
-
-        llvm::StringRef lambda_function_text =
-            clang::Lexer::getSourceText(args_range, *SM, langopts);
-
-        if (lambda_function_text.empty())
-            return;
-
-        clang::CharSourceRange baseRange =
-            clang::CharSourceRange::getTokenRange(base->getSourceRange());
-
-        llvm::StringRef objectName = clang::Lexer::getSourceText(baseRange, *SM, langopts);
-
-        if (objectName.empty())
-            return;
-
-        std::string submit_func = isAssignedToSyclEvent(CE, *SM) ? "spawn_1D_event" : "spawn_1D";
-
-        std::string new_text =
-            objectName.str() + "." + submit_func + "(" + lambda_function_text.str() + ")";
-
-        rewriter.ReplaceText(CE->getSourceRange(), new_text);
-        ProcessedCallSites.insert(callSiteKey);
-        HandleHeaders(*SM);
-    }
-}
-
-void SubmitFunctionCallback::onEndOfTranslationUnit() {
-
-    for (const PendingSubmitWait& P : pendingSubmitWaits) {
-        const std::string submitText = rewriter.getRewrittenText(P.submitRange);
-        const std::string queueText = rewriter.getRewrittenText(P.queueRange);
-        if (submitText.empty() || queueText.empty())
-            continue;
-        const std::string replacement =
-            "(" + submitText + ", " + queueText + "." + P.waitName + "())";
-        if (rewriter.ReplaceText(P.waitRange, replacement)) {
-            parasLog() << "[ParaS] failed to rewrite " << P.waitName
-                         << "() on submit() result\n";
-            continue;
-        }
-        parasLog() << "[ParaS] " << P.waitName
-                   << "() on submit() result rewritten to queue-level wait at "
-                   << P.waitRange.getBegin().printToString(rewriter.getSourceMgr()) << "\n";
-    }
-    pendingSubmitWaits.clear();
-}
-
-void SubmitFunctionCallback::HandleHeaders(const clang::SourceManager& SM) {
-    clang::FileID mainFileID = SM.getMainFileID();
-    auto entry = SM.getFileEntryRefForID(mainFileID);
-
-    if (!entry)
+      if (code.contains(new_header) ||
+          code.contains("#include \"kem_gpu/gpu_threadpool.hpp\""))
         return;
 
-    llvm::StringRef filepath = entry->getName();
-    const clang::FileEntry& FE = entry->getFileEntry();
-    llvm::StringRef fullpath = FE.tryGetRealPathName();
+      size_t insertPosition = code.rfind("#include");
+      clang::SourceLocation insertlocation =
+          SM.getLocForStartOfFile(mainFileID);
 
-    if (!fullpath.empty())
-        filepath = fullpath;
-
-    std::string filepathStr = filepath.str();
-
-    if (ProcessedFiles.count(filepathStr))
-        return;
-
-    ProcessedFiles.insert(filepathStr);
-
-    std::string new_header = "";
-
-    for (std::string each_bkend_target : bkend_target) {
-        if (each_bkend_target == "cuda") {
-            new_header = "#include <kem_gpu/gpu_threadpool.hpp>";
-            llvm::StringRef code = SM.getBufferData(mainFileID);
-
-            if (code.contains(new_header) ||
-                code.contains("#include \"kem_gpu/gpu_threadpool.hpp\""))
-                return;
-
-            size_t insertPosition = code.rfind("#include");
-            clang::SourceLocation insertlocation = SM.getLocForStartOfFile(mainFileID);
-
-            if (insertPosition != llvm::StringRef::npos) {
-                unsigned line = 1;
-
-                for (size_t i = 0; i < insertPosition; i++)
-                    if (code[i] == '\n')
-                        line++;
-
-                insertlocation = SM.translateLineCol(mainFileID, line + 1, 1);
-            }
-
-            rewriter.InsertText(insertlocation, "#include <kem_gpu/gpu_threadpool.hpp>\n");
-
-            return;
-        } else if (each_bkend_target == "hip") {
-            new_header = "#include <kem_gpu/gpu_threadpool.hpp>";
-            llvm::StringRef code = SM.getBufferData(mainFileID);
-
-            if (code.contains(new_header) ||
-                code.contains("#include \"kem_gpu/gpu_threadpool.hpp\""))
-                return;
-
-            size_t insertPosition = code.rfind("#include");
-            clang::SourceLocation insertlocation = SM.getLocForStartOfFile(mainFileID);
-
-            if (insertPosition != llvm::StringRef::npos) {
-                unsigned line = 1;
-
-                for (size_t i = 0; i < insertPosition; i++)
-                    if (code[i] == '\n')
-                        line++;
-
-                insertlocation = SM.translateLineCol(mainFileID, line + 1, 1);
-            }
-
-            rewriter.InsertText(insertlocation, "#include <kem_gpu/gpu_threadpool.hpp>\n");
-
-            return;
-        }
-    }
-
-    llvm::StringRef code = SM.getBufferData(mainFileID);
-
-    if (code.contains("#include <kem/threadpool.hpp>") ||
-        code.contains("#include \"kem/threadpool.hpp\""))
-        return;
-
-    size_t insertPosition = code.rfind("#include");
-    clang::SourceLocation insertlocation = SM.getLocForStartOfFile(mainFileID);
-
-    if (insertPosition != llvm::StringRef::npos) {
+      if (insertPosition != llvm::StringRef::npos) {
         unsigned line = 1;
 
         for (size_t i = 0; i < insertPosition; i++)
-            if (code[i] == '\n')
-                line++;
+          if (code[i] == '\n')
+            line++;
 
         insertlocation = SM.translateLineCol(mainFileID, line + 1, 1);
-    }
+      }
 
-    rewriter.InsertText(insertlocation, "#include <kem/threadpool.hpp>\n");
+      rewriter.InsertText(insertlocation,
+                          "#include <kem_gpu/gpu_threadpool.hpp>\n");
+
+      return;
+    } else if (each_bkend_target == "hip") {
+      new_header = "#include <kem_gpu/rocm_threadpool.hpp>";
+      llvm::StringRef code = SM.getBufferData(mainFileID);
+
+      if (code.contains(new_header) ||
+          code.contains("#include \"kem_gpu/rocm_threadpool.hpp\""))
+        return;
+
+      size_t insertPosition = code.rfind("#include");
+      clang::SourceLocation insertlocation =
+          SM.getLocForStartOfFile(mainFileID);
+
+      if (insertPosition != llvm::StringRef::npos) {
+        unsigned line = 1;
+
+        for (size_t i = 0; i < insertPosition; i++)
+          if (code[i] == '\n')
+            line++;
+
+        insertlocation = SM.translateLineCol(mainFileID, line + 1, 1);
+      }
+
+      rewriter.InsertText(insertlocation,
+                          "#include <kem_gpu/HIPThreadpool.hpp>\n");
+
+      return;
+    }
+  }
+
+  llvm::StringRef code = SM.getBufferData(mainFileID);
+
+  if (code.contains("#include <kem/threadpool.hpp>") ||
+      code.contains("#include \"kem/threadpool.hpp\""))
+    return;
+
+  size_t insertPosition = code.rfind("#include");
+  clang::SourceLocation insertlocation = SM.getLocForStartOfFile(mainFileID);
+
+  if (insertPosition != llvm::StringRef::npos) {
+    unsigned line = 1;
+
+    for (size_t i = 0; i < insertPosition; i++)
+      if (code[i] == '\n')
+        line++;
+
+    insertlocation = SM.translateLineCol(mainFileID, line + 1, 1);
+  }
+
+  rewriter.InsertText(insertlocation, "#include <kem/threadpool.hpp>\n");
 }

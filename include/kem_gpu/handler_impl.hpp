@@ -28,102 +28,54 @@ namespace sycl {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
-    if constexpr (std::is_invocable_v<const Func&, id<dim>, kernel_handler>) {
-        this->template parallel_for<KernelName>(r, [f](id<dim> i) { f(i, kernel_handler{}); });
-        return;
-    } else if constexpr (std::is_invocable_v<const Func&, item<dim>, kernel_handler>) {
-        this->template parallel_for<KernelName>(r, [f](item<dim> i) { f(i, kernel_handler{}); });
-        return;
+  parallel_for(r, f);
+}
+
+template <typename Func, int dim>
+void handler::parallel_for(range<dim> r, Func f) {
+  if (gpu_pool_ == nullptr) {
+    throw std::runtime_error("GPU handler has no cuda_threadpool backend");
+  }
+
+  wait_for_dependencies();
+
+  if constexpr (dim == 1) {
+    if (isAsyncEnabled()) {
+      gpu_pool_->gpu_execute_1D_async(f);
     } else {
-#if (PARAS_CUDA_BACKEND)
-        if (gpu_pool_ == nullptr) {
-            throw std::runtime_error("GPU handler has no cuda_threadpool backend");
-        }
-
-        wait_for_dependencies();
-
-        if constexpr (dim == 1) {
-            if (isAsyncEnabled()) {
-                gpu_pool_->gpu_execute_1D_async(f);
-            } else {
-                gpu_pool_->gpu_execute_1D(r, f);
-            }
-        } else if constexpr (dim == 2) {
-            gpu_pool_->gpu_execute_2D(r, f);
-        } else if constexpr (dim == 3) {
-            gpu_pool_->gpu_execute_3D(r, f);
-        } else {
-            static_assert(dim <= 3, "Only 1D/2D/3D supported");
-        }
-#elif (PARAS_HIP_BACKEND)
-        if (rocm_pool_ == nullptr) {
-            throw std::runtime_error("GPU handler has no rocm_threadpool backend");
-        }
-
-        wait_for_dependencies();
-
-        if constexpr (dim == 1) {
-            if (isAsyncEnabled()) {
-                rocm_pool_->gpu_execute_1D_async(f);
-            } else {
-                rocm_pool_->gpu_execute_1D(r, f);
-            }
-        } else if constexpr (dim == 2) {
-            rocm_pool_->gpu_execute_2D(r, f);
-        } else if constexpr (dim == 3) {
-            rocm_pool_->gpu_execute_3D(r, f);
-        } else {
-            static_assert(dim <= 3, "Only 1D/2D/3D supported");
-        }
-#endif
+      gpu_pool_->gpu_execute_1D(r, f);
     }
+  } else if constexpr (dim == 2) {
+    gpu_pool_->gpu_execute_2D(r, f);
+  } else {
+    static_assert(dim <= 2, "Only 1D/2D supported");
+  }
 }
 
 template <typename KernelName, typename Func, int dim>
-void handler::parallel_for(const nd_range<dim>& r, Func f) {
-    if constexpr (std::is_invocable_v<const Func&, nd_item<dim>, kernel_handler>) {
-        this->template parallel_for<KernelName>(r, [f](nd_item<dim> i) { f(i, kernel_handler{}); });
-        return;
-    } else {
-#if (PARAS_CUDA_BACKEND)
-        if (gpu_pool_ == nullptr) {
-            throw std::runtime_error("GPU handler has no cuda_threadpool backend");
-        }
+void handler::parallel_for(const nd_range<dim> &r, Func f) {
+  parallel_for(r, f);
+}
 
-        wait_for_dependencies();
+template <typename Func, int dim>
+void handler::parallel_for(const nd_range<dim> &r, Func f) {
+  if (gpu_pool_ == nullptr) {
+    throw std::runtime_error("GPU handler has no cuda_threadpool backend");
+  }
 
-        const std::size_t sharedMemoryBytes_cuda = local_memory_size();
+  wait_for_dependencies();
 
-        if constexpr (dim == 1) {
-            gpu_pool_->gpu_execute_nd_range_1D(r, f, sharedMemoryBytes_cuda);
-        } else if constexpr (dim == 2) {
-            gpu_pool_->gpu_execute_nd_range_2D(r, f, sharedMemoryBytes_cuda);
-        } else if constexpr (dim == 3) {
-            gpu_pool_->gpu_execute_nd_range_3D(r, f, sharedMemoryBytes_cuda);
-        } else {
-            static_assert(dim <= 3, "Only 1D/2D/3D supported");
-        }
+  const std::size_t sharedMemoryBytes = local_memory_size();
 
-#elif (PARAS_HIP_BACKEND)
-        if (rocm_pool_ == nullptr) {
-            throw std::runtime_error("GPU handler has no rocm_threadpool backend");
-        }
-
-        wait_for_dependencies();
-
-        const std::size_t sharedMemoryBytes_hip = local_memory_size();
-
-        if constexpr (dim == 1) {
-            rocm_pool_->gpu_execute_nd_range_1D(r, f, sharedMemoryBytes_hip);
-        } else if constexpr (dim == 2) {
-            rocm_pool_->gpu_execute_nd_range_2D(r, f, sharedMemoryBytes_hip);
-        } else if constexpr (dim == 3) {
-            rocm_pool_->gpu_execute_nd_range_3D(r, f, sharedMemoryBytes_hip);
-        } else {
-            static_assert(dim <= 3, "Only 1D/2D/3D supported");
-        }
-#endif
-    }
+  if constexpr (dim == 1) {
+    gpu_pool_->gpu_execute_nd_range_1D(r, f, sharedMemoryBytes);
+  } else if constexpr (dim == 2) {
+    gpu_pool_->gpu_execute_nd_range_2D(r, f, sharedMemoryBytes);
+  } else if constexpr (dim == 3) {
+    gpu_pool_->gpu_execute_nd_range_3D(r, f, sharedMemoryBytes);
+  } else {
+    static_assert(dim <= 3, "Only 1D/2D/3D supported");
+  }
 }
 
 } // namespace sycl

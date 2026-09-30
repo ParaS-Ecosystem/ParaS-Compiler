@@ -23,27 +23,13 @@
 
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include <clang/ASTMatchers/ASTMatchers.h>
-#include <clang/Rewrite/Core/Rewriter.h>
-#include <llvm/ADT/DenseSet.h>
 
-#include <string>
-#include <utility>
-#include <vector>
-
-class ParaSLambdaHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
-
-private:
-    clang::Rewriter& rewriter;
-    clang::Rewriter& headerRewriter;
-    std::vector<std::string> backend_target;
-    llvm::DenseSet<const clang::CXXMethodDecl*> processedKernels;
+class ParaSLambdaHandler
+    : public clang::ast_matchers::MatchFinder::MatchCallback {
 
 public:
-    ParaSLambdaHandler(clang::Rewriter& r, clang::Rewriter& headerRw,
-                       std::vector<std::string> backend)
-        : rewriter(r), headerRewriter(headerRw), backend_target(std::move(backend)) {}
-
-    void run(const clang::ast_matchers::MatchFinder::MatchResult& result) override;
+  void
+  run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
 };
 
 #endif
