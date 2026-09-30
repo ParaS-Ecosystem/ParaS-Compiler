@@ -21,6 +21,7 @@
 #ifndef __PARAS_GPU_THREADPOOL_EXECUTE_NDRANGE_1D_HPP__
 #define __PARAS_GPU_THREADPOOL_EXECUTE_NDRANGE_1D_HPP__
 
+#include "kem/nd_range_validate.hpp"
 #include <cstddef>
 #include <stdexcept>
 
@@ -60,6 +61,8 @@ template <typename Func>
 void cuda_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1> &r,
                                               Func f,
                                               std::size_t sharedMemoryBytes) {
+
+  paras_detail::validate_nd_range(r);
   ensure_stream();
 
   const auto globalRange = r.get_global_range();
