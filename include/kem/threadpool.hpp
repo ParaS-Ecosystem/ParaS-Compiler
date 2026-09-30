@@ -72,7 +72,7 @@ public:
 
   template <typename Func> sycl::event spawn_1D_event(Func f);
 
-  template <typename Func> void spawn_ND(Func f);
+  template <typename Func> sycl::event spawn_ND(Func f);
 
   template <typename CGF> sycl::event submit(CGF &&cgf) {
     std::lock_guard<std::mutex> lock(submit_mutex_);
