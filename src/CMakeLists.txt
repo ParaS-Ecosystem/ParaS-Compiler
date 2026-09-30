@@ -19,7 +19,6 @@ add_executable(parascc
 	driver/ParaSSubmitHandler.cpp 
 	driver/ParaSParallelforHandler.cpp
 	driver/ParaSLambdaHandler.cpp
-	driver/ParaSDeviceFunctionMarker.cpp
 	driver/ParaSDeviceCallGraph.cpp
 )
 target_link_libraries(parascc
