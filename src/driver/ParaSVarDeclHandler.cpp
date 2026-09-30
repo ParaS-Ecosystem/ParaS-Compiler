@@ -80,7 +80,7 @@ const clang::InitListExpr* failedBracedInit(const clang::Expr* E) {
 
 void makeVecDirectListInit(clang::Rewriter& rewriter, const clang::InitListExpr* ILE,
                            clang::QualType target, const clang::ASTContext& ctx) {
-    static std::set<unsigned> done; // instantiations share the pattern's location
+    static std::set<unsigned> done;
     const clang::SourceManager& SM = ctx.getSourceManager();
     const clang::SourceLocation lbrace = ILE->getLBraceLoc();
     if (lbrace.isInvalid() || lbrace.isMacroID() || SM.isInSystemHeader(lbrace) ||
@@ -101,7 +101,7 @@ void makeVecDirectListInit(clang::Rewriter& rewriter, const clang::InitListExpr*
                << " made direct-list-initialization at " << lbrace.printToString(SM) << "\n";
 }
 
-} // namespace
+}
 
 void VarDeclReplacer::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
     if (const auto* RS = result.Nodes.getNodeAs<clang::ReturnStmt>("vec-braced-return")) {

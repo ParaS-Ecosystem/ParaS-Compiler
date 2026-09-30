@@ -117,6 +117,6 @@ inline void check_offload_arch_cuda(int device_id) {
 }
 #endif
 
-} // namespace paras_detail
+}
 
 #endif

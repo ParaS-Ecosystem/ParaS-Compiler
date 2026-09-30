@@ -143,4 +143,4 @@ void rocm_threadpool::gpu_execute_3D(const sycl::range<3>& r, Func f) {
 }
 #endif
 
-#endif /** End of gpu_threadpool_execute_ND >*/
+#endif

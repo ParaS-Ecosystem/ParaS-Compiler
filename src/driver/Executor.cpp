@@ -123,4 +123,4 @@ int executor(std::vector<std::string> command, std::vector<std::string> bkend_ta
         return WEXITSTATUS(status);
     return 1;
 }
-} // namespace executor
+}

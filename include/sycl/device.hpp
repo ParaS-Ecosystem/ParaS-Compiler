@@ -37,12 +37,12 @@
 
 namespace paras_extension {
 struct device_ctor_tag {};
-} // namespace paras_extension
+}
 
 namespace paras_extension {
 struct gpu_limits {
     std::uint64_t local_mem = 0;
-    std::size_t block_dim[3] = {0, 0, 0}; // x, y, z
+    std::size_t block_dim[3] = {0, 0, 0};
 };
 inline bool query_gpu_limits(int native_id, gpu_limits& out) {
 #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__) && PARAS_HIP_BACKEND
@@ -74,7 +74,7 @@ inline bool query_gpu_limits(int native_id, gpu_limits& out) {
     return true;
 #endif
 }
-} // namespace paras_extension
+}
 
 struct CUstream_st;
 
@@ -365,7 +365,7 @@ struct partition_affinity_domains {
     using return_type = std::vector<sycl::info::partition_affinity_domain>;
 };
 
-} // namespace device
+}
 
 namespace platform {
 struct name {
@@ -381,9 +381,9 @@ struct extensions {
     using return_type = std::vector<std::string>;
 };
 
-} // namespace platform
+}
 
-} // namespace info
+}
 
 enum class backend { cuda, host, hip };
 
@@ -729,7 +729,7 @@ inline auto device::get_info<info::device::max_work_item_sizes<1>>() const {
 
 template <>
 inline auto device::get_info<info::device::max_work_item_sizes<2>>() const {
-    paras_extension::gpu_limits g; // SYCL dimension N-1 is GPU x
+    paras_extension::gpu_limits g;
     if (is_gpu_ && paras_extension::query_gpu_limits(native_id_, g))
         return sycl::range<2>(g.block_dim[1], g.block_dim[0]);
     return sycl::range<2>(max_work_group_size_, max_work_group_size_);
@@ -737,7 +737,7 @@ inline auto device::get_info<info::device::max_work_item_sizes<2>>() const {
 
 template <>
 inline auto device::get_info<info::device::max_work_item_sizes<3>>() const {
-    paras_extension::gpu_limits g; // SYCL dimension N-1 is GPU x
+    paras_extension::gpu_limits g;
     if (is_gpu_ && paras_extension::query_gpu_limits(native_id_, g))
         return sycl::range<3>(g.block_dim[2], g.block_dim[1], g.block_dim[0]);
     return sycl::range<3>(max_work_group_size_, max_work_group_size_, max_work_group_size_);
@@ -1184,7 +1184,7 @@ template <>
 inline int get_native<backend::host, device>(const device& dev) {
     return dev.get_native_id();
 }
-} // namespace sycl
+}
 
 namespace std {
 template <>
@@ -1205,6 +1205,6 @@ struct hash<sycl::platform> {
     }
 };
 
-} // namespace std
+}
 
 #endif

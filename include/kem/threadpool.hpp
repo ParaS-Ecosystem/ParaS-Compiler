@@ -258,7 +258,7 @@ inline void handler::memcpy(void* dest, const void* src, size_t num_bytes) {
     std::memcpy(dest, src, num_bytes);
 }
 
-} // namespace sycl
+}
 
 template <typename T>
 inline void free(T* ptr, const threadpool& q) {

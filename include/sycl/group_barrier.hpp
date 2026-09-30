@@ -44,6 +44,6 @@ PARAS_KERNEL_HD inline void group_barrier(Group, memory_scope scope = Group::fen
 #endif
 }
 
-} // namespace sycl
+}
 
 #endif

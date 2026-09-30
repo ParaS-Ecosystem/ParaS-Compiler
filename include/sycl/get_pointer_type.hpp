@@ -79,7 +79,7 @@ inline usm::alloc query(const void* ptr, int* native_device) {
     return lookup_host_alloc(ptr);
 #endif
 }
-} // namespace paras_usm_detail
+}
 
 namespace usm {
 
@@ -89,7 +89,7 @@ inline alloc get_pointer_type(const void* ptr, const sycl::context& syclContext)
     return paras_usm_detail::query(ptr, &native_device);
 }
 
-} // namespace usm
+}
 
 PARAS_KERNEL_HD inline usm::alloc get_pointer_type(const void* ptr,
                                                    const sycl::context& syclContext) {
@@ -115,6 +115,6 @@ PARAS_KERNEL_HD inline device get_pointer_device(const void* ptr,
                           "get_pointer_device: pointer is not a USM allocation of this context");
 }
 
-} // namespace sycl
+}
 
 #endif

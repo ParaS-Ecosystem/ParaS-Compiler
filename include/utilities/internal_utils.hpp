@@ -195,13 +195,13 @@ public:
     using address = local_memory_allocator::address;
 };
 
-} // namespace paras_extension
+}
 
 namespace detail {
 
 template <typename T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
-} // namespace detail
+}
 
-#endif // __PARAS_INTERNAL_UTILS_HPP__
+#endif

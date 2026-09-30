@@ -73,7 +73,7 @@ inline std::string version_string() {
 #undef SYCL_DETAIL_STRINGIFY_IMPL
 #undef SYCL_DETAIL_STRINGIFY
 
-} // namespace detail
-} // namespace sycl
+}
+}
 
 #endif

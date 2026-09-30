@@ -53,7 +53,7 @@ constexpr T identity_or_default() {
         return T{};
     }
 }
-} // namespace paras_reduction_detail
+}
 
 template <typename T, typename BinaryOperation>
 reduction_impl<T, BinaryOperation> reduction(T* varPtr, BinaryOperation combiner,
@@ -124,6 +124,6 @@ PARAS_KERNEL_HD inline void paras_reduction_merge(T* var, const T& v, BinaryOper
     }
 }
 
-} // namespace sycl
+}
 
 #endif

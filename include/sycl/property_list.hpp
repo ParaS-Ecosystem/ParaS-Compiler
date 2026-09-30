@@ -30,20 +30,20 @@ namespace property {
 
 namespace command_group {
 struct profile_command_group {};
-} // namespace command_group
+}
 
 namespace queue {
 
 struct in_order {};
 struct enable_profiling {};
-} // namespace queue
+}
 
 struct no_init {};
 
 namespace reduction {
 struct initialize_to_identity {};
-} // namespace reduction
-} // namespace property
+}
+}
 
 inline constexpr property::no_init no_init{};
 
@@ -58,7 +58,7 @@ template <>
 struct is_property<property::no_init> : std::true_type {};
 template <>
 struct is_property<property::reduction::initialize_to_identity> : std::true_type {};
-} // namespace detail
+}
 
 class property_list {
 
@@ -92,6 +92,6 @@ public:
     bool has_initialize_to_identity() const { return initialize_to_identity_; }
 };
 
-} // namespace sycl
+}
 
 #endif

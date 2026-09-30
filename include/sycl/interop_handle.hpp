@@ -50,6 +50,6 @@ public:
     backend_return_t<Backend, queue> get_native_queue() const;
 };
 
-} // namespace sycl
+}
 
 #endif

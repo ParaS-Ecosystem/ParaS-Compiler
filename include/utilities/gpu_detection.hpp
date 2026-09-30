@@ -28,6 +28,6 @@ namespace paras_extension {
 std::vector<sycl::device> detect_nvidia_gpus();
 std::vector<sycl::device> detect_amd_gpus();
 std::vector<sycl::device> detect_all_gpus();
-} // namespace paras_extension
+}
 
 #endif

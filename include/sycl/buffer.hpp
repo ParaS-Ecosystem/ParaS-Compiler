@@ -42,8 +42,8 @@ class buffer {
     struct state {
         T* data = nullptr;
         range<Dimensions> r;
-        std::shared_ptr<T> keep_alive;                         // owned storage or user's shared_ptr
-        std::function<void(const T*, std::size_t)> final_data; // write-back target
+        std::shared_ptr<T> keep_alive;
+        std::function<void(const T*, std::size_t)> final_data;
         bool write_back = true;
 
         ~state() {
@@ -232,7 +232,7 @@ buffer(const T*, const range<Dimensions>&, AllocatorT, const property_list& = {}
 template <class T, int Dimensions>
 buffer(const T*, const range<Dimensions>&, const property_list& = {}) -> buffer<T, Dimensions>;
 
-} // namespace sycl
+}
 
 namespace std {
 template <typename T, int Dimensions, typename AllocatorT>
@@ -241,6 +241,6 @@ struct hash<sycl::buffer<T, Dimensions, AllocatorT>> {
         return std::hash<const void*>{}(static_cast<const void*>(b.data()));
     }
 };
-} // namespace std
+}
 
 #endif

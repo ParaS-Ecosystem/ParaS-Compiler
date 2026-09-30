@@ -144,6 +144,6 @@ public:
 #pragma clang diagnostic pop
 };
 
-} // namespace sycl
+}
 
 #endif

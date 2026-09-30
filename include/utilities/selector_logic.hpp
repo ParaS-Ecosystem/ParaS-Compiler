@@ -108,6 +108,6 @@ inline sycl::device select_device_no_selector() {
 #endif
 }
 
-} // namespace paras_extension
+}
 
 #endif

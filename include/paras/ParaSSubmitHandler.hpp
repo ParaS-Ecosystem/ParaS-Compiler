@@ -39,10 +39,10 @@ private:
     std::vector<std::string> bkend_target;
 
     struct PendingSubmitWait {
-        clang::SourceRange waitRange;   
-        clang::SourceRange submitRange; 
-        clang::SourceRange queueRange;  
-        std::string waitName;           
+        clang::SourceRange waitRange;
+        clang::SourceRange submitRange;
+        clang::SourceRange queueRange;
+        std::string waitName;
     };
     std::vector<PendingSubmitWait> pendingSubmitWaits;
 

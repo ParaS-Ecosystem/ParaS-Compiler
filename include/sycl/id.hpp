@@ -78,9 +78,6 @@ public:
     PARAS_KERNEL_HD
     size_t& get(int dim) { return dims_[dim]; }
 
-    /** Implicit id<1> -> size_t (SYCL 2020). Kept as a plain (non-template)
-     *  conversion so `ptr[id]` keeps working; the operator== below is an
-     *  exact match, so `id<2> == id<2>` no longer falls back to this. */
     PARAS_KERNEL_HD
     operator size_t() const {
         static_assert(Dimensions == 1, "Implicit conversion only valid for id<1>");
@@ -105,6 +102,6 @@ id(size_t) -> id<1>;
 id(size_t, size_t) -> id<2>;
 id(size_t, size_t, size_t) -> id<3>;
 
-} // namespace sycl
+}
 
 #endif

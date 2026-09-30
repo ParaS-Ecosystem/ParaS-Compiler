@@ -87,7 +87,7 @@ struct identity<BinaryOperation, T, std::enable_if_t<is_op_v<maximum, BinaryOper
                                    : std::numeric_limits<T>::lowest();
 };
 
-} // namespace paras_identity_detail
+}
 
 template <typename BinaryOperation, typename AccumulatorT>
 struct has_known_identity
@@ -111,6 +111,6 @@ template <typename BinaryOperation, typename AccumulatorT>
 inline constexpr AccumulatorT known_identity_v =
     known_identity<BinaryOperation, AccumulatorT>::value;
 
-} // namespace sycl
+}
 
 #endif

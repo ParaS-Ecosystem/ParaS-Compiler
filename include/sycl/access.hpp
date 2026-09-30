@@ -54,11 +54,11 @@ enum class fence_space : char {
     local_space,
     global_space,
     global_and_local
-}; // enum class fence_space
+};
 
 enum class placeholder { false_t, true_t };
 
-} // namespace access
+}
 
 using access_mode = access::mode;
 
@@ -90,6 +90,6 @@ inline constexpr read_only_host_task_tag_t read_only_host_task{};
 inline constexpr write_only_host_task_tag_t write_only_host_task{};
 inline constexpr read_write_host_task_tag_t read_write_host_task{};
 
-} // namespace sycl
+}
 
 #endif

@@ -102,7 +102,7 @@ inline kernel_bundle<State> join(const std::vector<kernel_bundle<State>>&) {
     return kernel_bundle<State>{};
 }
 
-} // namespace sycl
+}
 
 namespace sycl {
 
@@ -184,7 +184,7 @@ inline auto device::get_info<info::device::built_in_kernel_ids>() const {
     return std::vector<kernel_id>{};
 }
 
-} // namespace sycl
+}
 
 namespace std {
 template <>
@@ -193,6 +193,6 @@ struct hash<sycl::kernel> {
         return std::hash<sycl::context>{}(k.get_context());
     }
 };
-} // namespace std
+}
 
 #endif

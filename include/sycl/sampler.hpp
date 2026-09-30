@@ -62,6 +62,6 @@ public:
     bool operator!=(const sampler& rhs) const { return !(*this == rhs); }
 };
 
-} // namespace sycl
+}
 
 #endif

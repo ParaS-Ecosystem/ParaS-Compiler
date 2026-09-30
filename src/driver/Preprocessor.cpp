@@ -94,4 +94,4 @@ void process_file(const std::string& inputfile, const std::string& outputfile,
     fout.close();
 }
 
-} // namespace preprocessor
+}

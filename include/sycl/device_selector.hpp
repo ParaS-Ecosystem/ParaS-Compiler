@@ -113,6 +113,6 @@ inline auto aspect_selector(Aspect0 first, Aspects... rest) {
     }};
 }
 
-} // namespace sycl
+}
 
 #endif

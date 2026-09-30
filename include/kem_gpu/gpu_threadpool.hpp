@@ -962,7 +962,7 @@ sycl::interop_handle::get_native_queue<sycl::backend::hip>() const {
     return pool ? pool->stream : nullptr;
 #endif
 }
-} // namespace sycl
+}
 
 #if (PARAS_CUDA_BACKEND)
 template <typename Func>
@@ -984,7 +984,7 @@ sycl::event cuda_threadpool::spawn_1D_event(Func f) {
 
 template <typename Func>
 void cuda_threadpool::spawn_ND(Func f) {
-    sycl::handler cgh(*this); // Currently same as 1D; modify for ND ranges
+    sycl::handler cgh(*this);
     f(cgh);
 }
 #elif (PARAS_HIP_BACKEND)
@@ -1007,7 +1007,7 @@ sycl::event rocm_threadpool::spawn_1D_event(Func f) {
 
 template <typename Func>
 void rocm_threadpool::spawn_ND(Func f) {
-    sycl::handler cgh(*this); // Currently same as 1D; modify for ND ranges
+    sycl::handler cgh(*this);
     f(cgh);
 }
 #endif

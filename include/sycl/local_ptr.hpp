@@ -33,6 +33,6 @@ using local_ptr =
 
 using local_ptr_float = local_ptr<float>;
 
-} // namespace sycl
+}
 
 #endif

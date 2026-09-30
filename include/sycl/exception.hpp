@@ -47,12 +47,12 @@ enum class errc {
     backend_mismatch
 };
 
-} // namespace sycl
+}
 
 namespace std {
 template <>
 struct is_error_code_enum<sycl::errc> : public std::true_type {};
-} // namespace std
+}
 
 namespace sycl {
 class context;
@@ -141,6 +141,6 @@ private:
     std::vector<std::exception_ptr> list_;
 };
 
-} // namespace sycl
+}
 
 #endif

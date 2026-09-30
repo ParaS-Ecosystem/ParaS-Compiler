@@ -31,7 +31,7 @@ struct is_device_copyable : std::bool_constant<std::is_trivially_copyable_v<T>> 
 template <typename T>
 inline constexpr bool is_device_copyable_v = is_device_copyable<T>::value;
 
-} // namespace sycl
+}
 
 #define SYCL_ADD_DEVICE_COPYABLE(T)                                                                \
     namespace sycl {                                                                               \

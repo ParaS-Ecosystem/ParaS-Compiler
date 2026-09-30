@@ -136,7 +136,7 @@ public:
     bool is_ready() const { return m_ready; }
 };
 
-} // namespace sycl
+}
 
 namespace std {
 template <>
@@ -145,6 +145,6 @@ struct hash<sycl::event> {
         return std::hash<const void*>{}(e.identity());
     }
 };
-} // namespace std
+}
 
 #endif

@@ -31,7 +31,7 @@ inline float rsqrt(float x) {
     return 1.0f / sycl::sqrt(x);
 }
 
-} // namespace native
-} // namespace sycl
+}
+}
 
 #endif

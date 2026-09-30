@@ -17,7 +17,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
- 
+
 #ifndef __PARAS_HALF_HPP__
 #define __PARAS_HALF_HPP__
 
@@ -180,7 +180,7 @@ static_assert(sizeof(half) == 2,
 static_assert(alignof(half) == alignof(_Float16),
               "sycl::half has unexpected alignment");
 
-} // namespace sycl
+}
 
 namespace std {
 
@@ -264,6 +264,6 @@ public:
       round_to_nearest;
 };
 
-} // namespace std
+}
 
-#endif    // End of __PARAS_HALF_HPP__
+#endif

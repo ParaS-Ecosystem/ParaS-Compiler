@@ -97,8 +97,8 @@ PARAS_KERNEL_HD inline void invoke_range_kernel(const Func& f, const id<D>& idx,
     else
         f(idx);
 }
-} // namespace detail
+}
 
-} // namespace sycl
+}
 
 #endif

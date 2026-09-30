@@ -56,7 +56,6 @@ public:
     explicit queue(const decltype(default_selector_v)& selector, const property_list& = {})
         : dev_(selector) {}
 
-  
     template <typename DeviceSelector,
               typename = std::enable_if_t<std::is_invocable_r_v<
                   int, const DeviceSelector&, const device&>>>
@@ -325,7 +324,7 @@ inline void sycl::queue::wait_and_throw() const {
 }
 #endif
 
-} // namespace sycl
+}
 
 namespace std {
 template <>
@@ -335,6 +334,6 @@ struct hash<sycl::queue> {
         return std::hash<const void*>{}(q.paras_identity());
     }
 };
-} // namespace std
+}
 
 #endif

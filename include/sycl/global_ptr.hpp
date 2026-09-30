@@ -33,6 +33,6 @@ using global_ptr =
 
 using global_ptr_const_float = global_ptr<const float>;
 
-} // namespace sycl
+}
 
 #endif

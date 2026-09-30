@@ -37,7 +37,7 @@ struct command_execution_status {
     using return_type = sycl::info::event_command_status;
 };
 
-} // namespace event
+}
 
 namespace event_profiling {
 
@@ -53,7 +53,7 @@ struct command_end {
     using return_type = unsigned long long;
 };
 
-} // namespace event_profiling
+}
 
 namespace kernel {
 
@@ -65,7 +65,7 @@ struct attributes {
     using return_type = std::string;
 };
 
-} // namespace kernel
+}
 
 namespace kernel_device_specific {
 
@@ -105,8 +105,8 @@ struct compile_sub_group_size {
     using return_type = std::uint32_t;
 };
 
-} // namespace kernel_device_specific
+}
 
-} // namespace info
-} // namespace sycl
+}
+}
 #endif
