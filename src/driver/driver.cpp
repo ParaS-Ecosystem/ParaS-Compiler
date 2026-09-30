@@ -263,6 +263,12 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
     args.push_back(argv[i]);
   }
 
+  if (std::string(PARAS_GCC_TOOLCHAIN).size() &&
+      std::none_of(args.begin(), args.end(), [](const std::string &a) {
+        return a.rfind("--gcc-toolchain", 0) == 0;
+      }))
+    args.push_back(std::string("--gcc-toolchain=") + PARAS_GCC_TOOLCHAIN);
+
   std::vector<std::string> bkend_target(4);
   bool found = false;
   bool llvmResDirFound = false;
@@ -407,8 +413,7 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
   }
 
   if (!llvmResDirFound) {
-    std::string cmd =
-        std::string(PARAS_BASE_COMPILER) + " --print-resource-dir";
+    std::string cmd = executor::base_compiler() + " --print-resource-dir";
     const char *cmd_str = cmd.c_str();
     FILE *pipe = popen(cmd_str, "r");
     if (!pipe) {

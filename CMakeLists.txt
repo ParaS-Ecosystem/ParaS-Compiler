@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.26.5)
-project(ParaS VERSION 26.10.0 LANGUAGES C CXX)
+project(ParaS-v1.0)
+
+message(STATUS "Configuring paras v1.0")
 
 # Set GCC toolchain path for Clang
 set(CMAKE_C_COMPILER clang)
@@ -11,34 +13,47 @@ endif()
 
 #setting paras version info
 
-if(NOT PARAS_VERSION_MAJOR)
-  set(PARAS_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+if(NOT DEFINED PARAS_MAJOR_VERSION)
+	set(PARAS_MAJOR_VERSION 1)
 endif()
 
-if(NOT PARAS_VERSION_MINOR)
-  set(PARAS_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+if(NOT DEFINED PARAS_MINOR_VERSION)
+	set(PARAS_MINOR_VERSION 0)
 endif()
 
-if(NOT PARAS_VERSION_PATCH)
-  set(PARAS_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+if(NOT DEFINED PARAS_VERSION_PATCH)
+	set(PARAS_VERSION_PATCH 0)
 endif()
-
-if(NOT PARAS_VERSION_SUFFIX)
-  set(PARAS_VERSION_SUFFIX "")
-endif()
-
-set(PARAS_MAJOR_VERSION ${PARAS_VERSION_MAJOR})
-set(PARAS_MINOR_VERSION ${PARAS_VERSION_MINOR})
-set(PARAS_PATCH_VERSION ${PARAS_VERSION_PATCH})
 
 if (NOT PARAS_VERSION)
-	set(PARAS_VERSION "${PARAS_VERSION_MAJOR}.${PARAS_VERSION_MINOR}.${PARAS_VERSION_PATCH}")
+	set(PARAS_VERSION "${PARAS_MAJOR_VERSION}.${PARAS_MINOR_VERSION}.${PARAS_VERSION_PATCH}")
 endif()
 
 
 message(STATUS "Setting up configuration for PARAS v${PARAS_VERSION}")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# GCC installation clang should use (--gcc-toolchain), e.g. /usr/local when
+# clang is built against a newer GCC than the system one. It is used to build
+# ParaS itself AND by parascc for every user compile, so C++ headers and the
+# libstdc++ loaded at run time always match. Without it, clang may pick the
+# system GCC's headers while libstdc++ comes from the newer GCC: std::filesystem
+# (and other ABI-changed types) then crash at run time.
+set(PARAS_GCC_TOOLCHAIN "" CACHE PATH "GCC installation passed to clang as --gcc-toolchain (optional)")
+set(PARAS_GCC_LIBDIR "")
+if(PARAS_GCC_TOOLCHAIN)
+	if(EXISTS "${PARAS_GCC_TOOLCHAIN}/lib64")
+		set(PARAS_GCC_LIBDIR "${PARAS_GCC_TOOLCHAIN}/lib64")
+	else()
+		set(PARAS_GCC_LIBDIR "${PARAS_GCC_TOOLCHAIN}/lib")
+	endif()
+	message(STATUS "GCC toolchain for clang: ${PARAS_GCC_TOOLCHAIN} (libstdc++ from ${PARAS_GCC_LIBDIR})")
+	string(APPEND CMAKE_CXX_FLAGS " --gcc-toolchain=${PARAS_GCC_TOOLCHAIN}")
+	string(APPEND CMAKE_C_FLAGS " --gcc-toolchain=${PARAS_GCC_TOOLCHAIN}")
+	string(APPEND CMAKE_EXE_LINKER_FLAGS " -L${PARAS_GCC_LIBDIR} -Wl,-rpath,${PARAS_GCC_LIBDIR}")
+	string(APPEND CMAKE_SHARED_LINKER_FLAGS " -L${PARAS_GCC_LIBDIR} -Wl,-rpath,${PARAS_GCC_LIBDIR}")
+endif()
 
 #include_directories(${PROJECT_SOURCE_DIR}/include)
 
@@ -59,22 +74,12 @@ else()
 
 #define PARAS_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\"
 #define PARAS_BASE_COMPILER \"${PARAS_BASE_COMPILER}\"
+#define PARAS_GCC_TOOLCHAIN \"${PARAS_GCC_TOOLCHAIN}\"
+#define PARAS_GCC_LIBDIR \"${PARAS_GCC_LIBDIR}\"
 #endif
 ")
 	endif()
 endif()
-
-configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/paras/ParaSVersionConfig.hpp.in
-  ${CMAKE_CURRENT_BINARY_DIR}/include/paras/ParaSVersionConfig.hpp
-  @ONLY
-)
-
-install(
-  FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/include/paras/ParaSVersionConfig.hpp
-  DESTINATION include/paras
-)
 
 add_subdirectory(include)
 add_subdirectory(src)
@@ -82,8 +87,10 @@ add_subdirectory(src)
 
 include(CMakePackageConfigHelpers)
 
+
 set(PARAS_INSTALL_CMAKE_DIR "lib/cmake/paras" CACHE PATH "Install path for CMake config files")
 set(PARAS_INSTALL_COMPILER_DIR bin)
+
 
 configure_package_config_file(
   ${PROJECT_SOURCE_DIR}/cmake/paras-config.cmake.in
@@ -95,14 +102,10 @@ configure_package_config_file(
 
 write_basic_package_version_file(
   ${PROJECT_BINARY_DIR}/paras-config-version.cmake
-  VERSION ${PARAS_VERSION}
+  VERSION ${PARAS_MAJOR_VERSION}
   COMPATIBILITY SameMajorVersion
 )
 
-install(FILES
-  ${PROJECT_SOURCE_DIR}/include/paras/ParaSVersion.hpp
-  DESTINATION include/paras
-)
 
 install(FILES
   ${PROJECT_BINARY_DIR}/paras-config.cmake
@@ -110,11 +113,13 @@ install(FILES
   DESTINATION ${PARAS_INSTALL_CMAKE_DIR}
 )
 
+
 install(EXPORT install_exports
   FILE paras-targets.cmake
   #  NAMESPACE paras::
   DESTINATION ${PARAS_INSTALL_CMAKE_DIR}
 )
+
 
 mark_as_advanced(PARAS_INSTALL_CMAKE_DIR)
 
