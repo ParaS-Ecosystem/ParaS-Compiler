@@ -209,11 +209,11 @@ void SubmitFunctionCallback::HandleHeaders(const clang::SourceManager &SM) {
 
       return;
     } else if (each_bkend_target == "hip") {
-      new_header = "#include <kem_gpu/rocm_threadpool.hpp>";
+      new_header = "#include <kem_gpu/gpu_threadpool.hpp>";
       llvm::StringRef code = SM.getBufferData(mainFileID);
 
       if (code.contains(new_header) ||
-          code.contains("#include \"kem_gpu/rocm_threadpool.hpp\""))
+          code.contains("#include \"kem_gpu/gpu_threadpool.hpp\""))
         return;
 
       size_t insertPosition = code.rfind("#include");

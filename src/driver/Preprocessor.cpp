@@ -66,12 +66,9 @@ void process_file(const std::string &inputfile, const std::string &outputfile,
 
   if (!found_sycl) {
     if (!bkend_target[0].empty()) {
-      if (bkend_target[0] == "cuda") {
+
+      if (bkend_target[0] == "cuda" || bkend_target[0] == "hip") {
         fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
-        fout << "#define PARASDEVICE 1\n";
-      } else if (bkend_target[0] == "hip") {
-        fout << "#include \"kem_gpu/rocm_threadpool.hpp\"\n";
-        fout << "#define PARASDEVICE 2\n";
       }
     } else {
       fout << "#include \"kem/threadpool.hpp\"\n";
@@ -84,12 +81,8 @@ void process_file(const std::string &inputfile, const std::string &outputfile,
 
     if (!inserted && std::regex_search(l, sycl_include)) {
       if (!bkend_target[0].empty()) {
-        if (bkend_target[0] == "cuda") {
+        if (bkend_target[0] == "cuda" || bkend_target[0] == "hip") {
           fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
-          fout << "#define PARASDEVICE 1\n";
-        } else if (bkend_target[0] == "hip") {
-          fout << "#include \"kem_gpu/rocm_threadpool.hpp\"\n";
-          fout << "#define PARASDEVICE 2\n";
         }
       } else {
         fout << "#include \"kem/threadpool.hpp\"\n";

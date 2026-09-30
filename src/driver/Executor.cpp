@@ -22,6 +22,9 @@
 #include "pathfinder.hpp"
 #include <llvm/Support/CommandLine.h>
 
+#include <cstdio>
+#include <sys/wait.h>
+
 namespace executor {
 std::string find_clangxx(const char *argv0) {
   try {
@@ -50,8 +53,8 @@ std::string find_clangxx(const char *argv0) {
   return "clang++";
 }
 
-void executor(std::vector<std::string> command,
-              std::vector<std::string> bkend_target) {
+int executor(std::vector<std::string> command,
+             std::vector<std::string> bkend_target) {
   std::string program_name = PARAS_BASE_COMPILER;
   command.insert(command.begin(), program_name);
 
@@ -60,15 +63,18 @@ void executor(std::vector<std::string> command,
     std::string tar_arch = "";
     back_end = bkend_target[0];
     tar_arch = bkend_target[1];
+
+    std::vector<std::string> prefix;
     if (bkend_target[3] != "is_link_only") {
-      command.insert(command.begin() + 1, "-x");
-      command.insert(command.begin() + 2, back_end);
-      command.insert(command.begin() + 3, "--offload-arch=" + tar_arch);
+      prefix.push_back("-x");
+      prefix.push_back(back_end);
+      prefix.push_back("--offload-arch=" + tar_arch);
     }
     if (!bkend_target[2].empty()) {
-      command.insert(command.begin() + 4, "-resource-dir");
-      command.insert(command.begin() + 5, bkend_target[2]);
+      prefix.push_back("-resource-dir");
+      prefix.push_back(bkend_target[2]);
     }
+    command.insert(command.begin() + 1, prefix.begin(), prefix.end());
     command.push_back("-L");
     std::string parasLibPath = PARAS_INSTALL_PREFIX + std::string("/lib");
     command.push_back(parasLibPath);
@@ -92,8 +98,21 @@ void executor(std::vector<std::string> command,
 
   args.push_back(nullptr);
 
-  execvp(program_name.c_str(), args.data());
-
-  perror("parascc execvp failed");
+  pid_t pid = fork();
+  if (pid < 0) {
+    perror("parascc: fork failed");
+    return 1;
+  }
+  if (pid == 0) {
+    execvp(program_name.c_str(), args.data());
+    perror("parascc: execvp failed");
+    _exit(127);
+  }
+  int status = 0;
+  if (waitpid(pid, &status, 0) < 0) {
+    perror("parascc: waitpid failed");
+    return 1;
+  }
+  return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
 }
 } // namespace executor

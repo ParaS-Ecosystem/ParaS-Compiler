@@ -48,6 +48,9 @@
 #include <unistd.h>
 #include <vector>
 
+#include <cstdlib>
+#include <map>
+
 #include "paras/Executor.hpp"
 #include "paras/ParaSConsumer.hpp"
 #include "paras/Preprocessor.hpp"
@@ -57,6 +60,35 @@
 bool is_link_only = false;
 std::string GlobalOutFile = "";
 std::vector<std::string> markForDeletion;
+
+std::map<std::string, std::string> ppToOriginalSource;
+static std::string parasTempDir;
+
+static void cleanupTempFiles() {
+  if (std::getenv("PARAS_KEEP_TEMPS"))
+    return;
+  for (const auto &f : markForDeletion)
+    llvm::sys::fs::remove(f);
+  markForDeletion.clear();
+  if (!parasTempDir.empty())
+    llvm::sys::fs::remove(parasTempDir);
+}
+
+static std::string transformedFileNameFor(const std::string &ppFile) {
+  if (parasTempDir.empty()) {
+    llvm::SmallString<128> dir;
+    if (!llvm::sys::fs::createUniqueDirectory("paras", dir))
+      parasTempDir = std::string(dir.str());
+  }
+  auto it = ppToOriginalSource.find(ppFile);
+  if (!parasTempDir.empty() && it != ppToOriginalSource.end()) {
+    llvm::SmallString<256> path(parasTempDir);
+    llvm::sys::path::append(path, llvm::sys::path::filename(it->second));
+    if (!llvm::sys::fs::exists(path))
+      return std::string(path.str());
+  }
+  return "";
+}
 std::vector<std::string> transformedSourceFiles;
 std::vector<std::string> finalCompilerArgs;
 
@@ -165,15 +197,18 @@ public:
       return;
     }
 
-    std::string tmpModel = "/tmp/paras_tmp_%%%%%%%%.cpp";
-    llvm::SmallString<128> tempPathSV;
     std::error_code EC;
-    if ((EC = llvm::sys::fs::createUniqueFile(tmpModel, tempPathSV))) {
-      llvm::errs() << "Issue with creating temp file: " << EC.message() << "\n";
-      return;
+    std::string tempFile = transformedFileNameFor(getCurrentFile().str());
+    if (tempFile.empty()) {
+      std::string tmpModel = "/tmp/paras_tmp_%%%%%%%%.cpp";
+      llvm::SmallString<128> tempPathSV;
+      if ((EC = llvm::sys::fs::createUniqueFile(tmpModel, tempPathSV))) {
+        llvm::errs() << "Issue with creating temp file: " << EC.message()
+                     << "\n";
+        return;
+      }
+      tempFile = std::string(tempPathSV.str());
     }
-
-    std::string tempFile(tempPathSV.str());
 
     llvm::raw_fd_ostream outFile(tempFile, EC);
     if (EC) {
@@ -260,7 +295,8 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
           std::cerr << "Error: architecture part cannot be empty\n";
           exit(1);
         }
-        args.push_back("-DPARASDEVICE=1");
+        args.push_back(backend == "hip" ? "-DPARASDEVICE=2"
+                                        : "-DPARASDEVICE=1");
         bkend_target[0] = backend;
         bkend_target[1] = arch;
         args.erase(args.begin() + i, args.begin() + i + 2);
@@ -330,6 +366,7 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
     preprocessor::process_file(sourceFile, ppoutputfile, bkend_target);
     preprocessedSourceFiles.push_back(ppoutputfile);
     markForDeletion.push_back(ppoutputfile);
+    ppToOriginalSource[ppoutputfile] = sourceFile;
   }
 
   std::vector<std::string> row0, row1, row2;
@@ -444,6 +481,16 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
 }
 
 int main(int argc, const char **argv) {
+  std::atexit(cleanupTempFiles);
+
+  for (int i = 1; i < argc; ++i) {
+    const std::string a = argv[i];
+    if (a == "--pversion" || a == "-pversion") {
+      llvm::outs() << "Paras Driver version 1.0.0 (LLVM/Clang v"
+                   << LLVM_VERSION_STRING << ")\n";
+      return 0;
+    }
+  }
   std::vector<std::vector<std::string>> compilerFlags =
       parseCommandLineArgs(argc, argv);
   if (is_link_only) {
@@ -511,6 +558,5 @@ int main(int argc, const char **argv) {
     return 1;
   }
 
-  executor::executor(finalCommand, compilerFlags[3]);
-  return 0;
+  return executor::executor(finalCommand, compilerFlags[3]);
 }
