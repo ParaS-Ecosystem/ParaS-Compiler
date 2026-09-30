@@ -22,6 +22,7 @@
 #define __GPU_UTILITIES_HPP__
 #include "kem/host_group_runtime.hpp"
 #include <cstddef>
+#include <cstdint>
 
 #ifndef PARAS_KERNEL_HD
 #if defined(__CUDA_ARCH__) || defined(__CUDACC__)
@@ -72,16 +73,44 @@ inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
 #endif
 #endif
 
-#if defined(__CUDA_ARCH__)
+#ifndef PARAS_WARP_SIZE
+#  if defined(__AMDGCN_WAVEFRONT_SIZE)
+#    define PARAS_WARP_SIZE __AMDGCN_WAVEFRONT_SIZE
+#  elif defined(__AMDGCN_WAVEFRONT_SIZE__)
+#    define PARAS_WARP_SIZE __AMDGCN_WAVEFRONT_SIZE__
+#  elif defined(__HIP__) || defined(__HIPCC__)
+#    define PARAS_WARP_SIZE 64
+#  elif defined(__CUDACC__) || defined(__CUDA_ARCH__)
+#    define PARAS_WARP_SIZE 32
+#  else
+#    define PARAS_WARP_SIZE 1
+#  endif
+#endif
+
+#if defined(__CUDA_ARCH__) || defined(__HIP_PLATFORM_AMD__)
 #define PARAS_KERNEL_D __device__
 #else
 #define PARAS_KERNEL_D
 #endif
 
 PARAS_KERNEL_HD
-inline bool paras_any_sync(unsigned mask, bool pred) {
+inline bool paras_any_sync(std::uint64_t mask, bool pred) {
 #if defined(__CUDA_ARCH__)
-  return __any_sync(mask, pred);
+  return __any_sync(static_cast<unsigned>(mask), pred);
+#elif defined(__AMDGCN__)
+  (void)mask;
+  #if !defined(__AMDGCN_WAVEFRONT_SIZE__)
+    #error "AMDGCN wavefront size is unavailable"
+  #elif __AMDGCN_WAVEFRONT_SIZE__ == 32
+    return __builtin_amdgcn_ballot_w32(pred) != 0;
+  #elif __AMDGCN_WAVEFRONT_SIZE__ == 64
+    return __builtin_amdgcn_ballot_w64(pred) != 0;
+  #else
+    #error "Unsupported AMDGCN wavefront size"
+  #endif
+#elif defined(__HIP_DEVICE_COMPILE__)
+  (void)mask;
+    return __any(pred);
 #else
   (void)mask;
   return pred;
@@ -89,8 +118,14 @@ inline bool paras_any_sync(unsigned mask, bool pred) {
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl_down(unsigned mask, T v, int delta) {
+PARAS_KERNEL_HD inline T paras_shfl_down(std::uint64_t mask, T v, int delta) {
 #if defined(__CUDA_ARCH__)
+  return __shfl_down_sync(static_cast<unsigned>(mask), v, delta);
+#elif defined(__AMDGCN__)
+
+  (void)mask;
+  return __shfl_down(v, delta);
+#elif defined(__HIP_DEVICE_COMPILE__)
   return __shfl_down_sync(mask, v, delta);
 #else
   return v;
@@ -98,8 +133,14 @@ PARAS_KERNEL_HD inline T paras_shfl_down(unsigned mask, T v, int delta) {
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl_up(unsigned mask, T v, int delta) {
+PARAS_KERNEL_HD inline T paras_shfl_up(std::uint64_t mask, T v, int delta) {
 #if defined(__CUDA_ARCH__)
+  return __shfl_up_sync(static_cast<unsigned>(mask), v, delta);
+#elif defined(__AMDGCN__)
+
+  (void)mask;
+  return __shfl_up(v, delta);
+#elif defined(__HIP_DEVICE_COMPILE__)
   return __shfl_up_sync(mask, v, delta);
 #else
   return v;
@@ -107,27 +148,71 @@ PARAS_KERNEL_HD inline T paras_shfl_up(unsigned mask, T v, int delta) {
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl(unsigned mask, T v, int lane) {
+PARAS_KERNEL_HD inline T paras_shfl(std::uint64_t mask, T v, int lane) {
 #if defined(__CUDA_ARCH__)
+  return __shfl_sync(static_cast<unsigned>(mask), v, lane);
+#elif defined(__AMDGCN__)
+
+  (void)mask;
+  return __shfl(v, lane);
+#elif defined(__HIP_DEVICE_COMPILE__)
   return __shfl_sync(mask, v, lane);
 #else
   return v;
 #endif
 }
 
-PARAS_KERNEL_HD
-inline unsigned paras_active_mask() {
+template <typename T>
+PARAS_KERNEL_HD inline T paras_shfl_xor(std::uint64_t mask, T v, int lane_mask) {
 #if defined(__CUDA_ARCH__)
-  return __activemask();
+  return __shfl_xor_sync(static_cast<unsigned>(mask), v, lane_mask);
+#elif defined(__AMDGCN__)
+  (void)mask;
+  return __shfl_xor(v, lane_mask);
+#elif defined(__HIP_DEVICE_COMPILE__)
+  return __shfl_xor_sync(mask, v, lane_mask);
 #else
+  (void)mask; (void)lane_mask;
+  return v;
+#endif
+}
+
+PARAS_KERNEL_HD
+inline std::uint64_t paras_active_mask() {
+#if defined(__CUDA_ARCH__)
+  return static_cast<std::uint64_t>(__activemask());
+
+#elif defined(__HIP_DEVICE_COMPILE__) && defined(__HIP_PLATFORM_NVIDIA__)
+  return static_cast<std::uint64_t>(__activemask());
+
+#elif defined(__AMDGCN__)
+  #if !defined(__AMDGCN_WAVEFRONT_SIZE__)
+    #error "AMDGCN wavefront size is unavailable"
+  #elif __AMDGCN_WAVEFRONT_SIZE__ == 32
+    return static_cast<std::uint64_t>(
+        __builtin_amdgcn_read_exec_lo());
+  #elif __AMDGCN_WAVEFRONT_SIZE__ == 64
+    return static_cast<std::uint64_t>(
+        __builtin_amdgcn_read_exec());
+  #else
+    #error "Unsupported AMDGCN wavefront size"
+  #endif
+
+#else
+
   return 0xffffffffu;
 #endif
 }
 
 PARAS_KERNEL_HD
-inline void paras_syncwarp(unsigned mask = 0xffffffff) {
+inline void paras_syncwarp(std::uint64_t mask = 0xffffffffu) {
 #if defined(__CUDA_ARCH__)
-  __syncwarp(mask);
+  __syncwarp(static_cast<unsigned>(mask));
+#elif defined(__HIP_DEVICE_COMPILE__) && defined(__HIP_PLATFORM_NVIDIA__)
+  __syncwarp(static_cast<unsigned>(mask));
+#elif defined(__AMDGCN__)
+  (void)mask;
+  __builtin_amdgcn_wave_barrier();
 #else
   (void)mask;
 #endif

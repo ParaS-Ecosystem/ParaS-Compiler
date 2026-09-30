@@ -25,6 +25,7 @@
 #include "range.hpp"
 #include "atomic_ref.hpp"
 #include "kem_gpu/gpu_utilities.hpp"
+#include "work_group_algorithms_detail.hpp"
 
 namespace sycl {
 
@@ -54,9 +55,18 @@ public:
   size_t get_group_id(int dim) const { return group_id_[dim]; }
 
   PARAS_KERNEL_HD
-  id_type get_local_id() const { return id_type(); }
+  id_type get_local_id() const {
+
+    size_t lin = get_local_linear_id();
+    id_type out;
+    for (int d = Dimensions - 1; d >= 0; d--) {
+      out[d] = lin % local_range_[d];
+      lin /= local_range_[d];
+    }
+    return out;
+  }
   PARAS_KERNEL_HD
-  size_t get_local_id(int) const { return 0; }
+  size_t get_local_id(int dim) const { return get_local_id()[dim]; }
 
   PARAS_KERNEL_HD
   range_type get_local_range() const { return local_range_; }
@@ -85,7 +95,9 @@ public:
   }
 
   PARAS_KERNEL_HD
-  size_t get_local_linear_id() const { return 0; }
+  size_t get_local_linear_id() const {
+    return detail::wg_local_linear_id();
+  }
 
   PARAS_KERNEL_HD
   size_t get_group_linear_range() const {
@@ -103,7 +115,8 @@ public:
     return r;
   }
 
-  bool leader() const { return true; }
+  PARAS_KERNEL_HD
+  bool leader() const { return get_local_linear_id() == 0; }
 
   template <typename Fn> void parallel_for_work_item(const Fn &fn) const {
     fn();
