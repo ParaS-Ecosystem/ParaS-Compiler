@@ -26,6 +26,7 @@
 #include "sycl/device_selector.hpp"
 #include "sycl/event.hpp"
 #include "sycl/exception.hpp"
+#include "kem_gpu/offload_arch_check.hpp"
 #include "sycl/id.hpp"
 #include "sycl/interop_handle.hpp"
 #include "sycl/item.hpp"
@@ -317,7 +318,13 @@ private:
       throw std::runtime_error(
           "CUDA operation requested without a valid CUDA stream");
     }
+
+    if (!arch_checked_) {
+      paras_detail::check_offload_arch(dev_.get_native_id());
+      arch_checked_ = true;
+    }
   }
+  bool arch_checked_ = false;
 
   void create_stream() {
     cudaError_t err = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
