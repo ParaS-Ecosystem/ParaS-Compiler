@@ -43,7 +43,7 @@ std::unordered_set<std::string> ParallelForFunctionCallback::ProcessedFiles;
 ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
                              std::vector<std::string> backend_target)
     : pf_callback(r), s_callback(r, backend_target), qh_callback(r),
-      fph_callback(r), vdr_callback(r, backend_target) {
+      fph_callback(r), vdr_callback(r, backend_target), lambda_callback(r, backend_target) {
 
   matchers.addMatcher(
       clang::ast_matchers::traverse(
@@ -158,6 +158,17 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
       &vdr_callback);
 
   matchers.addMatcher(
+      clang::ast_matchers::cxxConstructExpr(
+          clang::ast_matchers::hasDeclaration(
+              clang::ast_matchers::cxxConstructorDecl(
+                  clang::ast_matchers::isCopyConstructor(),
+                  clang::ast_matchers::ofClass(
+                      clang::ast_matchers::cxxRecordDecl(
+                          clang::ast_matchers::hasName("sycl::queue"))))))
+          .bind("queue-copy-construct"),
+      &vdr_callback);
+
+  matchers.addMatcher(
       clang::ast_matchers::traverse(
           clang::TK_IgnoreUnlessSpelledInSource,
           clang::ast_matchers::varDecl(
@@ -171,6 +182,12 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
                                           "sycl::queue")))))))))
               .bind("vardecl-6")),
       &vdr_callback);
+
+  matchers.addMatcher(
+      callExpr(callee(functionDecl(hasName("sycl::handler::parallel_for"))),
+               hasArgument(1, expr().bind("paras-kernel-callable")))
+          .bind("paras-parallel-for"),
+      &lambda_callback);
 
   matchers.addMatcher(
       clang::ast_matchers::traverse(

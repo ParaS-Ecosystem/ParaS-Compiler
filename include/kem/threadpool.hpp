@@ -122,6 +122,30 @@ public:
     }
   }
 
+  template <typename Func, int dim>
+  void parallel_for(const sycl::range<dim> &r, Func f) {
+    if constexpr (dim == 1) {
+      execute_1D(r, f);
+    } else if constexpr (dim == 2) {
+      execute_2D(r, f);
+    } else {
+      static_assert(dim <= 2, "Only 1D/2D supported");
+    }
+  }
+
+  template <typename Func, int dim>
+  void parallel_for(const sycl::nd_range<dim> &r, Func f) {
+    if constexpr (dim == 1) {
+      execute_nd_range_1D(r, f);
+    } else if constexpr (dim == 2) {
+      execute_nd_range_2D(r, f);
+    } else if constexpr (dim == 3) {
+      execute_nd_range_3D(r, f);
+    } else {
+      static_assert(dim <= 3, "Only 1D, 2D and 3D supported");
+    }
+  }
+
   sycl::event memcpy(void *dest, const void *src, size_t numBytes) {
     std::memcpy(dest, src, numBytes);
     return sycl::event{};
@@ -207,10 +231,6 @@ template <typename T> T *malloc_host(size_t n, const threadpool &) {
   return static_cast<T *>(std::malloc(sizeof(T) * n));
 }
 
-template <typename T> T *malloc_device(size_t n, const threadpool &) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
-
 template <typename T>
 T *malloc_device(size_t n, const device &dev, const context &ctx,
                  const property_list &propList = {}) {
@@ -218,6 +238,14 @@ T *malloc_device(size_t n, const device &dev, const context &ctx,
   (void)ctx;
   (void)propList;
 
+  return static_cast<T *>(std::malloc(sizeof(T) * n));
+}
+
+inline void *malloc_device(size_t numBytes, const threadpool &) {
+  return std::malloc(numBytes);
+}
+
+template <typename T> T *malloc_device(size_t n, const threadpool &) {
   return static_cast<T *>(std::malloc(sizeof(T) * n));
 }
 

@@ -71,6 +71,69 @@ void VarDeclReplacer::run(
     return;
   }
 
+    if (const auto *CtorExpr = result.Nodes.getNodeAs<clang::CXXConstructExpr>(
+          "queue-copy-construct")) {
+    if (!result.SourceManager || !result.Context)
+      return;
+
+    const clang::CXXConstructorDecl *Ctor = CtorExpr->getConstructor();
+    if (!Ctor || !Ctor->isCopyConstructor() || CtorExpr->getNumArgs() != 1)
+      return;
+
+    const clang::SourceManager &SM = *result.SourceManager;
+    const clang::LangOptions &LangOpts = result.Context->getLangOpts();
+
+    clang::SourceLocation beginLoc = CtorExpr->getBeginLoc();
+    clang::SourceLocation endLoc = CtorExpr->getEndLoc();
+
+    if (!beginLoc.isValid() || !endLoc.isValid() || beginLoc.isMacroID() ||
+        endLoc.isMacroID() || !SM.isWrittenInSameFile(beginLoc, endLoc))
+      return;
+
+    clang::CharSourceRange constructRange =
+        clang::CharSourceRange::getTokenRange(beginLoc, endLoc);
+
+    bool invalid = false;
+    llvm::StringRef constructSource =
+        clang::Lexer::getSourceText(constructRange, SM, LangOpts, &invalid);
+    if (invalid)
+      return;
+
+    if (constructSource.find("sycl::queue") == llvm::StringRef::npos)
+      return;
+
+    const clang::Expr *Arg = CtorExpr->getArg(0);
+    if (!Arg)
+      return;
+
+    clang::SourceLocation argBegin = Arg->getBeginLoc();
+    clang::SourceLocation argEnd = Arg->getEndLoc();
+
+    if (!argBegin.isValid() || !argEnd.isValid() || argBegin.isMacroID() ||
+        argEnd.isMacroID() || !SM.isWrittenInSameFile(argBegin, argEnd))
+      return;
+
+    clang::CharSourceRange argRange =
+        clang::CharSourceRange::getTokenRange(argBegin, argEnd);
+
+    invalid = false;
+    llvm::StringRef argSource =
+        clang::Lexer::getSourceText(argRange, SM, LangOpts, &invalid);
+    if (invalid || argSource.empty())
+      return;
+
+    const std::string replacement = "(" + argSource.str() + ")";
+
+    if (rewriter.ReplaceText(constructRange, replacement)) {
+      llvm::errs() << "[ParaS] failed to lower explicit sycl::queue copy\n";
+      return;
+    }
+
+    llvm::errs() << "[ParaS] lowered explicit sycl::queue copy to underlying "
+                    "queue expression\n";
+    return;
+  }
+
   if (const clang::VarDecl *VD =
           result.Nodes.getNodeAs<clang::VarDecl>("vardecl-1")) {
     if (hasAutoTypeSpelling(VD))

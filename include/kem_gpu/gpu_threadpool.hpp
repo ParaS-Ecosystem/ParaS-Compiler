@@ -152,6 +152,14 @@ public:
     return sycl::event{};
   }
 
+  template <typename injectCustomFunc>
+  sycl::event parasSYCL_enqueue_custom_operation(injectCustomFunc cgf) {
+    sycl::handler cgh(*this);
+    cgh.parasSYCL_enqueue_custom_operation(std::move(cgf));
+    return sycl::event{};
+  }
+
+
   static unsigned gpu_get_num_threads();
 
   template <typename Func> sycl::event spawn_1D(Func f);
@@ -171,6 +179,22 @@ public:
   }
 
   void wait_and_throw() { wait(); }
+
+  void wait() const {
+    if (stream == nullptr) {
+      throw sycl::exception(
+          "cuda_threadpool::wait called with null CUDA stream");
+    }
+
+    cudaError_t errSync = cudaStreamSynchronize(stream);
+    if (errSync != cudaSuccess) {
+      throw sycl::exception(
+          std::string("cudaStreamSynchronize in queue::wait failed: ") +
+          cudaGetErrorString(errSync));
+    }
+  }
+
+  void wait_and_throw() const { wait(); }
 
   template <typename Func> void gpu_execute_1D(const sycl::range<1> &r, Func f);
 
@@ -202,6 +226,30 @@ public:
   }
 
   template <typename KernelName, typename Func, int dim>
+  void parallel_for(const sycl::nd_range<dim> &r, Func f) {
+    if constexpr (dim == 1) {
+      gpu_execute_nd_range_1D(r, f);
+    } else if constexpr (dim == 2) {
+      gpu_execute_nd_range_2D(r, f);
+    } else if constexpr (dim == 3) {
+      gpu_execute_nd_range_3D(r, f);
+    } else {
+      static_assert(dim <= 3, "Only 1D/2D/3D supported");
+    }
+  }
+
+  template <typename Func, int dim>
+  void parallel_for(sycl::range<dim> r, Func f) {
+    if constexpr (dim == 1) {
+      gpu_execute_1D(r, f);
+    } else if constexpr (dim == 2) {
+      gpu_execute_2D(r, f);
+    } else {
+      static_assert(dim <= 2, "Only 1D/2D supported");
+    }
+  }
+
+  template <typename Func, int dim>
   void parallel_for(const sycl::nd_range<dim> &r, Func f) {
     if constexpr (dim == 1) {
       gpu_execute_nd_range_1D(r, f);
@@ -443,6 +491,25 @@ template <typename T> T *malloc_host(size_t n, const context &) {
 template <typename T> T *malloc_device(size_t n, const cuda_threadpool &) {
   T *ptr = nullptr;
   cudaError_t err = cudaMalloc(&ptr, n * sizeof(T));
+  if (err != cudaSuccess) {
+    std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << "\n";
+    return nullptr;
+  }
+  return ptr;
+}
+
+inline void *malloc_device(size_t numBytes, const cuda_threadpool &pool) {
+  const sycl::device dev = pool.get_device();
+  if (dev.is_gpu()) {
+    const cudaError_t setErr = cudaSetDevice(dev.get_native_id());
+    if (setErr != cudaSuccess) {
+      std::cerr << "cudaSetDevice failed before cudaMalloc: "
+                << cudaGetErrorString(setErr) << "\n";
+      return nullptr;
+    }
+  }
+  void *ptr = nullptr;
+  const cudaError_t err = cudaMalloc(&ptr, numBytes);
   if (err != cudaSuccess) {
     std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << "\n";
     return nullptr;

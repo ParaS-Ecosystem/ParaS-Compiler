@@ -60,6 +60,70 @@ std::vector<std::string> markForDeletion;
 std::vector<std::string> transformedSourceFiles;
 std::vector<std::string> finalCompilerArgs;
 
+struct ParaSRewrittenHeader {
+  std::string originalPath;
+  std::string rewrittenPath;
+};
+
+std::vector<ParaSRewrittenHeader> rewrittenHeaders;
+
+static std::string yamlQuote(const std::string &value) {
+  std::string result;
+  result.reserve(value.size() + 2);
+  result.push_back('\'');
+  for (char c : value) {
+    if (c == '\'')
+      result += "''";
+    else
+      result.push_back(c);
+  }
+  result.push_back('\'');
+  return result;
+}
+
+static std::string createVFSOverlay() {
+  if (rewrittenHeaders.empty())
+    return {};
+
+  std::string model = "/tmp/paras_vfs_%%%%%%%%.yaml";
+  llvm::SmallString<128> overlayPath;
+  std::error_code EC = llvm::sys::fs::createUniqueFile(model, overlayPath);
+  if (EC) {
+    llvm::errs() << "parascc: cannot create VFS overlay: " << EC.message()
+                 << "\n";
+    return {};
+  }
+
+  llvm::raw_fd_ostream out(overlayPath, EC);
+  if (EC) {
+    llvm::errs() << "parascc: cannot write VFS overlay: " << EC.message()
+                 << "\n";
+    return {};
+  }
+
+  out << "{\n";
+  out << "  'version': 0,\n";
+  out << "  'case-sensitive': 'true',\n";
+  out << "  'roots': [\n";
+
+  for (size_t i = 0; i < rewrittenHeaders.size(); ++i) {
+    const auto &H = rewrittenHeaders[i];
+    out << "    { 'type': 'file', 'name': " << yamlQuote(H.originalPath)
+        << ", 'external-contents': " << yamlQuote(H.rewrittenPath) << " }";
+    if (i + 1 != rewrittenHeaders.size())
+      out << ",";
+    out << "\n";
+  }
+
+  out << "  ]\n";
+  out << "}\n";
+  out.close();
+
+  std::string result(overlayPath.str());
+  markForDeletion.push_back(result);
+  return result;
+}
+
 static bool isCppSourceFile(const std::string &arg) {
   auto endsWith = [](const std::string &str, const std::string &suffix) {
     return str.size() >= suffix.size() &&
@@ -145,6 +209,87 @@ public:
     llvm::raw_string_ostream updatedFileStream(updatedFileContents);
 
     rewriter.getEditBuffer(mainID).write(updatedFileStream);
+
+    for (auto it = rewriter.buffer_begin(); it != rewriter.buffer_end(); ++it) {
+      clang::FileID FID = it->first;
+      if (FID == mainID)
+        continue;
+
+      auto fileRef = SM.getFileEntryRefForID(FID);
+      if (!fileRef)
+        continue;
+
+      std::string originalPath = fileRef->getName().str();
+
+      std::error_code parasPathEC;
+      std::filesystem::path parasInclude = std::filesystem::absolute(
+          std::filesystem::path(PARAS_INSTALL_PREFIX) / "include", parasPathEC);
+      std::error_code headerPathEC;
+      std::filesystem::path headerPath =
+          std::filesystem::absolute(originalPath, headerPathEC);
+
+      if (!parasPathEC && !headerPathEC) {
+        const std::string parasIncludeStr =
+            parasInclude.lexically_normal().string();
+        const std::string headerPathStr =
+            headerPath.lexically_normal().string();
+        const std::string prefix = parasIncludeStr + "/";
+
+        if (headerPathStr == parasIncludeStr ||
+            headerPathStr.compare(0, prefix.size(), prefix) == 0) {
+          llvm::outs() << "[ParaS] skipping runtime-header rewrite: "
+                       << headerPathStr << "\n";
+          continue;
+        }
+      }
+
+      std::error_code pathEC;
+      std::filesystem::path absolutePath =
+          std::filesystem::absolute(originalPath, pathEC);
+      if (!pathEC)
+        originalPath = absolutePath.lexically_normal().string();
+
+      std::string headerModel = "/tmp/paras_hdr_%%%%%%%%.hpp";
+      llvm::SmallString<128> rewrittenPathSV;
+      std::error_code EC =
+          llvm::sys::fs::createUniqueFile(headerModel, rewrittenPathSV);
+      if (EC) {
+        llvm::errs() << "parascc: cannot create rewritten header for "
+                     << originalPath << ": " << EC.message() << "\n";
+        continue;
+      }
+
+      std::string rewrittenContents;
+      llvm::raw_string_ostream rewrittenStream(rewrittenContents);
+      it->second.write(rewrittenStream);
+      rewrittenStream.flush();
+
+      llvm::raw_fd_ostream rewrittenFile(rewrittenPathSV, EC);
+      if (EC) {
+        llvm::errs() << "parascc: cannot write rewritten header for "
+                     << originalPath << ": " << EC.message() << "\n";
+        continue;
+      }
+      rewrittenFile << rewrittenContents;
+      rewrittenFile.close();
+
+      std::string rewrittenPath(rewrittenPathSV.str());
+
+      auto existing =
+          std::find_if(rewrittenHeaders.begin(), rewrittenHeaders.end(),
+                       [&](const ParaSRewrittenHeader &H) {
+                         return H.originalPath == originalPath;
+                       });
+      if (existing != rewrittenHeaders.end()) {
+        existing->rewrittenPath = rewrittenPath;
+      } else {
+        rewrittenHeaders.push_back({originalPath, rewrittenPath});
+      }
+
+      markForDeletion.push_back(rewrittenPath);
+      llvm::outs() << "[ParaS] rewrote header: " << originalPath << " -> "
+                   << rewrittenPath << "\n";
+    }
 
     if (!bkend_target[0].empty()) {
       std::string back_end = bkend_target[0];
@@ -367,6 +512,8 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
     row0.push_back("-x");
     row0.push_back(bkend_target[0]);
     row0.push_back("--offload-arch=" + bkend_target[1]);
+    if (bkend_target[0] == "cuda")
+      row0.push_back("--cuda-host-only");
   }
 
   if (!llvmResDirFound) {
@@ -509,6 +656,14 @@ int main(int argc, const char **argv) {
     llvm::errs()
         << "parascc: internal error: transformed source count mismatch\n";
     return 1;
+  }
+
+  std::string overlayPath = createVFSOverlay();
+  if (!overlayPath.empty()) {
+    finalCommand.push_back("-ivfsoverlay");
+    finalCommand.push_back(overlayPath);
+    llvm::outs() << "[ParaS] using rewritten-header VFS overlay: "
+                 << overlayPath << "\n";
   }
 
   executor::executor(finalCommand, compilerFlags[3]);
