@@ -234,7 +234,7 @@ private:
     mutable int precision_ = 6;
 };
 
-} // namespace sycl
+}
 
 namespace std {
 template <>
@@ -243,6 +243,6 @@ struct hash<sycl::stream> {
         return std::hash<std::uint64_t>{}(s.get_identity());
     }
 };
-} // namespace std
+}
 
 #endif

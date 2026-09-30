@@ -160,6 +160,6 @@ public:
     }
 };
 
-} // namespace sycl
+}
 
 #endif

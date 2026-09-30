@@ -71,6 +71,6 @@ public:
     range<Dimensions> get_physical_local_range() const { return local_range_; }
 };
 
-} // namespace sycl
+}
 
 #endif

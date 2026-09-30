@@ -31,6 +31,6 @@ template <typename ElementType,
 using private_ptr =
     multi_ptr<ElementType, access::address_space::private_space, IsDecorated>;
 
-} // namespace sycl
+}
 
 #endif

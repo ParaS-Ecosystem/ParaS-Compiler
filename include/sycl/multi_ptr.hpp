@@ -153,13 +153,11 @@ private:
         using difference_type = std::ptrdiff_t;                                                    \
         static constexpr access::address_space address_space = Space;                              \
         static constexpr bool is_decorated = IsDecorated == access::decorated::yes;                \
-                                                                                                   \
         PARAS_KERNEL_HD constexpr multi_ptr() noexcept : ptr_(nullptr) {}                          \
         PARAS_KERNEL_HD constexpr multi_ptr(std::nullptr_t) noexcept : ptr_(nullptr) {}            \
         PARAS_KERNEL_HD multi_ptr(pointer p) noexcept : ptr_(p) {}                                 \
         template <typename U, typename = std::enable_if_t<std::is_convertible_v<U*, pointer>>>     \
         PARAS_KERNEL_HD multi_ptr(multi_ptr<U, Space, IsDecorated> p) noexcept : ptr_(p.get()) {}  \
-                                                                                                   \
         PARAS_KERNEL_HD pointer get() const noexcept { return ptr_; }                              \
         PARAS_KERNEL_HD pointer get_raw() const noexcept { return ptr_; }                          \
         PARAS_KERNEL_HD operator pointer() const noexcept { return ptr_; }                         \
@@ -169,7 +167,6 @@ private:
             return multi_ptr<ElementType, Space, IsDecorated>(static_cast<ElementType*>(ptr_));    \
         }                                                                                          \
         PARAS_KERNEL_HD explicit operator bool() const noexcept { return ptr_ != nullptr; }        \
-                                                                                                   \
     private:                                                                                       \
         pointer ptr_;                                                                              \
     };
@@ -184,6 +181,6 @@ address_space_cast(ElementType* pointer) noexcept {
     return multi_ptr<ElementType, Space, DecorateAddress>(pointer);
 }
 
-} // namespace sycl
+}
 
 #endif

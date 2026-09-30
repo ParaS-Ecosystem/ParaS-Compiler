@@ -151,6 +151,6 @@ void rocm_threadpool::gpu_execute_nd_range_2D(const sycl::nd_range<2>& r, Func f
     paras_rocm_detail::check(hipStreamSynchronize(stream), "2D nd_range kernel execution failed");
 }
 
-#endif /** End of PARAS_CUDA_BACKEND / PARAS_HIP_BACKEND */
+#endif
 
-#endif /** End of gpu_threadpool_execute_nd_range_2D >*/
+#endif

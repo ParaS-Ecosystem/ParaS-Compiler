@@ -178,7 +178,7 @@ inline void deallocate(void* ptr) {
 #endif
 }
 
-} // namespace paras_usm_detail
+}
 
 #define PARAS_USM_KIND_FUNCTIONS(NAME, KIND)                                                       \
     template <typename T, typename Q, paras_usm_detail::if_queue<Q> = 0>                           \
@@ -340,6 +340,6 @@ private:
     device dev_;
 };
 
-} // namespace sycl
+}
 
 #endif

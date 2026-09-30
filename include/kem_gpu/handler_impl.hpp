@@ -126,6 +126,6 @@ void handler::parallel_for(const nd_range<dim>& r, Func f) {
     }
 }
 
-} // namespace sycl
+}
 
-#endif /** End of handler_impl >*/
+#endif

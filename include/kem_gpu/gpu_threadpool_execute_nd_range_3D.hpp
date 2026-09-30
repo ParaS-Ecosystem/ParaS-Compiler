@@ -302,4 +302,4 @@ void rocm_threadpool::gpu_execute_nd_range_3D(const sycl::nd_range<3>& r, Func f
 }
 #endif
 
-#endif /** End of gpu_threadpool_execute_nd_range_3D >*/
+#endif

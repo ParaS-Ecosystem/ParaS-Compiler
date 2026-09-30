@@ -44,6 +44,6 @@ public:
     PARAS_KERNEL_HD void wait() const {}
 };
 
-} // namespace sycl
+}
 
 #endif

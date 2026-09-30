@@ -41,6 +41,6 @@ inline void validate_nd_range(const sycl::nd_range<D>& r) {
     }
 }
 
-} // namespace paras_detail
+}
 
 #endif

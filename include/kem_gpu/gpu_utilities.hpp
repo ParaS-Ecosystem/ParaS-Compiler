@@ -22,7 +22,7 @@
 #define __GPU_UTILITIES_HPP__
 
 #include <cstdint>
-#include "kem/host_group_runtime.hpp" // host work-group barrier (no-op in device passes)
+#include "kem/host_group_runtime.hpp"
 
 #if defined(__HIP__) || defined(__HIPCC__) || defined(__HIP_DEVICE_COMPILE__)
 #include <hip/hip_runtime.h>
@@ -289,4 +289,4 @@ PARAS_KERNEL_HD inline PointerType indexedAddress(PointerType address, IndexType
 #endif
 #endif
 
-#endif // End of gpu_utilities
+#endif

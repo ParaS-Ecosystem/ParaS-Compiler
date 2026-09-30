@@ -33,8 +33,8 @@
 class ParaSLambdaHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
 
 private:
-    clang::Rewriter& rewriter;       
-    clang::Rewriter& headerRewriter; 
+    clang::Rewriter& rewriter;
+    clang::Rewriter& headerRewriter;
     std::vector<std::string> backend_target;
     llvm::DenseSet<const clang::CXXMethodDecl*> processedKernels;
 

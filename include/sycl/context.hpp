@@ -53,8 +53,8 @@ struct atomic_fence_order_capabilities {
 struct atomic_fence_scope_capabilities {
     using return_type = std::vector<memory_scope>;
 };
-} // namespace context
-} // namespace info
+}
+}
 
 class context {
 public:
@@ -176,7 +176,7 @@ context::get_info<info::context::atomic_fence_scope_capabilities>() const {
     return {memory_scope::work_item, memory_scope::sub_group, memory_scope::work_group};
 }
 
-} // namespace sycl
+}
 
 namespace std {
 template <>
@@ -185,6 +185,6 @@ struct hash<sycl::context> {
         return std::hash<std::shared_ptr<int>>{}(c.get_id_());
     }
 };
-} // namespace std
+}
 
 #endif

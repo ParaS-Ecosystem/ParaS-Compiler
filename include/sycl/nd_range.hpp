@@ -60,6 +60,6 @@ public:
   id<Dimensions> get_offset() const { return offset_; }
 };
 
-} // namespace sycl
+}
 
 #endif

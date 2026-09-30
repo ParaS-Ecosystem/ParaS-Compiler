@@ -189,6 +189,6 @@ public:
     }
 };
 
-} // namespace sycl
+}
 
 #endif

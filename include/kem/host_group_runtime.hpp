@@ -154,7 +154,7 @@ void run_work_groups(std::size_t num_groups, std::size_t local_size, RunItem run
         std::rethrow_exception(first_error);
 }
 
-} // namespace paras_host_detail
+}
 
-#endif // !device pass
-#endif // __PARAS_HOST_GROUP_RUNTIME_HPP__
+#endif
+#endif

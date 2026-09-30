@@ -148,7 +148,7 @@ resolveKernelCallOperator(const clang::Expr* expr, llvm::DenseSet<const clang::E
     return nullptr;
 }
 
-} // namespace
+}
 
 void ParaSLambdaHandler::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
     if (const clang::LambdaExpr* Lambda = result.Nodes.getNodeAs<clang::LambdaExpr>("lambda")) {

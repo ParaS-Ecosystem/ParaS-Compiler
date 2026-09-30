@@ -64,6 +64,6 @@ struct all_devices_have : std::false_type {};
 template <aspect Aspect>
 inline constexpr bool all_devices_have_v = all_devices_have<Aspect>::value;
 
-} // namespace sycl
+}
 
 #endif

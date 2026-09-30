@@ -42,7 +42,7 @@ inline void check(cudaError_t err, const char* where) {
                               std::string(where) + ": " + cudaGetErrorString(err));
     }
 }
-} // namespace paras_cuda_detail
+}
 #elif (PARAS_HIP_BACKEND)
 namespace paras_rocm_detail {
 inline void check(hipError_t err, const char* where) {
@@ -51,7 +51,7 @@ inline void check(hipError_t err, const char* where) {
                               std::string(where) + ": " + hipGetErrorString(err));
     }
 }
-} // namespace paras_rocm_detail
+}
 #endif
 
 template <typename Func>

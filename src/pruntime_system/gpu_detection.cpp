@@ -392,4 +392,4 @@ std::vector<sycl::device> detect_all_gpus() {
     return out;
 }
 
-} // namespace paras_extension
+}

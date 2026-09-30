@@ -3018,7 +3018,7 @@ PARAS_KERNEL_HD To bit_cast(const From& from) noexcept {
     return to;
 }
 
-} // namespace sycl
+}
 
 namespace std {
 
@@ -3085,6 +3085,6 @@ public:
     static constexpr float_round_style round_style = round_to_nearest;
 };
 
-} // namespace std
+}
 
 #endif

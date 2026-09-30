@@ -76,6 +76,6 @@ void execute_nd_range(const sycl::nd_range<D>& r, Func& f) {
     });
 }
 
-} // namespace paras_host_detail
+}
 
 #endif

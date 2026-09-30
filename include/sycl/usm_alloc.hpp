@@ -32,7 +32,7 @@ namespace usm {
 
 enum class alloc { host, device, shared, unknown };
 
-} // namespace usm
+}
 
 namespace paras_usm_detail {
 struct host_alloc_record {
@@ -65,7 +65,7 @@ inline usm::alloc lookup_host_alloc(const void* p) {
     --it;
     return addr < it->first + it->second.bytes ? it->second.kind : usm::alloc::unknown;
 }
-} // namespace paras_usm_detail
-} // namespace sycl
+}
+}
 
-#endif // SYCL_USM_ALLOC_HPP
+#endif

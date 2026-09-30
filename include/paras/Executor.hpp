@@ -32,6 +32,6 @@ namespace fs = std::filesystem;
 namespace executor {
 std::string find_clangxx(const char* argv0);
 int executor(std::vector<std::string> command, std::vector<std::string> bkend_target);
-} // namespace executor
+}
 
 #endif

@@ -92,40 +92,14 @@ public:
         f(ih);
     }
 
-    /** SYCL-CTS integration: host_task(f), required by tests/accessor_basic
-     *  (`cgh.host_task([=] { ... });`). ParaS's simplified command-group
-     *  model has no deferred/async task scheduling represented at the
-     *  header level, so host_task runs its functor immediately —
-     *  synchronously, right here — rather than queueing it for later.
-     *  By the time queue::wait()/wait_and_throw() returns the task has
-     *  already completed either way, which is all the CTS's host-side
-     *  observability checks depend on.
-    >*/
     template <typename FunctorT>
     void host_task(FunctorT&& hostFunction) {
         hostFunction();
     }
 
-    /** SYCL-CTS integration: require(accessor), required by
-     *  tests/accessor_basic (`cgh.require(acc);`). Real SYCL uses this to
-     *  register an accessor's buffer dependency with the command group
-     *  when the accessor wasn't already built from the (buffer, handler,
-     *  ...) constructor. ParaS's accessors already hold a direct pointer
-     *  into their buffer's data at construction time, so there is no
-     *  separate dependency-registration bookkeeping to perform — this is
-     *  a no-op that exists purely so the call compiles.
-    >*/
     template <typename AccessorT>
     void require(AccessorT&) {}
 
-    /** SYCL-CTS integration: set_specialization_constant<SpecName>(value)
-     *  (SYCL-2020 4.9.5, tests/spec_constants). Writes directly into the
-     *  specialization_id object's own storage -- see spec_constant.hpp's
-     *  changelog entry for why (no kernel-bundle build stage to route
-     *  this through at the header level). Paired with kernel_handler::
-     *  get_specialization_constant<SpecName>(), which reads the same
-     *  storage back from inside the kernel functor.
-    >*/
     template <auto& SpecName>
     void set_specialization_constant(
         typename std::remove_reference_t<decltype(SpecName)>::value_type value) {
@@ -162,10 +136,6 @@ public:
         });
     }
 
-    /** parallel_for with a sycl::reduction (SYCL 2020 4.9.4.2.2). Runs as an
-     *  ordinary parallel_for on this handler's backend; every work-item
-     *  owns a reducer and merges it into the reduction variable when done
-     *  (see reduction.hpp). */
     template <typename KernelName = void, int Dim, typename T, typename BinaryOperation,
               typename KernelFunc>
     void parallel_for(range<Dim> r, reduction_impl<T, BinaryOperation> red, KernelFunc f) {
@@ -211,13 +181,6 @@ public:
 
     void set_async_mode(bool mode) { async_mode_ = mode; }
 
-    /*
-     * Register one SYCL local-memory allocation.
-     *
-     * local_accessor objects are copied into the CUDA kernel closure. They
-     * therefore store only this aligned byte offset, never a host pointer or
-     * a cudaMallocManaged pointer.
-     */
     template <class T>
     std::size_t local_alloc_offset(std::size_t elements) {
         static_assert(!std::is_void<T>::value, "local_accessor<void> is not supported");
@@ -304,34 +267,17 @@ public:
 #endif
     }
 
-    /** SYCL-CTS integration (error_log_98): fill<T>() (SYCL-2020
-     *  4.9.4.2.7). Immediate host-side loop, matching every other
-     *  synchronous-host command in this class.
-    >*/
     template <typename T>
     void fill(T* ptr, const T& pattern, std::size_t count) {
         std::vector<T> staged(count, pattern);
         memcpy(ptr, staged.data(), count * sizeof(T));
     }
 
-    /** SYCL-CTS integration (error_log_108): handler::copy<T>()
-     *  (SYCL-2020 4.9.4.1) -- tests/usm calls parent.copy(src, dest,
-     *  count, events...) directly on a handler, not through queue's
-     *  own shortcut. handler had no copy at all. The trailing pack
-     *  accepts (and ignores) any extra event arguments the call site
-     *  forwards.
-    >*/
     template <typename T, typename... Ignored>
     void copy(const T* src, T* dest, std::size_t count, Ignored&&...) {
         memcpy(dest, src, count * sizeof(T));
     }
 
-    /** SYCL-CTS integration (error_log_112): handler::mem_advise()
-     *  and handler::prefetch() -- both performance hints only in
-     *  real SYCL, matching queue's own versions' no-op reasoning.
-     *  The trailing pack accepts and ignores any advice/event
-     *  arguments the call site forwards.
-    >*/
     template <typename... Ignored>
     void mem_advise(const void*, std::size_t, Ignored&&...) {}
 
@@ -352,6 +298,6 @@ private:
     bool async_mode_ = false;
 };
 
-} // namespace sycl
+}
 
 #endif

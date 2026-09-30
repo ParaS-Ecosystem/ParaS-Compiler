@@ -151,4 +151,4 @@ std::vector<device> device::get_devices(info::device_type type) {
     return out;
 }
 
-} // namespace sycl
+}

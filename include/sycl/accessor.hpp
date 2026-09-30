@@ -58,7 +58,7 @@ struct accessor_subscript {
             return accessor_subscript<T, Dims, Level + 1>{ptr, r, next};
     }
 };
-} // namespace detail
+}
 
 template <typename T, int Dimensions, typename AllocatorT>
 class buffer;
@@ -83,7 +83,7 @@ template <typename DataT, int Dimensions = 1, access::mode AccessMode = access::
           target AccessTarget = target::device>
 class accessor {
     DataT* base_ = nullptr;
-    DataT* origin_ = nullptr; // base_ + offset_, precomputed for fast indexing
+    DataT* origin_ = nullptr;
     range<Dimensions> buf_range_;
     range<Dimensions> acc_range_;
     id<Dimensions> offset_;
@@ -485,6 +485,6 @@ public:
     using local_accessor<DataT, Dimensions>::local_accessor;
 };
 
-} // namespace sycl
+}
 
 #endif

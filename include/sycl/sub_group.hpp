@@ -33,8 +33,6 @@
 
 namespace sycl {
 
-/* ================= sub_group ================= */
-
 class sub_group {
 public:
     using id_type = id<1>;
@@ -112,8 +110,6 @@ public:
     bool leader() const { return get_local_linear_id() == 0; }
 };
 
-/* ================= subgroup algorithms ================= */
-
 #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
 
 namespace detail {
@@ -130,7 +126,7 @@ PARAS_KERNEL_D inline T sub_group_reduce(const sub_group& g, T value, BinaryOper
     }
     return paras_shfl(mask, value, 0);
 }
-} // namespace detail
+}
 
 template <typename Group>
 PARAS_KERNEL_HD inline bool any_of_group(Group g, bool pred) {
@@ -208,6 +204,6 @@ PARAS_KERNEL_HD inline T reduce_over_group(Group g, V x, T init, BinaryOperation
     return binary_op(init, reduce_over_group(g, T(x), binary_op));
 }
 
-} // namespace sycl
+}
 
 #endif

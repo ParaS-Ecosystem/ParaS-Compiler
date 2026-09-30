@@ -129,7 +129,7 @@ PARAS_KERNEL_HD bool wg_all(const Group& g, bool p) {
     return wg_reduce(g, int(p), wg_and{}) != 0;
 }
 
-} // namespace detail
-} // namespace sycl
+}
+}
 
 #endif

@@ -64,4 +64,4 @@ void rocm_threadpool::gpu_execute_1D_async(Func f) {
     paras_rocm_detail::check(hipStreamSynchronize(stream), "async 1D kernel execution failed");
 }
 #endif
-#endif /** End of gpu_threadpool_execute_1D_async >*/
+#endif
