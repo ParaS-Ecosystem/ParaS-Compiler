@@ -89,6 +89,8 @@ public:
 
   template <typename Func> void execute_2D(const sycl::range<2> &r, Func f);
 
+  template <typename Func> void execute_3D(const sycl::range<3> &r, Func f);
+
   template <typename Func>
   void execute_nd_range_1D(const sycl::nd_range<1> &r, Func f);
 
@@ -104,8 +106,10 @@ public:
       execute_1D(r, f);
     } else if constexpr (dim == 2) {
       execute_2D(r, f);
+    } else if constexpr (dim == 3) {
+      execute_3D(r, f);
     } else {
-      static_assert(dim <= 2, "Only 1D/2D supported");
+      static_assert(dim <= 3, "Only 1D/2D/3D supported");
     }
     return sycl::event{};
   }
@@ -148,6 +152,7 @@ private:
 
 #include "threadpool_execute_1D.hpp"
 #include "threadpool_execute_ND.hpp"
+#include "threadpool_execute_3D.hpp"
 #include "threadpool_execute_common.hpp"
 #include "threadpool_execute_nd_range_1D.hpp"
 #include "threadpool_execute_nd_range_2D.hpp"
@@ -168,8 +173,10 @@ void handler::parallel_for(range<dim> r, Func f) {
     pool_->execute_1D(r, f);
   } else if constexpr (dim == 2) {
     pool_->execute_2D(r, f);
+  } else if constexpr (dim == 3) {
+    pool_->execute_3D(r, f);
   } else {
-    static_assert(dim <= 2, "Only 1D and 2D supported");
+    static_assert(dim <= 3, "Only 1D, 2D and 3D supported");
   }
 }
 
