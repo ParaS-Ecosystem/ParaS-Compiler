@@ -22,12 +22,15 @@
 #define __PARAS_EXCEPTION_EXCEPTION_HPP__
 
 #include <exception>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <system_error>
 #include <vector>
 
 namespace sycl {
+
+class context;
 
 enum class errc {
   success = 0,
@@ -114,6 +117,20 @@ public:
   exception(int ev, const std::error_category &cat)
       : std::runtime_error(cat.message(ev)), code_(ev, cat) {}
 
+  exception(const context &ctx, std::error_code ec, const std::string &what_arg);
+  exception(const context &ctx, std::error_code ec, const char *what_arg)
+      : exception(ctx, ec, std::string(what_arg)) {}
+  explicit exception(const context &ctx, std::error_code ec);
+  exception(const context &ctx, int ev, const std::error_category &cat,
+            const std::string &what_arg);
+  exception(const context &ctx, int ev, const std::error_category &cat,
+            const char *what_arg)
+      : exception(ctx, ev, cat, std::string(what_arg)) {}
+  exception(const context &ctx, int ev, const std::error_category &cat);
+
+  bool has_context() const noexcept { return static_cast<bool>(context_); }
+  context get_context() const;
+
   std::string backend_info() const noexcept { return backend_info_; }
 
   const std::error_code &code() const noexcept { return code_; }
@@ -124,6 +141,7 @@ public:
 private:
   std::string backend_info_;
   std::error_code code_;
+  std::shared_ptr<context> context_;
 };
 
 class exception_list {

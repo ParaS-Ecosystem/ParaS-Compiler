@@ -27,9 +27,17 @@
 #include "range.hpp"
 
 namespace sycl {
+
+class context;
+class device;
+
 namespace info {
 
-enum class event_command_status : unsigned int { submitted, running, complete };
+enum class event_command_status : unsigned int {
+    submitted,
+    running,
+    complete
+};
 
 namespace event {
 
@@ -106,6 +114,21 @@ struct compile_sub_group_size {
 };
 
 }
+
+namespace queue {
+
+struct context {
+    using return_type = sycl::context;
+};
+
+struct device {
+    using return_type = sycl::device;
+};
+
+}
+
+using queue_context_t = queue::context;
+using queue_device_t = queue::device;
 
 }
 }
