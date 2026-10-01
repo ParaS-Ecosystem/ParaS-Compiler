@@ -66,6 +66,15 @@ public:
                       const sycl::property_list &props = {})
       : dev_(dev), props_(props) {}
 
+  template <typename Selector>
+  threadpool(const Selector &selector, const sycl::async_handler &,
+             const sycl::property_list &props = {})
+      : threadpool(selector, props) {}
+
+  template <typename Q,
+            typename = std::enable_if_t<std::is_same_v<Q, sycl::queue>>>
+  threadpool(const Q &q) : ctx_(q.get_context()), dev_(q.get_device()) {}
+
   static unsigned get_num_threads();
 
   template <typename Func> sycl::event spawn_1D(Func f);
