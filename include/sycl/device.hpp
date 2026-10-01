@@ -137,12 +137,21 @@ public:
     switch (aspect_name) {
     case aspect::cpu:
       return is_cpu_;
+    case aspect::gpu:
+      return is_gpu_;
     case aspect::fp16:
       return have_fp16_;
     case aspect::queue_profiling:
       return have_queue_profiling_;
     case aspect::fp64:
       return have_fp64_;
+
+    case aspect::atomic64:
+    case aspect::usm_device_allocations:
+    case aspect::usm_host_allocations:
+    case aspect::usm_shared_allocations:
+      return true;
+
     default:
       return false;
     }
