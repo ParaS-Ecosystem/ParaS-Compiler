@@ -42,7 +42,21 @@ namespace sycl {
 
 template <typename T, int Dimensions, typename AllocatorT> class buffer;
 
-enum class target { device, host_buffer, host_task };
+enum class target {
+  device,
+  host_task,
+  host_buffer,
+  global_buffer [[deprecated]] = device,
+  constant_buffer [[deprecated]],
+  local [[deprecated]],
+  image [[deprecated]],
+  host_image [[deprecated]],
+  image_array [[deprecated]]
+};
+
+namespace access {
+using target = ::sycl::target;
+}
 
 template <typename DataT, int Dimensions = 1,
           access::mode AccessMode = access::mode::read_write,
