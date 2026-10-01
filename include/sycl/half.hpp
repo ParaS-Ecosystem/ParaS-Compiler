@@ -172,6 +172,35 @@ public:
   constexpr bool operator>=(half lhs, half rhs) noexcept {
     return lhs.value_ >= rhs.value_;
   }
+
+#define PARAS_HALF_MIXED_OP(OP)                                                \
+  template <typename T,                                                        \
+            typename std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>        \
+  friend PARAS_KERNEL_HD constexpr auto operator OP(half lhs, T rhs) noexcept { \
+    if constexpr (std::is_floating_point_v<T>)                                 \
+      return static_cast<T>(static_cast<float>(lhs)) OP rhs;                   \
+    else                                                                       \
+      return lhs OP half(static_cast<float>(rhs));                             \
+  }                                                                            \
+  template <typename T,                                                        \
+            typename std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>        \
+  friend PARAS_KERNEL_HD constexpr auto operator OP(T lhs, half rhs) noexcept { \
+    if constexpr (std::is_floating_point_v<T>)                                 \
+      return lhs OP static_cast<T>(static_cast<float>(rhs));                   \
+    else                                                                       \
+      return half(static_cast<float>(lhs)) OP rhs;                             \
+  }
+  PARAS_HALF_MIXED_OP(+)
+  PARAS_HALF_MIXED_OP(-)
+  PARAS_HALF_MIXED_OP(*)
+  PARAS_HALF_MIXED_OP(/)
+  PARAS_HALF_MIXED_OP(==)
+  PARAS_HALF_MIXED_OP(!=)
+  PARAS_HALF_MIXED_OP(<)
+  PARAS_HALF_MIXED_OP(>)
+  PARAS_HALF_MIXED_OP(<=)
+  PARAS_HALF_MIXED_OP(>=)
+#undef PARAS_HALF_MIXED_OP
 };
 
 static_assert(sizeof(half) == 2,

@@ -81,6 +81,11 @@ public:
     initialize_stream_for_device();
   }
 
+  template <typename Selector>
+  cuda_threadpool(const Selector &sel, const sycl::async_handler &,
+                  const sycl::property_list &props = {})
+      : cuda_threadpool(sel, props) {}
+
   cuda_threadpool(const sycl::queue &q)
       : dev_(q.get_device()), ctx_(q.get_context()), queue_(q) {
     initialize_stream_for_device();

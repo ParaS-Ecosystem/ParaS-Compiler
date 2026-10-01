@@ -32,7 +32,7 @@ struct paras_type_identity { using type = T; };
 template <typename T>
 using paras_type_identity_t = typename paras_type_identity<T>::type;
 
-template <typename T, typename = void>
+template <typename T, typename>
 struct paras_is_swizzle_ref : std::false_type {};
 template <typename T>
 struct paras_is_swizzle_ref<T, std::void_t<decltype(std::declval<T>().base)>> : std::true_type {};
