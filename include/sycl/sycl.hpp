@@ -43,6 +43,7 @@
 #include "handler.hpp"
 #include "id.hpp"
 #include "info.hpp"
+#include "kernel.hpp"
 #include "interop_handle.hpp"
 #include "item.hpp"
 #include "local_ptr.hpp"
