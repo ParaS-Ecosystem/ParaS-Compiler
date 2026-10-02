@@ -22,12 +22,9 @@
 #define __PARAS_EXECUTOR_HPP__
 
 #include <cstdlib>
-#include <filesystem>
 #include <string>
 #include <unistd.h>
 #include <vector>
-
-namespace fs = std::filesystem;
 
 namespace executor {
 std::string find_clangxx(const char *argv0);

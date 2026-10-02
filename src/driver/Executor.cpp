@@ -21,6 +21,8 @@
 #include "paras/Executor.hpp"
 #include "pathfinder.hpp"
 #include <llvm/Support/CommandLine.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Path.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -28,19 +30,20 @@
 
 namespace executor {
 std::string find_clangxx(const char *argv0) {
-  try {
-    fs::path exe = fs::canonical(argv0);
-    fs::path dir = exe.parent_path();
-    fs::path localClang = dir / "clang++";
-    if (fs::exists(localClang))
-      return localClang.string();
-  } catch (...) {
+
+  llvm::SmallString<256> exe;
+  if (!llvm::sys::fs::real_path(argv0, exe)) {
+    llvm::SmallString<256> localClang(llvm::sys::path::parent_path(exe));
+    llvm::sys::path::append(localClang, "clang++");
+    if (llvm::sys::fs::exists(localClang))
+      return std::string(localClang.str());
   }
 
   if (const char *inst = getenv("LLVM_INSTALL_DIR")) {
-    fs::path p = fs::path(inst) / "bin/clang++";
-    if (fs::exists(p))
-      return p.string();
+    llvm::SmallString<256> p(inst);
+    llvm::sys::path::append(p, "bin", "clang++");
+    if (llvm::sys::fs::exists(p))
+      return std::string(p.str());
   }
 
   if (!access("clang++", X_OK))
