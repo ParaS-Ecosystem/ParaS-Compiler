@@ -41,6 +41,14 @@ class cuda_threadpool;
 
 namespace sycl {
 
+namespace detail {
+
+template <typename Func> struct single_task_kernel {
+  Func f;
+  PARAS_KERNEL_HD void operator()(id<1>) const { f(); }
+};
+}
+
 class handler {
   threadpool *pool_;
   cuda_threadpool *gpu_pool_;
@@ -66,6 +74,11 @@ public:
 
   template <typename Func, int dim>
   void parallel_for(const nd_range<dim> &r, Func f);
+
+  template <typename KernelName = void, typename Func>
+  void single_task(Func f) {
+    parallel_for(range<1>(1), detail::single_task_kernel<Func>{f});
+  }
 
   template <typename Func> void interop_task(Func f) {
     interop_handle ih(static_cast<void *>(pool_), sycl::backend::host);

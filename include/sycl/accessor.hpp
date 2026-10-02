@@ -76,20 +76,24 @@ public:
   accessor() : ptr_(nullptr), r_(range<Dimensions>(0)) {}
 
   template <typename AllocatorT>
-  accessor(buffer<DataT, Dimensions, AllocatorT> &,
-           const property_list & = {}) {}
+  accessor(buffer<DataT, Dimensions, AllocatorT> &buf,
+           const property_list & = {})
+      : ptr_(buf.data()), r_(buf.get_range()) {}
 
   template <typename AllocatorT>
-  accessor(buffer<DataT, Dimensions, AllocatorT> &, handler &,
-           const property_list & = {}) {}
+  accessor(buffer<DataT, Dimensions, AllocatorT> &buf, handler &,
+           const property_list & = {})
+      : ptr_(buf.data()), r_(buf.get_range()) {}
 
   template <typename AllocatorT, typename TagT>
-  accessor(buffer<DataT, Dimensions, AllocatorT> &, TagT,
-           const property_list & = {}) {}
+  accessor(buffer<DataT, Dimensions, AllocatorT> &buf, TagT,
+           const property_list & = {})
+      : ptr_(buf.data()), r_(buf.get_range()) {}
 
   template <typename AllocatorT, typename TagT>
-  accessor(buffer<DataT, Dimensions, AllocatorT> &, handler &, TagT,
-           const property_list & = {}) {}
+  accessor(buffer<DataT, Dimensions, AllocatorT> &buf, handler &, TagT,
+           const property_list & = {})
+      : ptr_(buf.data()), r_(buf.get_range()) {}
 
   DataT *get_pointer() const { return ptr_; }
 
@@ -114,7 +118,8 @@ public:
   accessor(DataT *p, range<2> rr, access::mode) : ptr_(p), r_(rr) {}
 
   template <typename AllocatorT>
-  accessor(buffer<DataT, 2, AllocatorT> &, const property_list & = {}) {}
+  accessor(buffer<DataT, 2, AllocatorT> &buf, const property_list & = {})
+      : ptr_(buf.data()), r_(buf.get_range()) {}
 
   DataT *get_pointer() const { return ptr_; }
 

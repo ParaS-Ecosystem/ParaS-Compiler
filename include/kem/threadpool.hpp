@@ -109,6 +109,20 @@ public:
   template <typename Func>
   void execute_nd_range_3D(const sycl::nd_range<3> &r, Func f);
 
+  template <typename KernelName = void, typename Func>
+  sycl::event single_task(Func f) {
+    execute_1D(sycl::range<1>(1), sycl::detail::single_task_kernel<Func>{f});
+    return sycl::event{};
+  }
+  template <typename KernelName = void, typename Func>
+  sycl::event single_task(sycl::event, Func f) {
+    return single_task<KernelName>(f);
+  }
+  template <typename KernelName = void, typename Func>
+  sycl::event single_task(const std::vector<sycl::event> &, Func f) {
+    return single_task<KernelName>(f);
+  }
+
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(sycl::range<dim> r, Func f) {
     if constexpr (dim == 1) {
