@@ -36,9 +36,10 @@
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Tooling.h>
 #include <cstdlib>
-#include <filesystem>
 #include <fstream>
 #include <llvm/Support/CommandLine.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Path.h>
 #include <llvm/Support/Program.h>
 #include <memory>
 #include <optional>
@@ -61,6 +62,14 @@
 bool is_link_only = false;
 std::string GlobalOutFile = "";
 std::vector<std::string> markForDeletion;
+
+static std::string absoluteNormalized(const std::string &p) {
+  llvm::SmallString<256> s(p);
+  if (llvm::sys::fs::make_absolute(s))
+    return "";
+  llvm::sys::path::remove_dots(s,  true);
+  return std::string(s.str());
+}
 
 std::map<std::string, std::string> ppToOriginalSource;
 static std::string parasTempDir;
@@ -254,18 +263,11 @@ public:
 
       std::string originalPath = fileRef->getName().str();
 
-      std::error_code parasPathEC;
-      std::filesystem::path parasInclude = std::filesystem::absolute(
-          std::filesystem::path(PARAS_INSTALL_PREFIX) / "include", parasPathEC);
-      std::error_code headerPathEC;
-      std::filesystem::path headerPath =
-          std::filesystem::absolute(originalPath, headerPathEC);
+      const std::string parasIncludeStr =
+          absoluteNormalized(std::string(PARAS_INSTALL_PREFIX) + "/include");
+      const std::string headerPathStr = absoluteNormalized(originalPath);
 
-      if (!parasPathEC && !headerPathEC) {
-        const std::string parasIncludeStr =
-            parasInclude.lexically_normal().string();
-        const std::string headerPathStr =
-            headerPath.lexically_normal().string();
+      if (!parasIncludeStr.empty() && !headerPathStr.empty()) {
         const std::string prefix = parasIncludeStr + "/";
 
         if (headerPathStr == parasIncludeStr ||
@@ -277,11 +279,9 @@ public:
         }
       }
 
-      std::error_code pathEC;
-      std::filesystem::path absolutePath =
-          std::filesystem::absolute(originalPath, pathEC);
-      if (!pathEC)
-        originalPath = absolutePath.lexically_normal().string();
+      if (std::string absolutePath = absoluteNormalized(originalPath);
+          !absolutePath.empty())
+        originalPath = absolutePath;
 
       std::string headerModel = "/tmp/paras_hdr_%%%%%%%%.hpp";
       llvm::SmallString<128> rewrittenPathSV;
@@ -503,13 +503,11 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
 
   std::vector<std::string> originalSourceDirs;
   for (const auto &sourceFile : sourceFiles) {
-    std::error_code pathEc;
-    std::filesystem::path absSource =
-        std::filesystem::absolute(sourceFile, pathEc);
-    if (pathEc)
+    const std::string absSource = absoluteNormalized(sourceFile);
+    if (absSource.empty())
       continue;
 
-    std::string sourceDir = absSource.parent_path().string();
+    std::string sourceDir = std::string(llvm::sys::path::parent_path(absSource));
     if (!sourceDir.empty() &&
         std::find(originalSourceDirs.begin(), originalSourceDirs.end(),
                   sourceDir) == originalSourceDirs.end()) {
