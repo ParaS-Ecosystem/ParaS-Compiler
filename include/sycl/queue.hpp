@@ -118,6 +118,19 @@ public:
     return parallel_for<KernelName>(r, f);
   }
 
+  template <typename KernelName = void, typename Func>
+  event single_task(Func f) {
+    return submit([&](handler &cgh) { cgh.template single_task<KernelName>(f); });
+  }
+  template <typename KernelName = void, typename Func>
+  event single_task(event, Func f) {
+    return single_task<KernelName>(f);
+  }
+  template <typename KernelName = void, typename Func>
+  event single_task(const std::vector<event> &, Func f) {
+    return single_task<KernelName>(f);
+  }
+
   template <typename injectCustomFunc>
   event parasSYCL_enqueue_custom_operation(injectCustomFunc cgf) {
     return this->submit([&](sycl::handler &cgh) {
