@@ -29,6 +29,7 @@
 
 #include "id.hpp"
 #include "range.hpp"
+#include "backend.hpp"
 
 #include "atomic_ref.hpp"
 
@@ -188,8 +189,6 @@ namespace platform {
 }
 
 }
-
-enum class backend { cuda, host, hip };
 
 class queue ;
 

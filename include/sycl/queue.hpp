@@ -184,6 +184,19 @@ public:
     return props_.template has_property<PropT>();
   }
 
+  void throw_asynchronous() {}
+
+  template <typename SrcT, typename DestT>
+  auto copy(SrcT src, DestT dest)
+      -> decltype(std::declval<handler &>().copy(src, dest), event{}) {
+    return submit([&](handler &cgh) { cgh.copy(src, dest); });
+  }
+  template <typename AccT, typename T,
+            typename = decltype(std::declval<AccT &>().get_pointer())>
+  event fill(AccT dest, const T &pattern) {
+    return submit([&](handler &cgh) { cgh.fill(dest, pattern); });
+  }
+
   event prefetch(const void *, size_t) { return event{}; }
   event mem_advise(const void *, size_t, int) { return event{}; }
   template <typename PropT> PropT get_property() const {

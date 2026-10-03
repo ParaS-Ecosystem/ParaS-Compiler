@@ -47,6 +47,23 @@ class threadpool {
 public:
   using paras_pool_tag = void;
 
+  void throw_asynchronous() {}
+
+  template <typename SrcT, typename DestT>
+  auto copy(SrcT src, DestT dest)
+      -> decltype(std::declval<sycl::handler &>().copy(src, dest), sycl::event{}) {
+    sycl::handler cgh(*this);
+    cgh.copy(src, dest);
+    return sycl::event{};
+  }
+  template <typename AccT, typename T,
+            typename = decltype(std::declval<AccT &>().get_pointer())>
+  sycl::event fill(AccT dest, const T &pattern) {
+    sycl::handler cgh(*this);
+    cgh.fill(dest, pattern);
+    return sycl::event{};
+  }
+
   sycl::event prefetch(const void *, size_t) { return sycl::event{}; }
   sycl::event mem_advise(const void *, size_t, int) { return sycl::event{}; }
 

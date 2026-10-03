@@ -44,6 +44,8 @@ class h_item {
       : global_id_(globalId), global_range_(globalRange),
         local_id_(localId), local_range_(localRange) {}
 
+  static constexpr int dimensions = Dimensions;
+
   PARAS_KERNEL_HD item<Dimensions, false> get_global() const {
     return item<Dimensions, false>(global_id_, global_range_);
   }
