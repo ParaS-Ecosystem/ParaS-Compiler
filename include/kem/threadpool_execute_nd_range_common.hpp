@@ -21,6 +21,7 @@
 #ifndef __PARAS_THREADPOOL_EXECUTE_ND_RANGE_COMMON_HPP__
 #define __PARAS_THREADPOOL_EXECUTE_ND_RANGE_COMMON_HPP__
 
+#include "sycl/kernel_handler.hpp"
 #include <cstddef>
 #include <string>
 
@@ -59,7 +60,7 @@ void execute_nd_range(const sycl::nd_range<D>& r, Func& f) {
             sycl::id<D> gid;
             for (int d = 0; d < D; ++d) gid[d] = grp[d] * LR[d] + lid[d];
             sycl::nd_item<D> item(gid, lid, grp, GR, LR, GRR);
-            f(item);
+            sycl::detail::invoke_with_kh(f, item);
         });
 }
 

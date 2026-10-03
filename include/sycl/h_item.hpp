@@ -23,6 +23,7 @@
 
 #include "id.hpp"
 #include "range.hpp"
+#include "item.hpp"
 #include "kem_gpu/gpu_utilities.hpp"
 
 namespace sycl {
@@ -42,6 +43,27 @@ class h_item {
          id<Dimensions> localId, range<Dimensions> localRange)
       : global_id_(globalId), global_range_(globalRange),
         local_id_(localId), local_range_(localRange) {}
+
+  PARAS_KERNEL_HD item<Dimensions, false> get_global() const {
+    return item<Dimensions, false>(global_id_, global_range_);
+  }
+  PARAS_KERNEL_HD item<Dimensions, false> get_local() const {
+    return item<Dimensions, false>(local_id_, local_range_);
+  }
+  PARAS_KERNEL_HD item<Dimensions, false> get_logical_local() const {
+    return get_local();
+  }
+  PARAS_KERNEL_HD item<Dimensions, false> get_physical_local() const {
+    return get_local();
+  }
+
+  PARAS_KERNEL_HD friend bool operator==(const h_item &a, const h_item &b) {
+    return a.global_id_ == b.global_id_ && a.global_range_ == b.global_range_ &&
+           a.local_id_ == b.local_id_ && a.local_range_ == b.local_range_;
+  }
+  PARAS_KERNEL_HD friend bool operator!=(const h_item &a, const h_item &b) {
+    return !(a == b);
+  }
 
   PARAS_KERNEL_HD
   id<Dimensions> get_global_id() const { return global_id_; }

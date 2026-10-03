@@ -23,6 +23,7 @@
 
 #include <type_traits>
 #include "id.hpp"
+#include "kernel_handler.hpp"
 #include "range.hpp"
 #include "kem_gpu/gpu_utilities.hpp"
 
@@ -88,8 +89,12 @@ namespace detail {
 template <int D, typename Func>
 PARAS_KERNEL_HD inline void invoke_range_kernel(const Func& f, const id<D>& idx,
                                                 const range<D>& r) {
-    if constexpr (std::is_invocable_v<const Func&, item<D>>)
+    if constexpr (std::is_invocable_v<const Func&, item<D>, kernel_handler>)
+        f(item<D>(idx, r), kernel_handler{});
+    else if constexpr (std::is_invocable_v<const Func&, item<D>>)
         f(item<D>(idx, r));
+    else if constexpr (std::is_invocable_v<const Func&, id<D>, kernel_handler>)
+        f(idx, kernel_handler{});
     else
         f(idx);
 }

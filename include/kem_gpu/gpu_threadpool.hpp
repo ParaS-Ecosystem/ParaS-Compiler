@@ -54,6 +54,9 @@ class cuda_threadpool {
 public:
   using paras_pool_tag = void;
 
+  sycl::event prefetch(const void *, size_t) { return sycl::event{}; }
+  sycl::event mem_advise(const void *, size_t, int) { return sycl::event{}; }
+
   template <typename PropT> bool has_property() const noexcept {
     return props_.template has_property<PropT>();
   }

@@ -23,13 +23,15 @@
 
 #include "sycl/id.hpp"
 #include <cstddef>
+#include "sycl/item.hpp"
 #include "kem_gpu/gpu_runtime_api.hpp"
 
 template <typename Func>
 __global__ void gpu_execute_1D_async_kernel(std::size_t n, Func f) {
   const std::size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < n) {
-    f(sycl::id<1>(i));
+
+    sycl::detail::invoke_range_kernel<1>(f, sycl::id<1>(i), sycl::range<1>(n));
   }
 }
 

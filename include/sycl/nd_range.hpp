@@ -32,6 +32,15 @@ public:
   static constexpr int dimensions = Dimensions;
 
 private:
+
+  friend bool operator==(const nd_range &a, const nd_range &b) {
+    return a.global_range_ == b.global_range_ &&
+           a.local_range_ == b.local_range_ && a.offset_ == b.offset_;
+  }
+  friend bool operator!=(const nd_range &a, const nd_range &b) {
+    return !(a == b);
+  }
+
   range<Dimensions> global_range_;
   range<Dimensions> local_range_;
   id<Dimensions> offset_;

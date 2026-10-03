@@ -49,13 +49,18 @@ template <int D, typename Func> struct hierarchical_kernel {
   range<D> groups;
   range<D> local;
   PARAS_KERNEL_HD void operator()(id<D> g) const {
-    f(group<D>(g, groups, local));
+    invoke_with_kh(f, group<D>(g, groups, local));
   }
 };
 
 template <typename Func> struct single_task_kernel {
   Func f;
-  PARAS_KERNEL_HD void operator()(id<1>) const { f(); }
+  PARAS_KERNEL_HD void operator()(id<1>) const {
+    if constexpr (std::is_invocable_v<const Func &, kernel_handler>)
+      f(kernel_handler{});
+    else
+      f();
+  }
 };
 }
 
@@ -112,6 +117,20 @@ public:
       hostFunction();
     }
   }
+
+  template <auto &SpecName>
+  void set_specialization_constant(
+      typename std::remove_reference_t<decltype(SpecName)>::value_type value) {
+    detail::spec_const_set_host<SpecName>(value);
+  }
+  template <auto &SpecName>
+  typename std::remove_reference_t<decltype(SpecName)>::value_type
+  get_specialization_constant() const {
+    return detail::spec_const_value_host<SpecName>();
+  }
+
+  void prefetch(const void *, std::size_t) {}
+  void mem_advise(const void *, std::size_t, int) {}
 
   template <typename AccessorT> void require(AccessorT &&) {}
   template <typename AccessorT> void update_host(AccessorT &&) {}
