@@ -24,6 +24,7 @@
 #include <iterator>
 #include <vector>
 #include "range.hpp"
+#include "exception.hpp"
 #include "id.hpp"
 #include "item.hpp"
 #include "access.hpp"
@@ -44,6 +45,18 @@
 
 namespace sycl
 {
+namespace detail {
+
+template <int D>
+inline void check_accessor_range(const range<D> &bufRange,
+                                 const range<D> &accessRange,
+                                 const id<D> &accessOffset = id<D>()) {
+  for (int d = 0; d < D; ++d)
+    if (accessRange[d] + accessOffset[d] > bufRange[d])
+      throw exception(make_error_code(errc::invalid),
+                      "accessor range + offset exceeds the buffer range");
+}
+}
 
     template <typename T, int Dimensions, typename AllocatorT>
     class buffer;
@@ -82,6 +95,21 @@ namespace sycl
         range<Dimensions> r_;
         id<Dimensions> offset_{};
         bool no_init_ = false;
+
+    public:
+
+        template <typename, int, access::mode, target, access::placeholder>
+        friend class accessor;
+        template <typename SrcT, access::mode SrcMode,
+                  typename = std::enable_if_t<
+                      std::is_same_v<std::remove_const_t<SrcT>, std::remove_const_t<DataT>> &&
+                      !(std::is_same_v<SrcT, DataT> && SrcMode == AccessMode) &&
+                      AccessMode == access::mode::read &&
+                      (SrcMode == access::mode::read ||
+                       (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
+        accessor(const accessor<SrcT, Dimensions, SrcMode, AccessTarget, IsPlaceholder> &o)
+            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), offset_(o.offset_), no_init_(o.no_init_) {}
+    private:
 
     public:
 
@@ -172,6 +200,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
         }
 
@@ -181,6 +210,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
         }
 
@@ -190,6 +220,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -201,6 +232,7 @@ namespace sycl
                  range<Dimensions> accessRange, TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -213,6 +245,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -225,6 +258,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
         }
 
@@ -234,6 +268,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
         }
 
@@ -243,6 +278,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -441,6 +477,21 @@ namespace sycl
 
     public:
 
+        template <typename, int, access::mode, target, access::placeholder>
+        friend class accessor;
+        template <typename SrcT, access::mode SrcMode,
+                  typename = std::enable_if_t<
+                      std::is_same_v<std::remove_const_t<SrcT>, std::remove_const_t<DataT>> &&
+                      !(std::is_same_v<SrcT, DataT> && SrcMode == AccessMode) &&
+                      AccessMode == access::mode::read &&
+                      (SrcMode == access::mode::read ||
+                       (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
+        accessor(const accessor<SrcT, 2, SrcMode, AccessTarget, access::placeholder::false_t> &o)
+            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), offset_(o.offset_), no_init_(o.no_init_) {}
+    private:
+
+    public:
+
         using value_type = std::conditional_t<AccessMode == access::mode::read, const DataT, DataT>;
         using reference = value_type &;
         using const_reference = const DataT &;
@@ -512,6 +563,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
         }
 
@@ -521,6 +573,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
         }
 
@@ -530,6 +583,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -541,6 +595,7 @@ namespace sycl
                  range<2> accessRange, TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -553,6 +608,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -565,6 +621,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
         }
 
@@ -574,6 +631,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
         }
 
@@ -583,6 +641,7 @@ namespace sycl
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -724,6 +783,21 @@ namespace sycl
     {
         mutable DataT *ptr_;
         bool no_init_ = false;
+
+    public:
+
+        template <typename, int, access::mode, target, access::placeholder>
+        friend class accessor;
+        template <typename SrcT, access::mode SrcMode,
+                  typename = std::enable_if_t<
+                      std::is_same_v<std::remove_const_t<SrcT>, std::remove_const_t<DataT>> &&
+                      !(std::is_same_v<SrcT, DataT> && SrcMode == AccessMode) &&
+                      AccessMode == access::mode::read &&
+                      (SrcMode == access::mode::read ||
+                       (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
+        accessor(const accessor<SrcT, 0, SrcMode, AccessTarget, IsPlaceholder> &o)
+            : ptr_(const_cast<DataT *>(o.ptr_)), no_init_(o.no_init_) {}
+    private:
 
     public:
 

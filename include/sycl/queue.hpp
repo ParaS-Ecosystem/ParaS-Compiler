@@ -92,7 +92,9 @@ public:
       : queue(ctx, selector, props) {}
 
   template <typename Pool, typename = typename Pool::paras_pool_tag>
-  queue(const Pool &pool) : queue(pool.get_context(), pool.get_device()) {}
+  queue(const Pool &pool) : queue(pool.get_context(), pool.get_device()) {
+    identity_ = pool.paras_identity_ptr();
+  }
 
   template <typename CGF> event submit(CGF cgf) {
     if (dev_.is_gpu()) {
@@ -184,6 +186,14 @@ public:
     return props_.template has_property<PropT>();
   }
 
+  friend bool operator==(const queue &a, const queue &b) {
+    return a.identity_ == b.identity_;
+  }
+  friend bool operator!=(const queue &a, const queue &b) { return !(a == b); }
+  const void *paras_identity() const { return identity_.get(); }
+
+  template <typename AccT> event update_host(AccT) { return event{}; }
+
   void throw_asynchronous() {}
 
   template <typename SrcT, typename DestT>
@@ -213,6 +223,8 @@ public:
   }
 
 private:
+
+  std::shared_ptr<const void> identity_ = std::make_shared<int>(0);
   mutable std::shared_ptr<cuda_threadpool> gpu_pool_{};
 
   cuda_threadpool &get_or_create_gpu_pool() const;
@@ -259,6 +271,19 @@ inline void sycl::queue::throw_async_exceptns() {
   }
 }
 
+}
+
+namespace std {
+template <> struct hash<sycl::queue> {
+  size_t operator()(const sycl::queue &q) const {
+    return std::hash<const void *>()(q.paras_identity());
+  }
+};
+template <> struct hash<sycl::event> {
+  size_t operator()(const sycl::event &e) const {
+    return std::hash<const void *>()(e.paras_identity());
+  }
+};
 }
 
 #endif
