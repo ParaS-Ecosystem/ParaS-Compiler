@@ -76,6 +76,26 @@ public:
   sycl::event prefetch(const void *, size_t) { return sycl::event{}; }
   sycl::event mem_advise(const void *, size_t, int) { return sycl::event{}; }
 
+  sycl::event prefetch(const void *p, size_t n, sycl::event dep) { dep.wait(); return prefetch(p, n); }
+  sycl::event prefetch(const void *p, size_t n, const std::vector<sycl::event> &deps) {
+    for (auto &e : deps) e.wait();
+    return prefetch(p, n);
+  }
+  sycl::event mem_advise(const void *p, size_t n, int a, sycl::event dep) { dep.wait(); return mem_advise(p, n, a); }
+  sycl::event mem_advise(const void *p, size_t n, int a, const std::vector<sycl::event> &deps) {
+    for (auto &e : deps) e.wait();
+    return mem_advise(p, n, a);
+  }
+
+  template <typename CGF, typename SecondaryQ> sycl::event submit(CGF cgf, SecondaryQ &) { return submit(cgf); }
+
+  template <typename Param> typename Param::return_type get_info() const {
+    if constexpr (std::is_same_v<typename Param::return_type, sycl::context>)
+      return get_context();
+    else
+      return get_device();
+  }
+
   template <typename PropT> bool has_property() const noexcept {
     return props_.template has_property<PropT>();
   }
@@ -404,4 +424,12 @@ T *malloc_device(size_t n, const device &dev, const context &ctx,
 inline void free(void *ptr, const threadpool &) { std::free(ptr); }
 
 }
+namespace std {
+template <> struct hash<threadpool> {
+  size_t operator()(const threadpool &q) const {
+    return std::hash<const void *>()(q.paras_identity());
+  }
+};
+}
+
 #endif

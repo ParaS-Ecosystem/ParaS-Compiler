@@ -154,6 +154,10 @@ namespace sycl {
 	    : exception(ctx, std::error_code(ev, cat)) {}
 
 	inline context exception::get_context() const {
+
+	  if (!context_)
+	    throw exception(make_error_code(errc::invalid),
+	                    "sycl::exception has no associated context");
 	  return *context_;
 	}
 
