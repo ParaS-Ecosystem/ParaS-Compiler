@@ -251,6 +251,27 @@ public:
 
   event prefetch(const void *, size_t) { return event{}; }
   event mem_advise(const void *, size_t, int) { return event{}; }
+
+  event prefetch(const void *p, size_t n, event dep) { dep.wait(); return prefetch(p, n); }
+  event prefetch(const void *p, size_t n, const std::vector<event> &deps) {
+    for (auto &e : deps) e.wait();
+    return prefetch(p, n);
+  }
+  event mem_advise(const void *p, size_t n, int a, event dep) { dep.wait(); return mem_advise(p, n, a); }
+  event mem_advise(const void *p, size_t n, int a, const std::vector<event> &deps) {
+    for (auto &e : deps) e.wait();
+    return mem_advise(p, n, a);
+  }
+
+  template <typename CGF, typename SecondaryQ> event submit(CGF cgf, SecondaryQ &) { return submit(cgf); }
+
+  template <typename Param> typename Param::return_type get_info() const {
+    if constexpr (std::is_same_v<typename Param::return_type, context>)
+      return get_context();
+    else
+      return get_device();
+  }
+
   template <typename PropT> PropT get_property() const {
     if (!has_property<PropT>())
       throw exception(make_error_code(errc::invalid),
