@@ -26,6 +26,7 @@
 #include "atomic_ref.hpp"
 #include "kem_gpu/gpu_utilities.hpp"
 #include "work_group_algorithms_detail.hpp"
+#include "h_item.hpp"
 
 namespace sycl {
 
@@ -118,13 +119,31 @@ public:
   PARAS_KERNEL_HD
   bool leader() const { return get_local_linear_id() == 0; }
 
-  template <typename Fn> void parallel_for_work_item(const Fn &fn) const {
-    fn();
+  template <typename Fn>
+  PARAS_KERNEL_HD void parallel_for_work_item(const Fn &fn) const {
+    parallel_for_work_item(local_range_, fn);
   }
 
   template <typename Fn>
-  void parallel_for_work_item(range<Dimensions>, const Fn &fn) const {
-    fn();
+  PARAS_KERNEL_HD void parallel_for_work_item(range<Dimensions> logicalRange,
+                                              const Fn &fn) const {
+    range<Dimensions> globalRange;
+    size_t n = 1;
+    for (int d = 0; d < Dimensions; ++d) {
+      globalRange[d] = group_range_[d] * logicalRange[d];
+      n *= logicalRange[d];
+    }
+    for (size_t lin = 0; lin < n; ++lin) {
+      id<Dimensions> lid, gid;
+      size_t rest = lin;
+      for (int d = Dimensions - 1; d >= 0; --d) {
+        lid[d] = rest % logicalRange[d];
+        rest /= logicalRange[d];
+      }
+      for (int d = 0; d < Dimensions; ++d)
+        gid[d] = group_id_[d] * logicalRange[d] + lid[d];
+      fn(h_item<Dimensions>(gid, globalRange, lid, logicalRange));
+    }
   }
 };
 

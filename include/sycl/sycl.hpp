@@ -38,6 +38,8 @@
 #include "get_pointer_type.hpp"
 #include "global_ptr.hpp"
 #include "group.hpp"
+#include "h_item.hpp"
+#include "private_memory.hpp"
 #include "group_algorithms.hpp"
 #include "group_barrier.hpp"
 #include "handler.hpp"

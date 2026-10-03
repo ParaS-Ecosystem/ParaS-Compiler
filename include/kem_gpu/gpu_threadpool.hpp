@@ -54,6 +54,16 @@ class cuda_threadpool {
 public:
   using paras_pool_tag = void;
 
+  template <typename PropT> bool has_property() const noexcept {
+    return props_.template has_property<PropT>();
+  }
+  template <typename PropT> PropT get_property() const {
+    if (!has_property<PropT>())
+      throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
+                            "queue does not have the requested property");
+    return props_.template get_property<PropT>();
+  }
+
 public:
   sycl::backend get_backend() const {
 #if PARAS_HIP_BACKEND
@@ -70,6 +80,9 @@ public:
 
   cudaStream_t stream = nullptr;
   bool ownsStream = false;
+
+  explicit cuda_threadpool(const sycl::property_list &props)
+      : cuda_threadpool(sycl::default_selector_v, props) {}
 
   cuda_threadpool() : dev_(::paras_extension::select_device_no_selector()) {
     initialize_stream_for_device();
@@ -273,6 +286,14 @@ public:
       static_assert(dim <= 3, "Only 1D/2D/3D supported");
     }
     return sycl::event{};
+  }
+
+  template <typename T>
+  sycl::event fill(void *ptr, const T &pattern, size_t count) {
+    T *p = static_cast<T *>(ptr);
+    const T value = pattern;
+    return parallel_for(sycl::range<1>(count),
+                        [=](sycl::id<1> i) { p[i[0]] = value; });
   }
 
   sycl::event memcpy(void *dest, const void *src, size_t numBytes) {

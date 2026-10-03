@@ -180,6 +180,22 @@ public:
   template <typename T> event copy(const T *src, T *dest, size_t count);
   event memcpy(void *dest, const void *src, size_t numBytes);
 
+  template <typename PropT> bool has_property() const noexcept {
+    return props_.template has_property<PropT>();
+  }
+  template <typename PropT> PropT get_property() const {
+    if (!has_property<PropT>())
+      throw exception(make_error_code(errc::invalid),
+                      "queue does not have the requested property");
+    return props_.template get_property<PropT>();
+  }
+  template <typename T>
+  event fill(void *ptr, const T &pattern, size_t count) {
+    return submit([&](handler &cgh) {
+      cgh.fill(static_cast<T *>(ptr), pattern, count);
+    });
+  }
+
 private:
   mutable std::shared_ptr<cuda_threadpool> gpu_pool_{};
 

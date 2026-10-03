@@ -210,4 +210,33 @@ struct hash<sycl::context> {
 };
 }
 
+namespace sycl {
+
+namespace property {
+namespace buffer {
+class context_bound {
+  context ctx_;
+
+public:
+  context_bound(context boundContext) : ctx_(boundContext) {}
+  context get_context() const { return ctx_; }
+};
+}
+namespace image {
+class context_bound {
+  context ctx_;
+
+public:
+  context_bound(context boundContext) : ctx_(boundContext) {}
+  context get_context() const { return ctx_; }
+};
+}
+}
+
+namespace detail {
+template <> struct is_property<property::buffer::context_bound> : std::true_type {};
+template <> struct is_property<property::image::context_bound> : std::true_type {};
+}
+}
+
 #endif
