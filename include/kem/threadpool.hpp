@@ -225,6 +225,71 @@ public:
     return sycl::event{};
   }
 
+  template <typename KernelName = void, typename Func, int dim>
+  sycl::event parallel_for(sycl::range<dim> r, sycl::event dep, Func f) {
+    dep.wait();
+    return parallel_for<KernelName>(r, f);
+  }
+  template <typename KernelName = void, typename Func, int dim>
+  sycl::event parallel_for(sycl::range<dim> r,
+                           const std::vector<sycl::event> &deps, Func f) {
+    for (auto &e : deps) e.wait();
+    return parallel_for<KernelName>(r, f);
+  }
+  template <typename KernelName = void, typename Func, int dim>
+  sycl::event parallel_for(const sycl::nd_range<dim> &r, sycl::event dep,
+                           Func f) {
+    dep.wait();
+    return parallel_for<KernelName>(r, f);
+  }
+  template <typename KernelName = void, typename Func, int dim>
+  sycl::event parallel_for(const sycl::nd_range<dim> &r,
+                           const std::vector<sycl::event> &deps, Func f) {
+    for (auto &e : deps) e.wait();
+    return parallel_for<KernelName>(r, f);
+  }
+  sycl::event memcpy(void *dest, const void *src, size_t numBytes,
+                     sycl::event dep) {
+    dep.wait();
+    return memcpy(dest, src, numBytes);
+  }
+  sycl::event memcpy(void *dest, const void *src, size_t numBytes,
+                     const std::vector<sycl::event> &deps) {
+    for (auto &e : deps) e.wait();
+    return memcpy(dest, src, numBytes);
+  }
+  sycl::event memset(void *ptr, int value, size_t numBytes, sycl::event dep) {
+    dep.wait();
+    return memset(ptr, value, numBytes);
+  }
+  sycl::event memset(void *ptr, int value, size_t numBytes,
+                     const std::vector<sycl::event> &deps) {
+    for (auto &e : deps) e.wait();
+    return memset(ptr, value, numBytes);
+  }
+  template <typename T>
+  sycl::event copy(const T *src, T *dest, size_t count, sycl::event dep) {
+    dep.wait();
+    return copy(src, dest, count);
+  }
+  template <typename T>
+  sycl::event copy(const T *src, T *dest, size_t count,
+                   const std::vector<sycl::event> &deps) {
+    for (auto &e : deps) e.wait();
+    return copy(src, dest, count);
+  }
+  template <typename T>
+  sycl::event fill(void *ptr, const T &pattern, size_t count, sycl::event dep) {
+    dep.wait();
+    return fill(ptr, pattern, count);
+  }
+  template <typename T>
+  sycl::event fill(void *ptr, const T &pattern, size_t count,
+                   const std::vector<sycl::event> &deps) {
+    for (auto &e : deps) e.wait();
+    return fill(ptr, pattern, count);
+  }
+
   template <typename T>
   sycl::event fill(void *ptr, const T &pattern, size_t count) {
     T *p = static_cast<T *>(ptr);

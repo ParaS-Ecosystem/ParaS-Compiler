@@ -182,6 +182,48 @@ public:
   template <typename T> event copy(const T *src, T *dest, size_t count);
   event memcpy(void *dest, const void *src, size_t numBytes);
 
+  event memcpy(void *dest, const void *src, size_t numBytes,
+                     event dep) {
+    dep.wait();
+    return memcpy(dest, src, numBytes);
+  }
+  event memcpy(void *dest, const void *src, size_t numBytes,
+                     const std::vector<event> &deps) {
+    for (auto &e : deps) e.wait();
+    return memcpy(dest, src, numBytes);
+  }
+  event memset(void *ptr, int value, size_t numBytes, event dep) {
+    dep.wait();
+    return memset(ptr, value, numBytes);
+  }
+  event memset(void *ptr, int value, size_t numBytes,
+                     const std::vector<event> &deps) {
+    for (auto &e : deps) e.wait();
+    return memset(ptr, value, numBytes);
+  }
+  template <typename T>
+  event copy(const T *src, T *dest, size_t count, event dep) {
+    dep.wait();
+    return copy(src, dest, count);
+  }
+  template <typename T>
+  event copy(const T *src, T *dest, size_t count,
+                   const std::vector<event> &deps) {
+    for (auto &e : deps) e.wait();
+    return copy(src, dest, count);
+  }
+  template <typename T>
+  event fill(void *ptr, const T &pattern, size_t count, event dep) {
+    dep.wait();
+    return fill(ptr, pattern, count);
+  }
+  template <typename T>
+  event fill(void *ptr, const T &pattern, size_t count,
+                   const std::vector<event> &deps) {
+    for (auto &e : deps) e.wait();
+    return fill(ptr, pattern, count);
+  }
+
   template <typename PropT> bool has_property() const noexcept {
     return props_.template has_property<PropT>();
   }
