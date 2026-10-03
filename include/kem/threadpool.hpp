@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <cstring>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -44,6 +45,8 @@ class handler;
 
 class threadpool {
 public:
+  using paras_pool_tag = void;
+
   threadpool() {}
   sycl::device get_device() const { return dev_; }
   sycl::context get_context() const { return ctx_; }
@@ -84,7 +87,7 @@ public:
   template <typename Func> sycl::event spawn_ND(Func f);
 
   template <typename CGF> sycl::event submit(CGF &&cgf) {
-    std::lock_guard<std::mutex> lock(submit_mutex_);
+    std::lock_guard<std::mutex> lock(*submit_mutex_);
     sycl::handler cgh(*this);
     std::forward<CGF>(cgf)(cgh);
     return sycl::event{};
@@ -170,7 +173,8 @@ private:
   sycl::context ctx_{};
   sycl::device dev_{};
   sycl::property_list props_{};
-  std::mutex submit_mutex_;
+
+  std::shared_ptr<std::mutex> submit_mutex_ = std::make_shared<std::mutex>();
 };
 
 #include "threadpool_execute_1D.hpp"

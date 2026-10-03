@@ -56,6 +56,9 @@ public:
                  const property_list &props = {});
   explicit queue(const device &dev, const property_list &props = {});
 
+  template <typename Pool, typename = typename Pool::paras_pool_tag>
+  queue(const Pool &pool) : queue(pool.get_context(), pool.get_device()) {}
+
   template <typename CGF> event submit(CGF cgf) {
     if (dev_.is_gpu()) {
       handler h(get_or_create_gpu_pool());

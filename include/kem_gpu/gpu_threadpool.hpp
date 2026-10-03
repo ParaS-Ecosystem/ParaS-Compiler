@@ -51,6 +51,8 @@
 #include "utilities/selector_logic.hpp"
 
 class cuda_threadpool {
+public:
+  using paras_pool_tag = void;
 
 public:
   sycl::backend get_backend() const {
