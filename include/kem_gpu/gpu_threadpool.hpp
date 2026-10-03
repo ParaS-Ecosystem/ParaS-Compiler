@@ -56,6 +56,15 @@ public:
 
   void throw_asynchronous() {}
 
+  const void *paras_identity() const { return identity_.get(); }
+  std::shared_ptr<const void> paras_identity_ptr() const { return identity_; }
+  friend bool operator==(const cuda_threadpool &a, const cuda_threadpool &b) {
+    return a.paras_identity() == b.paras_identity();
+  }
+  friend bool operator!=(const cuda_threadpool &a, const cuda_threadpool &b) { return !(a == b); }
+  bool is_in_order() const { return props_.has_in_order(); }
+  template <typename AccT> sycl::event update_host(AccT) { return sycl::event{}; }
+
   template <typename SrcT, typename DestT>
   auto copy(SrcT src, DestT dest)
       -> decltype(std::declval<sycl::handler &>().copy(src, dest), sycl::event{}) {
@@ -384,6 +393,7 @@ private:
   sycl::device dev_;
   sycl::context ctx_{};
   sycl::property_list props_;
+  std::shared_ptr<int> identity_ = std::make_shared<int>(0);
   sycl::queue queue_;
   std::mutex submit_mutex_;
 

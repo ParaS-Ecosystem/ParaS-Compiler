@@ -278,6 +278,25 @@ namespace sycl
         PARAS_RANGE_COMPOUND(^)
 #undef PARAS_RANGE_COMPOUND
 
+#define PARAS_RANGE_SCALAR_COMPOUND(OP)                                       \
+        PARAS_KERNEL_HD friend range &operator OP##=(range & a, size_t s) {   \
+            for (int d = 0; d < Dimensions; ++d)                              \
+                a.dims_[d] OP## = s;                                          \
+            return a;                                                         \
+        }
+        PARAS_RANGE_SCALAR_COMPOUND(+)
+        PARAS_RANGE_SCALAR_COMPOUND(-)
+        PARAS_RANGE_SCALAR_COMPOUND(*)
+        PARAS_RANGE_SCALAR_COMPOUND(/)
+        PARAS_RANGE_SCALAR_COMPOUND(%)
+#undef PARAS_RANGE_SCALAR_COMPOUND
+        PARAS_KERNEL_HD friend range operator%(size_t s, const range &a) {
+            range r(a);
+            for (int d = 0; d < Dimensions; ++d)
+                r.dims_[d] = s % a.dims_[d];
+            return r;
+        }
+
         PARAS_KERNEL_HD friend range operator+(const range &a) { return a; }
         PARAS_KERNEL_HD friend range operator-(const range &a) {
             range r(a);

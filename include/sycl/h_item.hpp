@@ -93,6 +93,14 @@ class h_item {
   range<Dimensions> get_logical_local_range() const { return local_range_; }
   PARAS_KERNEL_HD
   range<Dimensions> get_physical_local_range() const { return local_range_; }
+  PARAS_KERNEL_HD
+  std::size_t get_logical_local_id(int d) const { return local_id_[d]; }
+  PARAS_KERNEL_HD
+  std::size_t get_physical_local_id(int d) const { return local_id_[d]; }
+  PARAS_KERNEL_HD
+  std::size_t get_logical_local_range(int d) const { return local_range_[d]; }
+  PARAS_KERNEL_HD
+  std::size_t get_physical_local_range(int d) const { return local_range_[d]; }
 };
 
 }

@@ -56,6 +56,8 @@ public:
   }
   friend bool operator!=(const event &a, const event &b) { return !(a == b); }
 
+  const void *paras_identity() const { return m_impl.get(); }
+
   backend get_backend() const noexcept { return backend::host; }
 
   void wait() const {
