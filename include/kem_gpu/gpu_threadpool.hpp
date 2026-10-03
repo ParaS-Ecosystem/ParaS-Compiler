@@ -75,7 +75,9 @@ public:
     initialize_stream_for_device();
   }
 
-  template <typename Selector>
+  template <typename Selector,
+            typename = std::enable_if_t<std::is_invocable_r_v<
+                int, const Selector &, const sycl::device &>>>
   explicit cuda_threadpool(const Selector &sel,
                            const sycl::property_list &props = {})
       : dev_(::paras_extension::select_device_with_selector(sel)),
@@ -83,7 +85,9 @@ public:
     initialize_stream_for_device();
   }
 
-  template <typename Selector>
+  template <typename Selector,
+            typename = std::enable_if_t<std::is_invocable_r_v<
+                int, const Selector &, const sycl::device &>>>
   cuda_threadpool(const Selector &sel, const sycl::async_handler &,
                   const sycl::property_list &props = {})
       : cuda_threadpool(sel, props) {}
@@ -98,6 +102,31 @@ public:
       : dev_(dev), ctx_(ctx), props_(props) {
     initialize_stream_for_device();
   }
+
+  explicit cuda_threadpool(const sycl::async_handler &,
+                 const sycl::property_list &props = {})
+      : cuda_threadpool(sycl::default_selector_v, props) {}
+  explicit cuda_threadpool(const sycl::device &dev, const sycl::async_handler &,
+                 const sycl::property_list &props = {})
+      : cuda_threadpool(dev, props) {}
+  explicit cuda_threadpool(const sycl::context &ctx, const sycl::device &dev,
+                 const sycl::async_handler &,
+                 const sycl::property_list &props = {})
+      : cuda_threadpool(ctx, dev, props) {}
+  template <typename Selector,
+              typename = std::enable_if_t<std::is_invocable_r_v<
+                  int, const Selector &, const sycl::device &>>>
+  explicit cuda_threadpool(const sycl::context &ctx, const Selector &selector,
+                 const sycl::property_list &props = {})
+      : cuda_threadpool(ctx, ::paras_extension::select_device_with_selector(selector),
+              props) {}
+  template <typename Selector,
+              typename = std::enable_if_t<std::is_invocable_r_v<
+                  int, const Selector &, const sycl::device &>>>
+  explicit cuda_threadpool(const sycl::context &ctx, const Selector &selector,
+                 const sycl::async_handler &,
+                 const sycl::property_list &props = {})
+      : cuda_threadpool(ctx, selector, props) {}
 
   explicit cuda_threadpool(const sycl::device &dev,
                            const sycl::property_list &props = {})

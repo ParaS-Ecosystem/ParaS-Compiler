@@ -80,6 +80,59 @@ public:
     parallel_for(range<1>(1), detail::single_task_kernel<Func>{f});
   }
 
+  template <typename KernelName = void, typename Func>
+  void parallel_for(std::size_t numWorkItems, Func f) {
+    parallel_for(range<1>(numWorkItems), f);
+  }
+
+  template <typename FunctorT> void host_task(FunctorT &&hostFunction) {
+    wait_for_dependencies();
+    if constexpr (std::is_invocable_v<FunctorT &, interop_handle>) {
+      interop_handle ih(static_cast<void *>(pool_), sycl::backend::host);
+      hostFunction(ih);
+    } else {
+      hostFunction();
+    }
+  }
+
+  template <typename AccessorT> void require(AccessorT &&) {}
+  template <typename AccessorT> void update_host(AccessorT &&) {}
+
+  template <typename BundleT> void use_kernel_bundle(const BundleT &) {}
+  template <typename T> void set_arg(int, T &&) {}
+  template <typename... Ts> void set_args(Ts &&...) {}
+
+  template <typename T> void copy(const T *src, T *dest, std::size_t count) {
+    memcpy(dest, src, count * sizeof(T));
+  }
+  template <typename T>
+  void fill(T *ptr, const T &pattern, std::size_t count) {
+    const T value = pattern;
+    parallel_for(range<1>(count), [=](id<1> i) { ptr[i[0]] = value; });
+  }
+
+  template <typename AccessorT, typename T,
+            typename = decltype(std::declval<AccessorT &>().get_pointer())>
+  void copy(const AccessorT &src, T *dest) {
+    const auto n = src.size();
+    for (std::size_t i = 0; i < n; ++i)
+      dest[i] = src.get_pointer()[i];
+  }
+  template <typename T, typename AccessorT,
+            typename = decltype(std::declval<AccessorT &>().get_pointer())>
+  void copy(const T *src, const AccessorT &dest) {
+    const auto n = dest.size();
+    for (std::size_t i = 0; i < n; ++i)
+      dest.get_pointer()[i] = src[i];
+  }
+  template <typename AccessorT, typename T,
+            typename = decltype(std::declval<AccessorT &>().get_pointer())>
+  void fill(const AccessorT &dest, const T &pattern) {
+    const auto n = dest.size();
+    for (std::size_t i = 0; i < n; ++i)
+      dest.get_pointer()[i] = pattern;
+  }
+
   template <typename Func> void interop_task(Func f) {
     interop_handle ih(static_cast<void *>(pool_), sycl::backend::host);
     f(ih);
