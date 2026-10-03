@@ -47,7 +47,20 @@ class threadpool {
 public:
   using paras_pool_tag = void;
 
+  template <typename PropT> bool has_property() const noexcept {
+    return props_.template has_property<PropT>();
+  }
+  template <typename PropT> PropT get_property() const {
+    if (!has_property<PropT>())
+      throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
+                            "queue does not have the requested property");
+    return props_.template get_property<PropT>();
+  }
+
   threadpool() {}
+
+  explicit threadpool(const sycl::property_list &props)
+      : threadpool(sycl::default_selector_v, props) {}
   sycl::device get_device() const { return dev_; }
   sycl::context get_context() const { return ctx_; }
 
@@ -183,6 +196,14 @@ public:
     return sycl::event{};
   }
 
+  template <typename T>
+  sycl::event fill(void *ptr, const T &pattern, size_t count) {
+    T *p = static_cast<T *>(ptr);
+    for (size_t i = 0; i < count; ++i)
+      p[i] = pattern;
+    return sycl::event{};
+  }
+
   sycl::event memcpy(void *dest, const void *src, size_t numBytes) {
     std::memcpy(dest, src, numBytes);
     return sycl::event{};
@@ -219,11 +240,6 @@ namespace sycl {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
-  parallel_for(r, f);
-}
-
-template <typename Func, int dim>
-void handler::parallel_for(range<dim> r, Func f) {
 
   if constexpr (dim == 1) {
     pool_->execute_1D(r, f);
@@ -237,11 +253,6 @@ void handler::parallel_for(range<dim> r, Func f) {
 }
 
 template <typename KernelName, typename Func, int dim>
-void handler::parallel_for(const nd_range<dim> &r, Func f) {
-  parallel_for(r, f);
-}
-
-template <typename Func, int dim>
 void handler::parallel_for(const nd_range<dim> &r, Func f) {
 
   if constexpr (dim == 1) {

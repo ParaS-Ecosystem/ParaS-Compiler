@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -42,6 +43,15 @@ class cuda_threadpool;
 namespace sycl {
 
 namespace detail {
+
+template <int D, typename Func> struct hierarchical_kernel {
+  Func f;
+  range<D> groups;
+  range<D> local;
+  PARAS_KERNEL_HD void operator()(id<D> g) const {
+    f(group<D>(g, groups, local));
+  }
+};
 
 template <typename Func> struct single_task_kernel {
   Func f;
@@ -63,21 +73,29 @@ public:
   handler(cuda_threadpool &p)
       : pool_(nullptr), gpu_pool_(&p), local_memory_bytes_(0) {}
 
-  template <typename KernelName, typename Func, int dim>
+  template <typename KernelName = void, typename Func, int dim>
   void parallel_for(range<dim> r, Func f);
-
-  template <typename KernelName, typename Func, int dim>
-  void parallel_for(const nd_range<dim> &r, Func f);
-
-  template <typename Func, int dim>
-  void parallel_for(range<dim> r, Func f);
-
-  template <typename Func, int dim>
+  template <typename KernelName = void, typename Func, int dim>
   void parallel_for(const nd_range<dim> &r, Func f);
 
   template <typename KernelName = void, typename Func>
   void single_task(Func f) {
     parallel_for(range<1>(1), detail::single_task_kernel<Func>{f});
+  }
+
+  template <typename KernelName = void, int Dim, typename Func>
+  void parallel_for_work_group(range<Dim> numWorkGroups, Func f) {
+    range<Dim> one;
+    for (int d = 0; d < Dim; ++d)
+      one[d] = 1;
+    parallel_for_work_group<KernelName>(numWorkGroups, one, f);
+  }
+  template <typename KernelName = void, int Dim, typename Func>
+  void parallel_for_work_group(range<Dim> numWorkGroups,
+                               range<Dim> workGroupSize, Func f) {
+    parallel_for<KernelName>(
+        numWorkGroups,
+        detail::hierarchical_kernel<Dim, Func>{f, numWorkGroups, workGroupSize});
   }
 
   template <typename KernelName = void, typename Func>
@@ -125,6 +143,27 @@ public:
     for (std::size_t i = 0; i < n; ++i)
       dest.get_pointer()[i] = src[i];
   }
+
+  template <typename AccessorT, typename T,
+            typename = decltype(std::declval<AccessorT &>().get_pointer())>
+  void copy(const AccessorT &src, std::shared_ptr<T> dest) {
+    copy(src, dest.get());
+  }
+  template <typename T, typename AccessorT,
+            typename = decltype(std::declval<AccessorT &>().get_pointer())>
+  void copy(std::shared_ptr<T> src, const AccessorT &dest) {
+    copy(static_cast<const T *>(src.get()), dest);
+  }
+
+  template <typename SrcAccT, typename DestAccT,
+            typename = decltype(std::declval<SrcAccT &>().get_pointer()),
+            typename = decltype(std::declval<DestAccT &>().get_pointer())>
+  void copy(const SrcAccT &src, const DestAccT &dest) {
+    const auto n = src.size() < dest.size() ? src.size() : dest.size();
+    for (std::size_t i = 0; i < n; ++i)
+      dest.get_pointer()[i] = src.get_pointer()[i];
+  }
+
   template <typename AccessorT, typename T,
             typename = decltype(std::declval<AccessorT &>().get_pointer())>
   void fill(const AccessorT &dest, const T &pattern) {

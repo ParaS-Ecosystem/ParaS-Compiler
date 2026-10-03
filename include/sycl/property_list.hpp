@@ -162,7 +162,11 @@ class property_list {
 
         template <typename PropT>
         bool has_property() const noexcept {
-            if constexpr (std::is_same_v<PropT, property::no_init>) {
+            if constexpr (std::is_same_v<PropT, property::queue::in_order>) {
+                return in_order_;
+            } else if constexpr (std::is_same_v<PropT, property::queue::enable_profiling>) {
+                return profiling_;
+            } else if constexpr (std::is_same_v<PropT, property::no_init>) {
                 return no_init_;
             } else if constexpr (std::is_same_v<PropT, property::reduction::initialize_to_identity>) {
                 return initialize_to_identity_;
