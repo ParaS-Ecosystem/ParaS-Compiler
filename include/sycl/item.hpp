@@ -41,6 +41,10 @@ public:
     PARAS_KERNEL_HD
     item(const id<Dims>& i, const range<Dims>& r) : idx_(i), range_(r) {}
 
+    template <bool W = WithOffset, typename = std::enable_if_t<W>>
+    PARAS_KERNEL_HD item(const item<Dims, false>& other)
+        : idx_(other.get_id()), range_(other.get_range()) {}
+
     PARAS_KERNEL_HD
     item(const id<Dims>& i) : idx_(i) {
         for (int d = 0; d < Dims; ++d) range_[d] = i[d] + 1;

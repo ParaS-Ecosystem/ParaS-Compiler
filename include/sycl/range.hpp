@@ -225,6 +225,86 @@ namespace sycl
             else
                 return dims_[0] * dims_[1] * dims_[2];
         }
+
+#define PARAS_RANGE_BINOP(OP)                                                 \
+        PARAS_KERNEL_HD friend range operator OP(const range &a,              \
+                                                 const range &b) {            \
+            range r(a);                                                       \
+            for (int d = 0; d < Dimensions; ++d)                              \
+                r.dims_[d] = a.dims_[d] OP b.dims_[d];                        \
+            return r;                                                         \
+        }                                                                     \
+        PARAS_KERNEL_HD friend range operator OP(const range &a, size_t s) {  \
+            range r(a);                                                       \
+            for (int d = 0; d < Dimensions; ++d)                              \
+                r.dims_[d] = a.dims_[d] OP s;                                 \
+            return r;                                                         \
+        }                                                                     \
+        PARAS_KERNEL_HD friend range operator OP(size_t s, const range &a) {  \
+            range r(a);                                                       \
+            for (int d = 0; d < Dimensions; ++d)                              \
+                r.dims_[d] = s OP a.dims_[d];                                 \
+            return r;                                                         \
+        }
+        PARAS_RANGE_BINOP(<<)
+        PARAS_RANGE_BINOP(>>)
+        PARAS_RANGE_BINOP(&)
+        PARAS_RANGE_BINOP(|)
+        PARAS_RANGE_BINOP(^)
+        PARAS_RANGE_BINOP(&&)
+        PARAS_RANGE_BINOP(||)
+        PARAS_RANGE_BINOP(<)
+        PARAS_RANGE_BINOP(>)
+        PARAS_RANGE_BINOP(<=)
+        PARAS_RANGE_BINOP(>=)
+#undef PARAS_RANGE_BINOP
+
+#define PARAS_RANGE_COMPOUND(OP)                                              \
+        PARAS_KERNEL_HD friend range &operator OP##=(range & a,               \
+                                                     const range &b) {        \
+            for (int d = 0; d < Dimensions; ++d)                              \
+                a.dims_[d] OP## = b.dims_[d];                                 \
+            return a;                                                         \
+        }                                                                     \
+        PARAS_KERNEL_HD friend range &operator OP##=(range & a, size_t s) {   \
+            for (int d = 0; d < Dimensions; ++d)                              \
+                a.dims_[d] OP## = s;                                          \
+            return a;                                                         \
+        }
+        PARAS_RANGE_COMPOUND(<<)
+        PARAS_RANGE_COMPOUND(>>)
+        PARAS_RANGE_COMPOUND(&)
+        PARAS_RANGE_COMPOUND(|)
+        PARAS_RANGE_COMPOUND(^)
+#undef PARAS_RANGE_COMPOUND
+
+        PARAS_KERNEL_HD friend range operator+(const range &a) { return a; }
+        PARAS_KERNEL_HD friend range operator-(const range &a) {
+            range r(a);
+            for (int d = 0; d < Dimensions; ++d)
+                r.dims_[d] = -a.dims_[d];
+            return r;
+        }
+        PARAS_KERNEL_HD friend range &operator++(range &a) {
+            for (int d = 0; d < Dimensions; ++d)
+                ++a.dims_[d];
+            return a;
+        }
+        PARAS_KERNEL_HD friend range &operator--(range &a) {
+            for (int d = 0; d < Dimensions; ++d)
+                --a.dims_[d];
+            return a;
+        }
+        PARAS_KERNEL_HD friend range operator++(range &a, int) {
+            range old(a);
+            ++a;
+            return old;
+        }
+        PARAS_KERNEL_HD friend range operator--(range &a, int) {
+            range old(a);
+            --a;
+            return old;
+        }
     };
 
     range(size_t) -> range<1>;

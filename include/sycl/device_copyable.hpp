@@ -33,11 +33,11 @@ inline constexpr bool is_device_copyable_v = is_device_copyable<T>::value;
 
 }
 
-#define SYCL_ADD_DEVICE_COPYABLE(T)                                                                \
-    namespace sycl {                                                                               \
-    template <>                                                                                    \
-    struct is_device_copyable<T> : std::true_type {};                                              \
-    }
+#define SYCL_ADD_DEVICE_COPYABLE(T)                          \
+  namespace sycl {                                            \
+  template <>                                                 \
+  struct is_device_copyable<T> : std::true_type {};            \
+  }
 
 #ifndef SYCL_EXTERNAL
 #define SYCL_EXTERNAL
