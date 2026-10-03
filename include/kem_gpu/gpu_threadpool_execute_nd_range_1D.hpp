@@ -21,6 +21,7 @@
 #ifndef __PARAS_GPU_THREADPOOL_EXECUTE_NDRANGE_1D_HPP__
 #define __PARAS_GPU_THREADPOOL_EXECUTE_NDRANGE_1D_HPP__
 
+#include "sycl/kernel_handler.hpp"
 #include "kem/nd_range_validate.hpp"
 #include <cstddef>
 #include <stdexcept>
@@ -54,7 +55,7 @@ __global__ void gpu_execute_nd_range_1D_kernel(std::size_t globalSize,
       sycl::id<1>(static_cast<std::size_t>(blockIdx.x)), globalRange,
       localRange, groupRange);
 
-  f(item);
+  sycl::detail::invoke_with_kh(f, item);
 }
 
 template <typename Func>

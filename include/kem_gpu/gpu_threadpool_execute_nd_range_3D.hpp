@@ -21,6 +21,7 @@
 #ifndef __PARAS_GPU_THREADPOOL_EXECUTE_NDRANGE_3D_HPP__
 #define __PARAS_GPU_THREADPOOL_EXECUTE_NDRANGE_3D_HPP__
 
+#include "sycl/kernel_handler.hpp"
 #include "kem/nd_range_validate.hpp"
 #include <cstddef>
 #include <limits>
@@ -72,7 +73,7 @@ __global__ void gpu_execute_nd_range_3D_kernel(
   sycl::nd_item<3> item(globalId, localId, groupId, globalRange, localRange,
                         groupRange);
 
-  f(item);
+  sycl::detail::invoke_with_kh(f, item);
 }
 
 template <typename Func>

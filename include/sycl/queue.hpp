@@ -183,6 +183,9 @@ public:
   template <typename PropT> bool has_property() const noexcept {
     return props_.template has_property<PropT>();
   }
+
+  event prefetch(const void *, size_t) { return event{}; }
+  event mem_advise(const void *, size_t, int) { return event{}; }
   template <typename PropT> PropT get_property() const {
     if (!has_property<PropT>())
       throw exception(make_error_code(errc::invalid),
