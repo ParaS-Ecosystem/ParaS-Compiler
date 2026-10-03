@@ -56,6 +56,41 @@ public:
                  const property_list &props = {});
   explicit queue(const device &dev, const property_list &props = {});
 
+  explicit queue(const async_handler &, const property_list &props = {})
+      : queue(props) {}
+  explicit queue(const device &dev, const async_handler &,
+                 const property_list &props = {})
+      : queue(dev, props) {}
+  explicit queue(const context &ctx, const device &dev, const async_handler &,
+                 const property_list &props = {})
+      : queue(ctx, dev, props) {}
+
+  template <typename Selector,
+            typename = std::enable_if_t<
+                std::is_invocable_r_v<int, const Selector &, const device &>>>
+  explicit queue(const Selector &selector, const property_list &props = {})
+      : dev_(::paras_extension::select_device_with_selector(selector)),
+        props_(props) {}
+  template <typename Selector,
+            typename = std::enable_if_t<
+                std::is_invocable_r_v<int, const Selector &, const device &>>>
+  explicit queue(const Selector &selector, const async_handler &,
+                 const property_list &props = {})
+      : queue(selector, props) {}
+  template <typename Selector,
+            typename = std::enable_if_t<
+                std::is_invocable_r_v<int, const Selector &, const device &>>>
+  explicit queue(const context &ctx, const Selector &selector,
+                 const property_list &props = {})
+      : queue(ctx, ::paras_extension::select_device_with_selector(selector),
+              props) {}
+  template <typename Selector,
+            typename = std::enable_if_t<
+                std::is_invocable_r_v<int, const Selector &, const device &>>>
+  explicit queue(const context &ctx, const Selector &selector,
+                 const async_handler &, const property_list &props = {})
+      : queue(ctx, selector, props) {}
+
   template <typename Pool, typename = typename Pool::paras_pool_tag>
   queue(const Pool &pool) : queue(pool.get_context(), pool.get_device()) {}
 

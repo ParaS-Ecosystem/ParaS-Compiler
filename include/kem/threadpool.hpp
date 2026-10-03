@@ -53,7 +53,9 @@ public:
 
   sycl::backend get_backend() const { return sycl::backend::host; }
 
-  template <typename Selector>
+  template <typename Selector,
+            typename = std::enable_if_t<std::is_invocable_r_v<
+                int, const Selector &, const sycl::device &>>>
   explicit threadpool(const Selector &selector,
                       const sycl::property_list &props = {})
       : dev_(::paras_extension::select_device_with_selector(selector)),
@@ -65,11 +67,38 @@ public:
     props_ = props;
   }
 
+  explicit threadpool(const sycl::async_handler &,
+                 const sycl::property_list &props = {})
+      : threadpool(sycl::default_selector_v, props) {}
+  explicit threadpool(const sycl::device &dev, const sycl::async_handler &,
+                 const sycl::property_list &props = {})
+      : threadpool(dev, props) {}
+  explicit threadpool(const sycl::context &ctx, const sycl::device &dev,
+                 const sycl::async_handler &,
+                 const sycl::property_list &props = {})
+      : threadpool(ctx, dev, props) {}
+  template <typename Selector,
+              typename = std::enable_if_t<std::is_invocable_r_v<
+                  int, const Selector &, const sycl::device &>>>
+  explicit threadpool(const sycl::context &ctx, const Selector &selector,
+                 const sycl::property_list &props = {})
+      : threadpool(ctx, ::paras_extension::select_device_with_selector(selector),
+              props) {}
+  template <typename Selector,
+              typename = std::enable_if_t<std::is_invocable_r_v<
+                  int, const Selector &, const sycl::device &>>>
+  explicit threadpool(const sycl::context &ctx, const Selector &selector,
+                 const sycl::async_handler &,
+                 const sycl::property_list &props = {})
+      : threadpool(ctx, selector, props) {}
+
   explicit threadpool(const sycl::device &dev,
                       const sycl::property_list &props = {})
       : dev_(dev), props_(props) {}
 
-  template <typename Selector>
+  template <typename Selector,
+            typename = std::enable_if_t<std::is_invocable_r_v<
+                int, const Selector &, const sycl::device &>>>
   threadpool(const Selector &selector, const sycl::async_handler &,
              const sycl::property_list &props = {})
       : threadpool(selector, props) {}
