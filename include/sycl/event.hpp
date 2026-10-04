@@ -152,7 +152,8 @@ struct pending_events {
   std::mutex mtx;
   std::vector<event> events;
   void add(const event &e) {
-    if (e.paras_complete())
+
+    if (e.paras_complete() && !e.paras_state()->error)
       return;
     std::lock_guard<std::mutex> lock(mtx);
     events.push_back(e);
