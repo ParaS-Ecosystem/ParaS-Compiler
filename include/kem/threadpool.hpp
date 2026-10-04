@@ -181,10 +181,13 @@ public:
     std::lock_guard<std::mutex> lock(*submit_mutex_);
     sycl::handler cgh(*this);
     std::forward<CGF>(cgf)(cgh);
-    return sycl::event{};
+    sycl::event e = cgh.paras_take_event();
+    pending_->add(e);
+    return e;
   }
 
-  void wait() {}
+  void wait() { pending_->wait_all(); }
+  void paras_add_pending(const sycl::event &e) { pending_->add(e); }
 
   void wait_and_throw() { wait(); }
 
@@ -339,6 +342,8 @@ private:
   sycl::property_list props_{};
 
   std::shared_ptr<std::mutex> submit_mutex_ = std::make_shared<std::mutex>();
+  std::shared_ptr<sycl::detail::pending_events> pending_ =
+      std::make_shared<sycl::detail::pending_events>();
 };
 
 #include "threadpool_execute_1D.hpp"
@@ -354,6 +359,7 @@ namespace sycl {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
+  wait_for_dependencies();
 
   if constexpr (dim == 1) {
     pool_->execute_1D(r, f);
@@ -368,6 +374,7 @@ void handler::parallel_for(range<dim> r, Func f) {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(const nd_range<dim> &r, Func f) {
+  wait_for_dependencies();
 
   if constexpr (dim == 1) {
     pool_->execute_nd_range_1D(r, f);

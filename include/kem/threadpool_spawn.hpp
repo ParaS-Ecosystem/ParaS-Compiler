@@ -26,17 +26,20 @@
 template <typename Func> sycl::event threadpool::spawn_1D(Func f) {
   sycl::handler cgh(*this);
   f(cgh);
-  return sycl::event{} ;
+  sycl::event e = cgh.paras_take_event();
+  paras_add_pending(e);
+  return e;
 }
 
 template <typename Func> sycl::event threadpool::spawn_1D_event(Func f) {
-  spawn_1D(f);
-  return sycl::event{};
+  return spawn_1D(f);
 }
 
 template <typename Func> sycl::event threadpool::spawn_ND(Func f) {
   sycl::handler cgh(*this);
   f(cgh);
-  return sycl::event{};
+  sycl::event e = cgh.paras_take_event();
+  paras_add_pending(e);
+  return e;
 }
 #endif

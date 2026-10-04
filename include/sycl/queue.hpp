@@ -97,16 +97,18 @@ public:
   }
 
   template <typename CGF> event submit(CGF cgf) {
+    event e;
     if (dev_.is_gpu()) {
       handler h(get_or_create_gpu_pool());
       cgf(h);
-      return event{};
+      e = h.paras_take_event();
     } else {
       handler h;
       cgf(h);
+      e = h.paras_take_event();
     }
-
-    return event{};
+    pending_->add(e);
+    return e;
   }
 
   void wait();
@@ -288,6 +290,13 @@ public:
 private:
 
   std::shared_ptr<const void> identity_ = std::make_shared<int>(0);
+  std::shared_ptr<detail::pending_events> pending_ =
+      std::make_shared<detail::pending_events>();
+
+public:
+  void paras_wait_pending() { pending_->wait_all(); }
+
+private:
   mutable std::shared_ptr<cuda_threadpool> gpu_pool_{};
 
   cuda_threadpool &get_or_create_gpu_pool() const;
@@ -335,6 +344,12 @@ inline void sycl::queue::throw_async_exceptns() {
 }
 
 }
+
+#if !PARAS_GPU_BACKEND
+
+inline void sycl::queue::wait() { paras_wait_pending(); }
+inline void sycl::queue::wait_and_throw() { wait(); }
+#endif
 
 namespace std {
 template <> struct hash<sycl::queue> {

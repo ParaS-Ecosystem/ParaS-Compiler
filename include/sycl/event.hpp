@@ -22,24 +22,31 @@
 #define __PARAS_EVENT_HPP__
 
 #include <memory>
+#include <type_traits>
+#include <stdexcept>
+#include <mutex>
+#include <future>
+#include <exception>
+#include <chrono>
 #include "backend.hpp"
 #include <thread>
 #include <vector>
 
 namespace sycl {
+class event;
+namespace detail {
+
+struct event_state {
+  std::shared_future<void> done;
+  std::vector<event> deps;
+  std::exception_ptr error;
+  bool profiling = false;
+};
+}
 
 class event {
-private:
-  std::shared_ptr<void> m_impl;
-  std::vector<event> m_deps;
-  bool m_ready = true;
-  bool m_profile_enabled = false;
-  uint64_t m_submit = 0, m_start = 0, m_end = 0;
-
-  void wait_deps() const {
-    for (auto &d : m_deps)
-      d.wait();
-  }
+  std::shared_ptr<detail::event_state> m_state =
+      std::make_shared<detail::event_state>();
 
 public:
   event() = default;
@@ -49,37 +56,56 @@ public:
   event &operator=(const event &) = default;
   event &operator=(event &&) = default;
 
-  void set_dependencies(const std::vector<event> &deps) { m_deps = deps; }
+  static event paras_async(std::shared_future<void> done,
+                           std::vector<event> deps) {
+    event e;
+    e.m_state->done = std::move(done);
+    e.m_state->deps = std::move(deps);
+    return e;
+  }
+  std::shared_ptr<detail::event_state> paras_state() const { return m_state; }
+  bool paras_complete() const {
+    return !m_state->done.valid() ||
+           m_state->done.wait_for(std::chrono::seconds(0)) ==
+               std::future_status::ready;
+  }
+
+  void set_dependencies(const std::vector<event> &deps) {
+    m_state->deps = deps;
+  }
 
   friend bool operator==(const event &a, const event &b) {
-    return a.m_impl == b.m_impl;
+    return a.m_state == b.m_state;
   }
   friend bool operator!=(const event &a, const event &b) { return !(a == b); }
-
-  const void *paras_identity() const { return m_impl.get(); }
+  const void *paras_identity() const { return m_state.get(); }
 
   backend get_backend() const noexcept { return backend::host; }
 
   void wait() const {
-    wait_deps();
+    if (m_state->done.valid())
+      m_state->done.wait();
   }
 
   void wait_and_throw() const { wait(); }
 
-  std::vector<event> get_wait_list() { return m_deps; }
+  std::vector<event> get_wait_list() { return m_state->deps; }
 
   static void wait(const std::vector<event> &events) {
     for (const auto &e : events)
       e.wait();
   }
-
   static void wait_and_throw(const std::vector<event> &events) {
     for (const auto &e : events)
       e.wait_and_throw();
   }
 
   template <typename Param> typename Param::return_type get_info() const {
-    return typename Param::return_type();
+    using R = typename Param::return_type;
+    if constexpr (std::is_enum_v<R>)
+      return static_cast<R>(paras_complete() ? 2 : 1);
+    else
+      return R();
   }
 
   template <typename Param>
@@ -89,17 +115,39 @@ public:
 
   template <typename Param>
   typename Param::return_type get_profiling_info() const {
-    if (!m_profile_enabled)
+    if (!m_state->profiling)
       throw std::runtime_error("Profiling not enabled");
-    while (!m_ready)
-      std::this_thread::yield();
+    wait();
     return typename Param::return_type();
   }
 
-  void set_profiling(bool enabled) { m_profile_enabled = enabled; }
-  void mark_complete() { m_ready = true; }
-  bool is_ready() const { return m_ready; }
+  void set_profiling(bool enabled) { m_state->profiling = enabled; }
+  void mark_complete() {}
+  bool is_ready() const { return paras_complete(); }
 };
+
+namespace detail {
+
+struct pending_events {
+  std::mutex mtx;
+  std::vector<event> events;
+  void add(const event &e) {
+    if (e.paras_complete())
+      return;
+    std::lock_guard<std::mutex> lock(mtx);
+    events.push_back(e);
+  }
+  void wait_all() {
+    std::vector<event> todo;
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      todo.swap(events);
+    }
+    for (auto &e : todo)
+      e.wait();
+  }
+};
+}
 
 }
 

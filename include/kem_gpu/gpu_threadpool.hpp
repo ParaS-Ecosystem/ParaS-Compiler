@@ -250,8 +250,11 @@ public:
     std::lock_guard<std::mutex> lock(submit_mutex_);
     sycl::handler cgh(*this);
     cgf(cgh);
-    return sycl::event{};
+    sycl::event e = cgh.paras_take_event();
+    pending_->add(e);
+    return e;
   }
+  void paras_add_pending(const sycl::event &e) { pending_->add(e); }
 
   static unsigned gpu_get_num_threads();
 
@@ -262,6 +265,7 @@ public:
   template <typename Func> sycl::event spawn_ND(Func f);
 
   void wait() {
+    pending_->wait_all();
     ensure_stream();
     cudaError_t errSync = cudaStreamSynchronize(stream);
     if (errSync != cudaSuccess) {
@@ -479,6 +483,8 @@ private:
   sycl::context ctx_{};
   sycl::property_list props_;
   std::shared_ptr<int> identity_ = std::make_shared<int>(0);
+  std::shared_ptr<sycl::detail::pending_events> pending_ =
+      std::make_shared<sycl::detail::pending_events>();
   sycl::queue queue_;
   std::mutex submit_mutex_;
 
@@ -783,28 +789,29 @@ sycl::interop_handle::get_native_queue<sycl::backend::hip>() const {
 }
 
 template <typename Func> sycl::event cuda_threadpool::spawn_1D(Func f) {
-
   sycl::handler cgh(*this);
   f(cgh);
-
-  return sycl::event();
+  sycl::event e = cgh.paras_take_event();
+  paras_add_pending(e);
+  return e;
 }
 
 template <typename Func> sycl::event cuda_threadpool::spawn_1D_event(Func f) {
-
-  spawn_1D(f);
-  return sycl::event();
+  return spawn_1D(f);
 }
 
 template <typename Func> sycl::event cuda_threadpool::spawn_ND(Func f) {
   sycl::handler cgh(*this);
   f(cgh);
-  return sycl::event{};
+  sycl::event e = cgh.paras_take_event();
+  paras_add_pending(e);
+  return e;
 }
 
 #include "kem_gpu/handler_impl.hpp"
 
 inline void sycl::queue::wait() {
+  paras_wait_pending();
   if (gpu_pool_) {
     gpu_pool_->wait();
   }

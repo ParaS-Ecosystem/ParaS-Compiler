@@ -25,6 +25,8 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <thread>
+#include <future>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -68,6 +70,7 @@ class handler {
   threadpool *pool_;
   cuda_threadpool *gpu_pool_;
   std::vector<event> deps_;
+  event result_;
 
 public:
   handler() : pool_(nullptr), gpu_pool_(nullptr), local_memory_bytes_(0) {}
@@ -109,13 +112,32 @@ public:
   }
 
   template <typename FunctorT> void host_task(FunctorT &&hostFunction) {
-    wait_for_dependencies();
-    if constexpr (std::is_invocable_v<FunctorT &, interop_handle>) {
-      interop_handle ih(static_cast<void *>(pool_), sycl::backend::host);
-      hostFunction(ih);
-    } else {
-      hostFunction();
-    }
+    auto promise = std::make_shared<std::promise<void>>();
+    result_ = event::paras_async(promise->get_future().share(), deps_);
+    auto state = result_.paras_state();
+    std::thread([deps = deps_, fn = std::decay_t<FunctorT>(
+                                   std::forward<FunctorT>(hostFunction)),
+                 promise, state, pool = static_cast<void *>(pool_)]() mutable {
+      sycl::event::wait(deps);
+      try {
+        if constexpr (std::is_invocable_v<std::decay_t<FunctorT> &,
+                                          interop_handle>) {
+          interop_handle ih(pool, sycl::backend::host);
+          fn(ih);
+        } else {
+          fn();
+        }
+      } catch (...) {
+        state->error = std::current_exception();
+      }
+      promise->set_value();
+    }).detach();
+  }
+
+  event paras_take_event() {
+    if (result_.paras_complete() && result_.get_wait_list().empty())
+      result_.set_dependencies(deps_);
+    return result_;
   }
 
   template <auto &SpecName>
