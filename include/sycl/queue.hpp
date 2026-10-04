@@ -45,12 +45,22 @@ public:
   explicit queue(const property_list &props)
       : dev_(::paras_extension::select_device_no_selector()), props_(props) {}
 
-  explicit queue(const decltype(cpu_selector_v) &, const property_list & = {});
-  explicit queue(const decltype(gpu_selector_v) &, const property_list & = {});
-  explicit queue(const decltype(accelerator_selector_v) &,
-                 const property_list & = {});
-  explicit queue(const decltype(default_selector_v) &,
-                 const property_list & = {});
+  explicit queue(const decltype(cpu_selector_v) &paras_sel,
+                 const property_list &props = {})
+      : dev_(::paras_extension::select_device_with_selector(paras_sel)),
+        props_(props) {}
+  explicit queue(const decltype(gpu_selector_v) &paras_sel,
+                 const property_list &props = {})
+      : dev_(::paras_extension::select_device_with_selector(paras_sel)),
+        props_(props) {}
+  explicit queue(const decltype(accelerator_selector_v) &paras_sel,
+                 const property_list &props = {})
+      : dev_(::paras_extension::select_device_with_selector(paras_sel)),
+        props_(props) {}
+  explicit queue(const decltype(default_selector_v) &paras_sel,
+                 const property_list &props = {})
+      : dev_(::paras_extension::select_device_with_selector(paras_sel)),
+        props_(props) {}
 
   explicit queue(const context &ctx, const device &dev,
                  const property_list &props = {});
