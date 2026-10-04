@@ -999,7 +999,38 @@ inline void check_accessor_range(const range<D> &bufRange,
     };
 
     template <typename DataT, int Dimensions = 1, access::mode AccessMode = access::mode::read_write>
-    using host_accessor = accessor<DataT, Dimensions, AccessMode, target::host_buffer>;
+    class host_accessor
+        : public accessor<DataT, Dimensions, AccessMode, target::host_buffer> {
+        using base_t = accessor<DataT, Dimensions, AccessMode, target::host_buffer>;
+
+    public:
+        using base_t::base_t;
+        host_accessor() = default;
+        host_accessor(const base_t &other) : base_t(other) {}
+    };
+
+    template <typename T, int D, typename A>
+    host_accessor(buffer<T, D, A> &, const property_list & = {})
+        -> host_accessor<T, D, access::mode::read_write>;
+    template <typename T, int D, typename A, typename TagT,
+              typename = decltype(TagT::value)>
+    host_accessor(buffer<T, D, A> &, TagT, const property_list & = {})
+        -> host_accessor<T, D, TagT::value>;
+    template <typename T, int D, typename A>
+    host_accessor(buffer<T, D, A> &, range<D>, const property_list & = {})
+        -> host_accessor<T, D, access::mode::read_write>;
+    template <typename T, int D, typename A, typename TagT,
+              typename = decltype(TagT::value)>
+    host_accessor(buffer<T, D, A> &, range<D>, TagT, const property_list & = {})
+        -> host_accessor<T, D, TagT::value>;
+    template <typename T, int D, typename A>
+    host_accessor(buffer<T, D, A> &, range<D>, id<D>, const property_list & = {})
+        -> host_accessor<T, D, access::mode::read_write>;
+    template <typename T, int D, typename A, typename TagT,
+              typename = decltype(TagT::value)>
+    host_accessor(buffer<T, D, A> &, range<D>, id<D>, TagT,
+                  const property_list & = {})
+        -> host_accessor<T, D, TagT::value>;
 
     template <typename DataT, int Dimensions = 1>
     class local_accessor

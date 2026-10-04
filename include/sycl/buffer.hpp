@@ -353,6 +353,9 @@ public:
 
     std::size_t byte_size() const noexcept { return r_.size() * sizeof(T); }
 
+    [[deprecated("use size()")]] std::size_t get_count() const { return size(); }
+    [[deprecated("use byte_size()")]] std::size_t get_size() const { return byte_size(); }
+
 };
 
 template <typename InputIterator,

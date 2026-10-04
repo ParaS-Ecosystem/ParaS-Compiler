@@ -41,6 +41,7 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Path.h>
 #include <llvm/Support/Program.h>
+#include <llvm/Support/Signals.h>
 #include <memory>
 #include <optional>
 #include <string>
@@ -637,6 +638,8 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
 }
 
 int main(int argc, const char **argv) {
+
+  llvm::sys::PrintStackTraceOnErrorSignal(argv[0]);
   std::atexit(cleanupTempFiles);
 
   for (int i = 1; i < argc; ++i) {
