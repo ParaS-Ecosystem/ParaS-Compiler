@@ -565,10 +565,24 @@ PARAS_SYCL_BINARY_MATH_2T(mul_hi, S, a, b, [&]() -> S {
   return static_cast<S>(r >> (sizeof(S) * 8));
 }())
 
+namespace detail {
+
+template <typename T, typename = void> struct paras_elem { using type = T; };
+template <typename T>
+struct paras_elem<T, std::void_t<typename T::element_type>> {
+  using type = typename T::element_type;
+};
+template <typename T, typename U>
+inline constexpr bool paras_same_or_elem_v =
+    std::is_same_v<U, T> || std::is_same_v<U, typename paras_elem<T>::type>;
+}
+
 template <typename T1, typename T2, typename T3,
           typename = std::enable_if_t<detail::is_valid_math_arg_v<T1> &&
                                        detail::is_valid_math_arg_v<T2> &&
-                                       detail::is_valid_math_arg_v<T3>>>
+                                       detail::is_valid_math_arg_v<T3> &&
+                                       detail::paras_same_or_elem_v<T1, T2> &&
+                                       detail::paras_same_or_elem_v<T1, T3>>>
 PARAS_KERNEL_HD inline T1 clamp(T1 x_arg, T2 minval_arg, T3 maxval_arg) {
   if constexpr (detail::is_vector_like_v<T1>) {
     T1 result{};
