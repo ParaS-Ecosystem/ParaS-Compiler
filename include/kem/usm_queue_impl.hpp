@@ -24,6 +24,9 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "sycl/queue.hpp"
+#include "sycl/usm.hpp"
+
 namespace sycl {
 
 #if PARAS_GPU_BACKEND

@@ -52,6 +52,7 @@
 #include "item.hpp"
 #include "local_ptr.hpp"
 #include "math.hpp"
+#include "math_builtins_extra.hpp"
 #include "multi_ptr.hpp"
 #include "native.hpp"
 #include "nd_item.hpp"
