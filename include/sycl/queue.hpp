@@ -98,11 +98,14 @@ public:
 
   template <typename CGF> event submit(CGF cgf) {
     event e;
+#if PARAS_GPU_BACKEND
     if (dev_.is_gpu()) {
       handler h(get_or_create_gpu_pool());
       cgf(h);
       e = h.paras_take_event();
-    } else {
+    } else
+#endif
+    {
       handler h;
       cgf(h);
       e = h.paras_take_event();
@@ -309,6 +312,8 @@ private:
 
 public:
   void paras_wait_pending() { pending_->wait_all(); }
+
+  cuda_threadpool &paras_gpu_pool() const { return get_or_create_gpu_pool(); }
   void pending_report_all() { pending_->report_all(); }
 
 private:

@@ -853,4 +853,6 @@ template <> struct hash<cuda_threadpool> {
 };
 }
 
+#include "kem/usm_queue_impl.hpp"
+
 #endif

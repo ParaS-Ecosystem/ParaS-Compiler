@@ -403,11 +403,11 @@ void handler::parallel_for(const nd_range<dim> &r, Func f) {
   }
 }
 
-void handler::memcpy(void *dest, const void *src, size_t num_bytes) {
+inline void handler::memcpy(void *dest, const void *src, size_t num_bytes) {
   std::memcpy(dest, src, num_bytes);
 }
 
-void handler::memset(void *ptr, int value, size_t num_bytes) {
+inline void handler::memset(void *ptr, int value, size_t num_bytes) {
   std::memset(ptr, value, num_bytes);
 }
 
@@ -454,5 +454,7 @@ template <> struct hash<threadpool> {
   }
 };
 }
+
+#include "kem/usm_queue_impl.hpp"
 
 #endif
