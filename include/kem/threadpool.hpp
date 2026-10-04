@@ -47,7 +47,19 @@ class threadpool {
 public:
   using paras_pool_tag = void;
 
-  void throw_asynchronous() {}
+  void paras_set_async_handler(const sycl::async_handler &h) {
+    if (h)
+      async_ = std::make_shared<sycl::async_handler>(h);
+  }
+  void paras_attach_reporter(sycl::event &e) const {
+    auto h = async_ ? async_ : ctx_.paras_async_handler();
+    if (h)
+      e.paras_set_reporter([h](std::vector<std::exception_ptr> errs) {
+        (*h)(sycl::exception_list(std::move(errs)));
+      });
+  }
+
+  void throw_asynchronous() { pending_->report_all(); }
 
   const void *paras_identity() const { return submit_mutex_.get(); }
   std::shared_ptr<const void> paras_identity_ptr() const { return submit_mutex_; }
@@ -129,16 +141,16 @@ public:
     props_ = props;
   }
 
-  explicit threadpool(const sycl::async_handler &,
+  explicit threadpool(const sycl::async_handler &paras_ah,
                  const sycl::property_list &props = {})
-      : threadpool(sycl::default_selector_v, props) {}
-  explicit threadpool(const sycl::device &dev, const sycl::async_handler &,
+      : threadpool(sycl::default_selector_v, props) { paras_set_async_handler(paras_ah); }
+  explicit threadpool(const sycl::device &dev, const sycl::async_handler &paras_ah,
                  const sycl::property_list &props = {})
-      : threadpool(dev, props) {}
+      : threadpool(dev, props) { paras_set_async_handler(paras_ah); }
   explicit threadpool(const sycl::context &ctx, const sycl::device &dev,
-                 const sycl::async_handler &,
+                 const sycl::async_handler &paras_ah,
                  const sycl::property_list &props = {})
-      : threadpool(ctx, dev, props) {}
+      : threadpool(ctx, dev, props) { paras_set_async_handler(paras_ah); }
   template <typename Selector,
               typename = std::enable_if_t<std::is_invocable_r_v<
                   int, const Selector &, const sycl::device &>>>
@@ -150,9 +162,9 @@ public:
               typename = std::enable_if_t<std::is_invocable_r_v<
                   int, const Selector &, const sycl::device &>>>
   explicit threadpool(const sycl::context &ctx, const Selector &selector,
-                 const sycl::async_handler &,
+                 const sycl::async_handler &paras_ah,
                  const sycl::property_list &props = {})
-      : threadpool(ctx, selector, props) {}
+      : threadpool(ctx, selector, props) { paras_set_async_handler(paras_ah); }
 
   explicit threadpool(const sycl::device &dev,
                       const sycl::property_list &props = {})
@@ -161,9 +173,9 @@ public:
   template <typename Selector,
             typename = std::enable_if_t<std::is_invocable_r_v<
                 int, const Selector &, const sycl::device &>>>
-  threadpool(const Selector &selector, const sycl::async_handler &,
+  threadpool(const Selector &selector, const sycl::async_handler &paras_ah,
              const sycl::property_list &props = {})
-      : threadpool(selector, props) {}
+      : threadpool(selector, props) { paras_set_async_handler(paras_ah); }
 
   template <typename Q,
             typename = std::enable_if_t<std::is_same_v<Q, sycl::queue>>>
@@ -187,9 +199,12 @@ public:
   }
 
   void wait() { pending_->wait_all(); }
-  void paras_add_pending(const sycl::event &e) { pending_->add(e); }
+  void paras_add_pending(sycl::event e) {
+    paras_attach_reporter(e);
+    pending_->add(e);
+  }
 
-  void wait_and_throw() { wait(); }
+  void wait_and_throw() { pending_->report_all(); }
 
   template <typename Func> void execute_1D(const sycl::range<1> &r, Func f);
 
@@ -342,6 +357,7 @@ private:
   sycl::property_list props_{};
 
   std::shared_ptr<std::mutex> submit_mutex_ = std::make_shared<std::mutex>();
+  std::shared_ptr<sycl::async_handler> async_;
   std::shared_ptr<sycl::detail::pending_events> pending_ =
       std::make_shared<sycl::detail::pending_events>();
 };

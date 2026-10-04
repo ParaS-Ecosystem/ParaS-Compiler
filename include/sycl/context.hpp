@@ -52,18 +52,18 @@ namespace sycl {
             explicit context(const property_list& = {})
                 : devices_{ device{} } {}
 
-            explicit context(async_handler,
+            explicit context(async_handler paras_ah,
                             const property_list& = {})
-                : devices_{ device{} } {}
+                : devices_{ device{} } { if (paras_ah) async_ = std::make_shared<async_handler>(paras_ah); }
 
             explicit context(const device& dev,
                             const property_list& = {})
                 : devices_{ dev } {}
 
             explicit context(const device& dev,
-                            async_handler,
+                            async_handler paras_ah,
                             const property_list& = {})
-                : devices_{ dev } {}
+                : devices_{ dev } { if (paras_ah) async_ = std::make_shared<async_handler>(paras_ah); }
 
             explicit context(const std::vector<device>& deviceList,
                             const property_list& = {})
@@ -72,20 +72,20 @@ namespace sycl {
                             : deviceList } {}
 
             explicit context(const std::vector<device>& deviceList,
-                            async_handler,
+                            async_handler paras_ah,
                             const property_list& = {})
                 : devices_{ deviceList.empty()
                             ? throw sycl::exception(sycl::make_error_code(sycl::errc::invalid))
-                            : deviceList } {}
+                            : deviceList } { if (paras_ah) async_ = std::make_shared<async_handler>(paras_ah); }
 
             explicit context(const platform& plt,
                             const property_list& = {})
                 : devices_{ plt.get_devices() } {}
 
             explicit context(const platform& plt,
-                            async_handler,
+                            async_handler paras_ah,
                             const property_list& = {})
-                : devices_{ plt.get_devices() } {}
+                : devices_{ plt.get_devices() } { if (paras_ah) async_ = std::make_shared<async_handler>(paras_ah); }
 
             backend get_backend() const noexcept {
                 return devices_.empty()
@@ -128,7 +128,12 @@ namespace sycl {
 
             std::shared_ptr<int> get_id_() const noexcept { return id_; }
 
+            std::shared_ptr<async_handler> paras_async_handler() const {
+                return async_;
+            }
+
         private:
+            std::shared_ptr<async_handler> async_;
             std::vector<device> devices_;
 
             std::shared_ptr<int> id_{std::make_shared<int>()};

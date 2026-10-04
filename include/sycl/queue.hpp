@@ -56,14 +56,14 @@ public:
                  const property_list &props = {});
   explicit queue(const device &dev, const property_list &props = {});
 
-  explicit queue(const async_handler &, const property_list &props = {})
-      : queue(props) {}
-  explicit queue(const device &dev, const async_handler &,
+  explicit queue(const async_handler &paras_ah, const property_list &props = {})
+      : queue(props) { paras_set_async_handler(paras_ah); }
+  explicit queue(const device &dev, const async_handler &paras_ah,
                  const property_list &props = {})
-      : queue(dev, props) {}
-  explicit queue(const context &ctx, const device &dev, const async_handler &,
+      : queue(dev, props) { paras_set_async_handler(paras_ah); }
+  explicit queue(const context &ctx, const device &dev, const async_handler &paras_ah,
                  const property_list &props = {})
-      : queue(ctx, dev, props) {}
+      : queue(ctx, dev, props) { paras_set_async_handler(paras_ah); }
 
   template <typename Selector,
             typename = std::enable_if_t<
@@ -74,9 +74,9 @@ public:
   template <typename Selector,
             typename = std::enable_if_t<
                 std::is_invocable_r_v<int, const Selector &, const device &>>>
-  explicit queue(const Selector &selector, const async_handler &,
+  explicit queue(const Selector &selector, const async_handler &paras_ah,
                  const property_list &props = {})
-      : queue(selector, props) {}
+      : queue(selector, props) { paras_set_async_handler(paras_ah); }
   template <typename Selector,
             typename = std::enable_if_t<
                 std::is_invocable_r_v<int, const Selector &, const device &>>>
@@ -88,8 +88,8 @@ public:
             typename = std::enable_if_t<
                 std::is_invocable_r_v<int, const Selector &, const device &>>>
   explicit queue(const context &ctx, const Selector &selector,
-                 const async_handler &, const property_list &props = {})
-      : queue(ctx, selector, props) {}
+                 const async_handler &paras_ah, const property_list &props = {})
+      : queue(ctx, selector, props) { paras_set_async_handler(paras_ah); }
 
   template <typename Pool, typename = typename Pool::paras_pool_tag>
   queue(const Pool &pool) : queue(pool.get_context(), pool.get_device()) {
@@ -107,6 +107,7 @@ public:
       cgf(h);
       e = h.paras_take_event();
     }
+    paras_attach_reporter(e);
     pending_->add(e);
     return e;
   }
@@ -238,7 +239,19 @@ public:
 
   template <typename AccT> event update_host(AccT) { return event{}; }
 
-  void throw_asynchronous() {}
+  void paras_set_async_handler(const async_handler &h) {
+    if (h)
+      async_ = std::make_shared<async_handler>(h);
+  }
+  void paras_attach_reporter(event &e) const {
+    auto h = async_ ? async_ : ctx_.paras_async_handler();
+    if (h)
+      e.paras_set_reporter([h](std::vector<std::exception_ptr> errs) {
+        (*h)(exception_list(std::move(errs)));
+      });
+  }
+
+  void throw_asynchronous() { pending_->report_all(); }
 
   template <typename SrcT, typename DestT>
   auto copy(SrcT src, DestT dest)
@@ -290,11 +303,13 @@ public:
 private:
 
   std::shared_ptr<const void> identity_ = std::make_shared<int>(0);
+  std::shared_ptr<async_handler> async_;
   std::shared_ptr<detail::pending_events> pending_ =
       std::make_shared<detail::pending_events>();
 
 public:
   void paras_wait_pending() { pending_->wait_all(); }
+  void pending_report_all() { pending_->report_all(); }
 
 private:
   mutable std::shared_ptr<cuda_threadpool> gpu_pool_{};
@@ -348,7 +363,7 @@ inline void sycl::queue::throw_async_exceptns() {
 #if !PARAS_GPU_BACKEND
 
 inline void sycl::queue::wait() { paras_wait_pending(); }
-inline void sycl::queue::wait_and_throw() { wait(); }
+inline void sycl::queue::wait_and_throw() { pending_report_all(); }
 #endif
 
 namespace std {

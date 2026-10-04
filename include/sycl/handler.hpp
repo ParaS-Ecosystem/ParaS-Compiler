@@ -115,9 +115,11 @@ public:
     auto promise = std::make_shared<std::promise<void>>();
     result_ = event::paras_async(promise->get_future().share(), deps_);
     auto state = result_.paras_state();
+    detail::all_host_tasks().add(result_);
     std::thread([deps = deps_, fn = std::decay_t<FunctorT>(
                                    std::forward<FunctorT>(hostFunction)),
                  promise, state, pool = static_cast<void *>(pool_)]() mutable {
+      detail::tl_in_host_task = true;
       sycl::event::wait(deps);
       try {
         if constexpr (std::is_invocable_v<std::decay_t<FunctorT> &,
@@ -200,7 +202,12 @@ public:
             typename = decltype(std::declval<SrcAccT &>().get_pointer()),
             typename = decltype(std::declval<DestAccT &>().get_pointer())>
   void copy(const SrcAccT &src, const DestAccT &dest) {
-    const auto n = src.size() < dest.size() ? src.size() : dest.size();
+
+    if (dest.size() < src.size())
+      throw exception(make_error_code(errc::invalid),
+                      "handler::copy: destination accessor is smaller than "
+                      "the source accessor");
+    const auto n = src.size();
     for (std::size_t i = 0; i < n; ++i)
       dest.get_pointer()[i] = src.get_pointer()[i];
   }

@@ -22,6 +22,7 @@
 #define __PARAS_EVENT_HPP__
 
 #include <memory>
+#include <functional>
 #include <type_traits>
 #include <stdexcept>
 #include <mutex>
@@ -40,6 +41,9 @@ struct event_state {
   std::shared_future<void> done;
   std::vector<event> deps;
   std::exception_ptr error;
+  bool reported = false;
+
+  std::function<void(std::vector<std::exception_ptr>)> report;
   bool profiling = false;
 };
 }
@@ -87,7 +91,23 @@ public:
       m_state->done.wait();
   }
 
-  void wait_and_throw() const { wait(); }
+  void wait_and_throw() const {
+    wait();
+    paras_report_errors();
+  }
+  void paras_report_errors() const {
+    for (auto &d : m_state->deps)
+      d.paras_report_errors();
+    if (m_state->error && !m_state->reported && m_state->report) {
+      m_state->reported = true;
+      m_state->report({m_state->error});
+    }
+  }
+  void paras_set_reporter(
+      std::function<void(std::vector<std::exception_ptr>)> r) {
+    if (!m_state->report)
+      m_state->report = std::move(r);
+  }
 
   std::vector<event> get_wait_list() { return m_state->deps; }
 
@@ -137,16 +157,43 @@ struct pending_events {
     std::lock_guard<std::mutex> lock(mtx);
     events.push_back(e);
   }
+  std::vector<event> finished;
   void wait_all() {
     std::vector<event> todo;
     {
       std::lock_guard<std::mutex> lock(mtx);
       todo.swap(events);
     }
-    for (auto &e : todo)
+    for (auto &e : todo) {
       e.wait();
+      if (e.paras_state()->error && !e.paras_state()->reported) {
+        std::lock_guard<std::mutex> lock(mtx);
+        finished.push_back(e);
+      }
+    }
+  }
+
+  void report_all() {
+    wait_all();
+    std::vector<event> todo;
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      todo.swap(finished);
+    }
+    for (auto &e : todo)
+      e.paras_report_errors();
   }
 };
+
+inline pending_events &all_host_tasks() {
+  static pending_events all;
+  return all;
+}
+inline thread_local bool tl_in_host_task = false;
+inline void wait_all_host_tasks() {
+  if (!tl_in_host_task)
+    all_host_tasks().wait_all();
+}
 }
 
 }

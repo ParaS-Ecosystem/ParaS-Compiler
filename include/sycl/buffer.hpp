@@ -29,6 +29,7 @@
 #include <functional>
 
 #include "range.hpp"
+#include "event.hpp"
 #include "property_list.hpp"
 #include "access.hpp"
 #include "handler.hpp"
@@ -73,6 +74,13 @@ class buffer
     friend struct std::hash;
 
 public:
+
+    ~buffer() { ::sycl::detail::wait_all_host_tasks(); }
+    buffer(const buffer &) = default;
+    buffer(buffer &&) = default;
+    buffer &operator=(const buffer &) = default;
+    buffer &operator=(buffer &&) = default;
+
     using value_type      = T;
     using reference       = T&;
     using const_reference = const T&;

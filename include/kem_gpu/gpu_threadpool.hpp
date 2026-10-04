@@ -54,7 +54,19 @@ class cuda_threadpool {
 public:
   using paras_pool_tag = void;
 
-  void throw_asynchronous() {}
+  void paras_set_async_handler(const sycl::async_handler &h) {
+    if (h)
+      async_ = std::make_shared<sycl::async_handler>(h);
+  }
+  void paras_attach_reporter(sycl::event &e) const {
+    auto h = async_ ? async_ : ctx_.paras_async_handler();
+    if (h)
+      e.paras_set_reporter([h](std::vector<std::exception_ptr> errs) {
+        (*h)(sycl::exception_list(std::move(errs)));
+      });
+  }
+
+  void throw_asynchronous() { pending_->report_all(); }
 
   const void *paras_identity() const { return identity_.get(); }
   std::shared_ptr<const void> paras_identity_ptr() const { return identity_; }
@@ -150,9 +162,9 @@ public:
   template <typename Selector,
             typename = std::enable_if_t<std::is_invocable_r_v<
                 int, const Selector &, const sycl::device &>>>
-  cuda_threadpool(const Selector &sel, const sycl::async_handler &,
+  cuda_threadpool(const Selector &sel, const sycl::async_handler &paras_ah,
                   const sycl::property_list &props = {})
-      : cuda_threadpool(sel, props) {}
+      : cuda_threadpool(sel, props) { paras_set_async_handler(paras_ah); }
 
   cuda_threadpool(const sycl::queue &q)
       : dev_(q.get_device()), ctx_(q.get_context()), queue_(q) {
@@ -165,16 +177,16 @@ public:
     initialize_stream_for_device();
   }
 
-  explicit cuda_threadpool(const sycl::async_handler &,
+  explicit cuda_threadpool(const sycl::async_handler &paras_ah,
                  const sycl::property_list &props = {})
-      : cuda_threadpool(sycl::default_selector_v, props) {}
-  explicit cuda_threadpool(const sycl::device &dev, const sycl::async_handler &,
+      : cuda_threadpool(sycl::default_selector_v, props) { paras_set_async_handler(paras_ah); }
+  explicit cuda_threadpool(const sycl::device &dev, const sycl::async_handler &paras_ah,
                  const sycl::property_list &props = {})
-      : cuda_threadpool(dev, props) {}
+      : cuda_threadpool(dev, props) { paras_set_async_handler(paras_ah); }
   explicit cuda_threadpool(const sycl::context &ctx, const sycl::device &dev,
-                 const sycl::async_handler &,
+                 const sycl::async_handler &paras_ah,
                  const sycl::property_list &props = {})
-      : cuda_threadpool(ctx, dev, props) {}
+      : cuda_threadpool(ctx, dev, props) { paras_set_async_handler(paras_ah); }
   template <typename Selector,
               typename = std::enable_if_t<std::is_invocable_r_v<
                   int, const Selector &, const sycl::device &>>>
@@ -186,9 +198,9 @@ public:
               typename = std::enable_if_t<std::is_invocable_r_v<
                   int, const Selector &, const sycl::device &>>>
   explicit cuda_threadpool(const sycl::context &ctx, const Selector &selector,
-                 const sycl::async_handler &,
+                 const sycl::async_handler &paras_ah,
                  const sycl::property_list &props = {})
-      : cuda_threadpool(ctx, selector, props) {}
+      : cuda_threadpool(ctx, selector, props) { paras_set_async_handler(paras_ah); }
 
   explicit cuda_threadpool(const sycl::device &dev,
                            const sycl::property_list &props = {})
@@ -251,10 +263,14 @@ public:
     sycl::handler cgh(*this);
     cgf(cgh);
     sycl::event e = cgh.paras_take_event();
+    paras_attach_reporter(e);
     pending_->add(e);
     return e;
   }
-  void paras_add_pending(const sycl::event &e) { pending_->add(e); }
+  void paras_add_pending(sycl::event e) {
+    paras_attach_reporter(e);
+    pending_->add(e);
+  }
 
   static unsigned gpu_get_num_threads();
 
@@ -275,7 +291,10 @@ public:
     }
   }
 
-  void wait_and_throw() { wait(); }
+  void wait_and_throw() {
+    wait();
+    pending_->report_all();
+  }
 
   template <typename Func> void gpu_execute_1D(const sycl::range<1> &r, Func f);
 
@@ -483,6 +502,7 @@ private:
   sycl::context ctx_{};
   sycl::property_list props_;
   std::shared_ptr<int> identity_ = std::make_shared<int>(0);
+  std::shared_ptr<sycl::async_handler> async_;
   std::shared_ptr<sycl::detail::pending_events> pending_ =
       std::make_shared<sycl::detail::pending_events>();
   sycl::queue queue_;
@@ -823,6 +843,7 @@ inline void sycl::queue::wait_and_throw() {
   }
 
   throw_async_exceptns();
+  pending_report_all();
 }
 namespace std {
 template <> struct hash<cuda_threadpool> {

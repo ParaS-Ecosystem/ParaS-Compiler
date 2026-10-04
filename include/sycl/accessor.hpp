@@ -156,6 +156,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range())
         {
+            ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
         }
 
@@ -163,6 +164,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  handler &, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range())
         {
+            ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
         }
 
@@ -178,6 +180,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  TagT, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range())
         {
+            ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -188,6 +191,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  handler &, TagT, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range())
         {
+            ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -200,6 +204,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
         }
@@ -210,6 +215,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
         }
@@ -220,6 +226,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
@@ -232,6 +239,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  range<Dimensions> accessRange, TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
@@ -245,6 +253,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
@@ -258,6 +267,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
         }
@@ -268,6 +278,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
         }
@@ -278,6 +289,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
@@ -516,6 +528,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(paras_buf.get_range())
         {
+            ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
         }
 
@@ -524,6 +537,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  handler &, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(paras_buf.get_range())
         {
+            ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
         }
 
@@ -540,6 +554,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(paras_buf.get_range())
         {
+            ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -551,6 +566,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  handler &, TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(paras_buf.get_range())
         {
+            ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -563,6 +579,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
         }
@@ -573,6 +590,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
         }
@@ -583,6 +601,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
@@ -595,6 +614,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  range<2> accessRange, TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
@@ -608,6 +628,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
@@ -621,6 +642,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
         }
@@ -631,6 +653,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
         }
@@ -641,6 +664,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange)
         {
+            ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
@@ -822,6 +846,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data())
         {
+            ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
         }
 
@@ -830,6 +855,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  handler &, const property_list &props = {})
             : ptr_(paras_buf.data())
         {
+            ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
         }
 
@@ -845,6 +871,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  TagT, const property_list &props = {})
             : ptr_(paras_buf.data())
         {
+            ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -856,6 +883,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  handler &, TagT, const property_list &props = {})
             : ptr_(paras_buf.data())
         {
+            ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
                 no_init_ = true;
             else
@@ -977,6 +1005,16 @@ inline void check_accessor_range(const range<D> &bufRange,
     class local_accessor
     {
     public:
+
+        template <typename, int> friend class local_accessor;
+        template <typename SrcT,
+                  typename = std::enable_if_t<std::is_const_v<DataT> &&
+                      std::is_same_v<SrcT, std::remove_const_t<DataT>>>>
+        local_accessor(const local_accessor<SrcT, Dimensions> &o)
+            : local_offset_bytes_(o.local_offset_bytes_),
+              ele_count_(o.ele_count_),
+              host_storage_(o.host_storage_), props_(o.props_) {}
+
         using value_type = DataT;
         using reference = value_type &;
         using const_reference = const value_type &;

@@ -153,6 +153,11 @@ public:
   using iterator = std::vector<std::exception_ptr>::const_iterator;
   using const_iterator = std::vector<std::exception_ptr>::const_iterator;
 
+  exception_list() = default;
+
+  explicit exception_list(std::vector<std::exception_ptr> list)
+      : list_(std::move(list)) {}
+
   size_type size() const noexcept { return list_.size(); }
   iterator begin() const noexcept { return list_.begin(); }
   iterator end() const noexcept { return list_.end(); }
