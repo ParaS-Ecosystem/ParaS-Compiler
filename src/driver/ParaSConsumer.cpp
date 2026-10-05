@@ -38,164 +38,145 @@
 using namespace clang::ast_matchers;
 
 std::unordered_set<std::string> SubmitFunctionCallback::ProcessedFiles;
+std::unordered_set<std::string> SubmitFunctionCallback::ProcessedCallSites;
 std::unordered_set<std::string> ParallelForFunctionCallback::ProcessedFiles;
 
-ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
+ParaSConsumer::ParaSConsumer(clang::Rewriter& r, clang::Rewriter& headerRewriter,
                              std::vector<std::string> backend_target)
-    : pf_callback(r), s_callback(r, backend_target), qh_callback(r),
-      fph_callback(r), vdr_callback(r, backend_target), lambda_callback(r, backend_target) {
+    : pf_callback(r), s_callback(r, backend_target), qh_callback(r), fph_callback(r),
+      vdr_callback(r, backend_target), lambda_callback(r, headerRewriter, backend_target),
+      rewriter_(r), backend_target_(backend_target) {
 
-  matchers.addMatcher(
-      clang::ast_matchers::traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          clang::ast_matchers::callExpr(clang::ast_matchers::callee(
-              clang::ast_matchers::memberExpr(
-                  clang::ast_matchers::member(
-                      clang::ast_matchers::hasName("sycl::queue::submit")))
-                  .bind("memberexpr"))))
-          .bind("submitCall"),
-      &s_callback);
+    matchers.addMatcher(clang::ast_matchers::traverse(
+                            clang::TK_IgnoreUnlessSpelledInSource,
+                            clang::ast_matchers::callExpr(clang::ast_matchers::callee(
+                                clang::ast_matchers::memberExpr(
+                                    clang::ast_matchers::member(
+                                        clang::ast_matchers::hasName("sycl::queue::submit")))
+                                    .bind("memberexpr"))))
+                            .bind("submitCall"),
+                        &s_callback);
 
-  matchers.addMatcher(
-      traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          callExpr(callee(memberExpr(member(hasName("sycl::queue::submit")))
-                              .bind("memberexpr-pf")),
-                   hasArgument(
-                       0, lambdaExpr(hasDescendant(
-                              callExpr(callee(functionDecl(hasName(
-                                           "sycl::handler::parallel_for"))),
-                                       hasDescendant(cxxConstructExpr(hasType(
-                                           classTemplateSpecializationDecl(
-                                               hasName("sycl::range"),
-                                               hasTemplateArgument(
-                                                   0, templateArgument().bind(
-                                                          "rangeDim")))))))
-                                  .bind("parallelforCall"))))))
-          .bind("submit-with-parallelfor"),
-      &s_callback);
+    matchers.addMatcher(
+        traverse(
+            clang::TK_IgnoreUnlessSpelledInSource,
+            callExpr(
+                callee(memberExpr(member(hasName("sycl::queue::submit"))).bind("memberexpr-pf")),
+                hasArgument(
+                    0,
+                    lambdaExpr(hasDescendant(
+                        callExpr(
+                            callee(functionDecl(hasName("sycl::handler::parallel_for"))),
+                            anyOf(hasArgument(0, hasType(classTemplateSpecializationDecl(
+                                                     hasName("sycl::range"),
+                                                     hasTemplateArgument(
+                                                         0, templateArgument().bind("rangeDim"))))),
+                                  // cgh.parallel_for(sycl::nd_range<N>(...), func)
+                                  hasArgument(0, hasType(classTemplateSpecializationDecl(
+                                                     hasName("sycl::nd_range"),
+                                                     hasTemplateArgument(0, templateArgument().bind(
+                                                                                "rangeDim")))))))
+                            .bind("parallelforCall"))))))
+            .bind("submit-with-parallelfor"),
+        &s_callback);
 
-  matchers.addMatcher(
-      clang::ast_matchers::traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          clang::ast_matchers::varDecl(
-              clang::ast_matchers::hasType(clang::ast_matchers::cxxRecordDecl(
-                  clang::ast_matchers::hasName("sycl::queue")))))
-          .bind("vardecl-1"),
-      &vdr_callback);
+    matchers.addMatcher(
+        clang::ast_matchers::traverse(
+            clang::TK_IgnoreUnlessSpelledInSource,
+            clang::ast_matchers::varDecl(clang::ast_matchers::hasType(
+                clang::ast_matchers::cxxRecordDecl(clang::ast_matchers::hasName("sycl::queue")))))
+            .bind("vardecl-1"),
+        &vdr_callback);
 
-  matchers.addMatcher(
-      clang::ast_matchers::traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          clang::ast_matchers::varDecl(clang::ast_matchers::hasType(
-              clang::ast_matchers::references(clang::ast_matchers::qualType(
-                  clang::ast_matchers::hasDeclaration(
-                      clang::ast_matchers::recordDecl(
-                          clang::ast_matchers::matchesName("sycl::queue"))))))))
-          .bind("vardecl-2"),
-      &vdr_callback);
+    matchers.addMatcher(
+        clang::ast_matchers::traverse(
+            clang::TK_IgnoreUnlessSpelledInSource,
+            clang::ast_matchers::varDecl(clang::ast_matchers::hasType(
+                clang::ast_matchers::references(clang::ast_matchers::qualType(
+                    clang::ast_matchers::hasDeclaration(clang::ast_matchers::recordDecl(
+                        clang::ast_matchers::matchesName("sycl::queue"))))))))
+            .bind("vardecl-2"),
+        &vdr_callback);
+    matchers.addMatcher(
+        clang::ast_matchers::traverse(
+            clang::TK_IgnoreUnlessSpelledInSource,
+            clang::ast_matchers::fieldDecl(
+                clang::ast_matchers::hasType(
+                    clang::ast_matchers::qualType(clang::ast_matchers::anyOf(
+                        clang::ast_matchers::hasUnqualifiedDesugaredType(
+                            clang::ast_matchers::recordType(clang::ast_matchers::hasDeclaration(
+                                clang::ast_matchers::cxxRecordDecl(
+                                    clang::ast_matchers::hasName("sycl::queue"))))),
+                        clang::ast_matchers::references(
+                            clang::ast_matchers::hasUnqualifiedDesugaredType(
+                                clang::ast_matchers::recordType(clang::ast_matchers::hasDeclaration(
+                                    clang::ast_matchers::cxxRecordDecl(
+                                        clang::ast_matchers::hasName("sycl::queue"))))))))))
+                .bind("vardecl-4")),
+        &vdr_callback);
 
-  matchers.addMatcher(
-      clang::ast_matchers::traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          clang::ast_matchers::fieldDecl(
-              clang::ast_matchers::hasType(
-                  clang::ast_matchers::qualType(clang::ast_matchers::anyOf(
+    matchers.addMatcher(
+        clang::ast_matchers::traverse(
+            clang::TK_IgnoreUnlessSpelledInSource,
+            clang::ast_matchers::fieldDecl(
+                clang::ast_matchers::hasType(clang::ast_matchers::qualType(
+                    clang::ast_matchers::pointsTo(clang::ast_matchers::hasUnqualifiedDesugaredType(
+                        clang::ast_matchers::recordType(
+                            clang::ast_matchers::hasDeclaration(clang::ast_matchers::cxxRecordDecl(
+                                clang::ast_matchers::hasName("sycl::queue")))))))))
+                .bind("fielddecl-3")),
+        &vdr_callback);
+    matchers.addMatcher(
+        clang::ast_matchers::traverse(
+            clang::TK_IgnoreUnlessSpelledInSource,
+            clang::ast_matchers::functionDecl(
+                clang::ast_matchers::returns(
+                    clang::ast_matchers::qualType(clang::ast_matchers::anyOf(
+                        clang::ast_matchers::hasUnqualifiedDesugaredType(
+                            clang::ast_matchers::recordType(clang::ast_matchers::hasDeclaration(
+                                clang::ast_matchers::cxxRecordDecl(
+                                    clang::ast_matchers::hasName("sycl::queue"))))),
+                        clang::ast_matchers::references(
+                            clang::ast_matchers::hasUnqualifiedDesugaredType(
+                                clang::ast_matchers::recordType(clang::ast_matchers::hasDeclaration(
+                                    clang::ast_matchers::cxxRecordDecl(
+                                        clang::ast_matchers::hasName("sycl::queue"))))))))))
+                .bind("vardecl-5")),
+        &vdr_callback);
+    matchers.addMatcher(
+        clang::ast_matchers::traverse(
+            clang::TK_IgnoreUnlessSpelledInSource,
+            clang::ast_matchers::varDecl(
+                clang::ast_matchers::hasType(clang::ast_matchers::qualType(
+                    clang::ast_matchers::pointsTo(clang::ast_matchers::hasUnqualifiedDesugaredType(
+                        clang::ast_matchers::recordType(
+                            clang::ast_matchers::hasDeclaration(clang::ast_matchers::cxxRecordDecl(
+                                clang::ast_matchers::hasName("sycl::queue")))))))))
+                .bind("vardecl-6")),
+        &vdr_callback);
+    matchers.addMatcher(
+        clang::ast_matchers::traverse(clang::TK_IgnoreUnlessSpelledInSource,
+                                      clang::ast_matchers::cxxNewExpr().bind("new-queue")),
+        &vdr_callback);
 
-                      clang::ast_matchers::hasUnqualifiedDesugaredType(
-                          clang::ast_matchers::recordType(
-                              clang::ast_matchers::hasDeclaration(
-                                  clang::ast_matchers::cxxRecordDecl(
-                                      clang::ast_matchers::hasName(
-                                          "sycl::queue"))))),
+    matchers.addMatcher(
+        clang::ast_matchers::cxxConstructExpr(
+            clang::ast_matchers::hasDeclaration(clang::ast_matchers::cxxConstructorDecl(
+                clang::ast_matchers::isCopyConstructor(),
+                clang::ast_matchers::ofClass(clang::ast_matchers::cxxRecordDecl(
+                    clang::ast_matchers::hasName("sycl::queue"))))))
+            .bind("queue-copy-construct"),
+        &vdr_callback);
 
-                      clang::ast_matchers::references(
-                          clang::ast_matchers::hasUnqualifiedDesugaredType(
-                              clang::ast_matchers::recordType(
-                                  clang::ast_matchers::hasDeclaration(
-                                      clang::ast_matchers::cxxRecordDecl(
-                                          clang::ast_matchers::hasName(
-                                              "sycl::queue"))))))))))
-              .bind("vardecl-4")),
-      &vdr_callback);
-
-  matchers.addMatcher(
-      clang::ast_matchers::traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          clang::ast_matchers::fieldDecl(
-              clang::ast_matchers::hasType(
-                  clang::ast_matchers::qualType(clang::ast_matchers::pointsTo(
-                      clang::ast_matchers::hasUnqualifiedDesugaredType(
-                          clang::ast_matchers::recordType(
-                              clang::ast_matchers::hasDeclaration(
-                                  clang::ast_matchers::cxxRecordDecl(
-                                      clang::ast_matchers::hasName(
-                                          "sycl::queue")))))))))
-              .bind("fielddecl-3")),
-      &vdr_callback);
-  matchers.addMatcher(
-      clang::ast_matchers::traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          clang::ast_matchers::functionDecl(
-              clang::ast_matchers::returns(
-                  clang::ast_matchers::qualType(clang::ast_matchers::anyOf(
-
-                      clang::ast_matchers::hasUnqualifiedDesugaredType(
-                          clang::ast_matchers::recordType(
-                              clang::ast_matchers::hasDeclaration(
-                                  clang::ast_matchers::cxxRecordDecl(
-                                      clang::ast_matchers::hasName(
-                                          "sycl::queue"))))),
-
-                      clang::ast_matchers::references(
-                          clang::ast_matchers::hasUnqualifiedDesugaredType(
-                              clang::ast_matchers::recordType(
-                                  clang::ast_matchers::hasDeclaration(
-                                      clang::ast_matchers::cxxRecordDecl(
-                                          clang::ast_matchers::hasName(
-                                              "sycl::queue"))))))))))
-              .bind("vardecl-5")),
-      &vdr_callback);
-
-  matchers.addMatcher(
-      clang::ast_matchers::cxxConstructExpr(
-          clang::ast_matchers::hasDeclaration(
-              clang::ast_matchers::cxxConstructorDecl(
-                  clang::ast_matchers::isCopyConstructor(),
-                  clang::ast_matchers::ofClass(
-                      clang::ast_matchers::cxxRecordDecl(
-                          clang::ast_matchers::hasName("sycl::queue"))))))
-          .bind("queue-copy-construct"),
-      &vdr_callback);
-
-  matchers.addMatcher(
-      clang::ast_matchers::traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          clang::ast_matchers::varDecl(
-              clang::ast_matchers::hasType(
-                  clang::ast_matchers::qualType(clang::ast_matchers::pointsTo(
-                      clang::ast_matchers::hasUnqualifiedDesugaredType(
-                          clang::ast_matchers::recordType(
-                              clang::ast_matchers::hasDeclaration(
-                                  clang::ast_matchers::cxxRecordDecl(
-                                      clang::ast_matchers::hasName(
-                                          "sycl::queue")))))))))
-              .bind("vardecl-6")),
-      &vdr_callback);
-
-  matchers.addMatcher(
-      callExpr(callee(functionDecl(hasName("sycl::handler::parallel_for"))),
-               hasArgument(1, expr().bind("paras-kernel-callable")))
-          .bind("paras-parallel-for"),
-      &lambda_callback);
-
-  matchers.addMatcher(
-      clang::ast_matchers::traverse(
-          clang::TK_IgnoreUnlessSpelledInSource,
-          clang::ast_matchers::cxxNewExpr().bind("new-queue")),
-      &vdr_callback);
+    matchers.addMatcher(callExpr(callee(functionDecl(hasName("sycl::handler::parallel_for"))),
+                                 hasArgument(1, expr().bind("paras-kernel-callable")))
+                            .bind("paras-parallel-for"),
+                        &lambda_callback);
 }
 
-void ParaSConsumer::HandleTranslationUnit(clang::ASTContext &context) {
-  matchers.matchAST(context);
+void ParaSConsumer::HandleTranslationUnit(clang::ASTContext& context) {
+    matchers.matchAST(context);
+
+    if (!backend_target_.empty() && (backend_target_[0] == "cuda" || backend_target_[0] == "hip"))
+        markKernelReachableFunctions(context, rewriter_);
 }

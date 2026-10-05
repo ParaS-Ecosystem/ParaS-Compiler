@@ -18,89 +18,80 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "paras/Preprocessor.hpp"
+#include "paras/ParaSTempDir.hpp"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "paras/Preprocessor.hpp"
-
 namespace preprocessor {
-std::string generate_output_filename() {
-  std::string model = "/tmp/paras_pp_%%%%%%%%.cpp";
-  llvm::SmallString<128> result;
-  if (std::error_code EC = llvm::sys::fs::createUniqueFile(model, result)) {
-    llvm::errs() << "paras: cannot create temp file: " << EC.message() << "\n";
-    exit(EXIT_FAILURE);
-  }
-  return std::string(result.str());
 
+std::string generate_output_filename() {
+    std::string model = parasTempDir() + "/paras_pp_%%%%%%%%.cpp";
+    llvm::SmallString<128> result;
+    if (std::error_code EC = llvm::sys::fs::createUniqueFile(model, result)) {
+        llvm::errs() << "paras: cannot create temp file: " << EC.message() << "\n";
+        exit(EXIT_FAILURE);
+    }
+    return std::string(result.str());
 }
 
-void process_file(const std::string &inputfile, const std::string &outputfile,
+void process_file(const std::string& inputfile, const std::string& outputfile,
                   std::vector<std::string> bkend_target) {
-  std::ifstream fin(inputfile);
-  if (!fin) {
-    perror("Error");
-    exit(EXIT_FAILURE);
-  }
-  std::ofstream fout(outputfile);
-  if (!fout) {
-    std::cerr << "Cannot open output file: " << outputfile << "\n";
-    return;
-  }
-
-  std::regex sycl_include(R"(^\s*#include\s*[<\"]sycl(\/sycl)?\.hpp[>\"])");
-
-  std::vector<std::string> lines;
-  std::string line;
-  bool found_sycl = false;
-
-  while (std::getline(fin, line)) {
-    if (std::regex_search(line, sycl_include))
-      found_sycl = true;
-
-    lines.push_back(line);
-  }
-
-  bool inserted = false;
-
-  if (!found_sycl) {
-    if (!bkend_target[0].empty()) {
-      if (bkend_target[0] == "cuda") {
-        fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
-        fout << "#define PARASDEVICE 1\n";
-      } else if (bkend_target[0] == "hip") {
-        fout << "#include \"kem_gpu/rocm_threadpool.hpp\"\n";
-        fout << "#define PARASDEVICE 2\n";
-      }
-    } else {
-      fout << "#include \"kem/threadpool.hpp\"\n";
+    std::ifstream fin(inputfile);
+    if (!fin) {
+        perror("Error");
+        exit(EXIT_FAILURE);
     }
-    inserted = true;
-  }
+    std::ofstream fout(outputfile);
+    if (!fout) {
+        std::cerr << "Cannot open output file: " << outputfile << "\n";
+        return;
+    }
 
-  for (const auto &l : lines) {
-    fout << l << "\n";
+    std::regex sycl_include(R"(^\s*#include\s*[<\"]sycl(\/sycl)?\.hpp[>\"])");
 
-    if (!inserted && std::regex_search(l, sycl_include)) {
-      if (!bkend_target[0].empty()) {
-        if (bkend_target[0] == "cuda") {
-          fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
-          fout << "#define PARASDEVICE 1\n";
-        } else if (bkend_target[0] == "hip") {
-          fout << "#include \"kem_gpu/rocm_threadpool.hpp\"\n";
-          fout << "#define PARASDEVICE 2\n";
+    std::vector<std::string> lines;
+    std::string line;
+    bool found_sycl = false;
+
+    while (std::getline(fin, line)) {
+        if (std::regex_search(line, sycl_include))
+            found_sycl = true;
+
+        lines.push_back(line);
+    }
+
+    bool inserted = false;
+
+    if (!found_sycl) {
+        if (!bkend_target[0].empty()) {
+            if (bkend_target[0] == "cuda" || bkend_target[0] == "hip") {
+                fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
+            }
+        } else {
+            fout << "#include \"kem/threadpool.hpp\"\n";
         }
-      } else {
-        fout << "#include \"kem/threadpool.hpp\"\n";
-      }
-
-      inserted = true;
+        inserted = true;
     }
-  }
 
-  fin.close();
-  fout.close();
+    for (const auto& l : lines) {
+        fout << l << "\n";
+
+        if (!inserted && std::regex_search(l, sycl_include)) {
+            if (!bkend_target[0].empty()) {
+                if (bkend_target[0] == "cuda" || bkend_target[0] == "hip") {
+                    fout << "#include \"kem_gpu/gpu_threadpool.hpp\"\n";
+                }
+            } else {
+                fout << "#include \"kem/threadpool.hpp\"\n";
+            }
+
+            inserted = true;
+        }
+    }
+    fin.close();
+    fout.close();
 }
 
 } // namespace preprocessor

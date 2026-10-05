@@ -26,18 +26,15 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 
-void FunctionParameterHandler::run(
-    const clang::ast_matchers::MatchFinder::MatchResult &result) {
-  const clang::ParmVarDecl *PVD =
-      result.Nodes.getNodeAs<clang::ParmVarDecl>("functionparameter");
-  if (!PVD)
-    return;
+void FunctionParameterHandler::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
+    const clang::ParmVarDecl* PVD = result.Nodes.getNodeAs<clang::ParmVarDecl>("functionparameter");
+    if (!PVD)
+        return;
 
-  clang::TypeLoc TL = PVD->getTypeSourceInfo()->getTypeLoc();
-  clang::TypeLoc baseType = TL.getUnqualifiedLoc();
-  const clang::SourceManager *SM = result.SourceManager;
+    clang::TypeLoc TL = PVD->getTypeSourceInfo()->getTypeLoc();
+    clang::TypeLoc baseType = TL.getUnqualifiedLoc();
+    const clang::SourceManager* SM = result.SourceManager;
 
-  rewriter.ReplaceText(baseType.getBeginLoc(),
-                       baseType.getSourceRange().printToString(*SM).size(),
-                       "threadpool");
+    rewriter.ReplaceText(baseType.getBeginLoc(),
+                         baseType.getSourceRange().printToString(*SM).size(), "threadpool");
 }

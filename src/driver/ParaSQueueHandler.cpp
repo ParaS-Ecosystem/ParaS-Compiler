@@ -23,21 +23,19 @@
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Basic/SourceManager.h"
 
-void QueueHandler::run(
-    const clang::ast_matchers::MatchFinder::MatchResult &result) {
-  const clang::SourceManager &SM = *result.SourceManager;
-  const clang::VarDecl *VD =
-      result.Nodes.getNodeAs<clang::VarDecl>("queue-definer");
-  if (!VD)
-    return;
+void QueueHandler::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
+    const clang::SourceManager& SM = *result.SourceManager;
+    const clang::VarDecl* VD = result.Nodes.getNodeAs<clang::VarDecl>("queue-definer");
+    if (!VD)
+        return;
 
-  clang::TypeSourceInfo *TSI = VD->getTypeSourceInfo();
-  if (!TSI)
-    return;
+    clang::TypeSourceInfo* TSI = VD->getTypeSourceInfo();
+    if (!TSI)
+        return;
 
-  clang::TypeLoc TL = TSI->getTypeLoc();
-  clang::CharSourceRange range =
-      clang::CharSourceRange::getTokenRange(TL.getBeginLoc(), TL.getEndLoc());
+    clang::TypeLoc TL = TSI->getTypeLoc();
+    clang::CharSourceRange range =
+        clang::CharSourceRange::getTokenRange(TL.getBeginLoc(), TL.getEndLoc());
 
-  rewriter.ReplaceText(range, "threadpool");
+    rewriter.ReplaceText(range, "threadpool");
 }

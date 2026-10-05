@@ -23,163 +23,164 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include <paras/ParaSDeviceCallGraph.hpp>
+#include <paras/ParaSLog.hpp>
 #include <paras/ParaSLambdaHandler.hpp>
 
 namespace {
 
-const clang::Expr *stripKernelExpr(const clang::Expr *expr) {
-  if (!expr)
-    return nullptr;
+const clang::Expr* stripKernelExpr(const clang::Expr* expr) {
+    if (!expr)
+        return nullptr;
 
-  expr = expr->IgnoreParenImpCasts();
+    expr = expr->IgnoreParenImpCasts();
 
-  bool changed = true;
-  while (changed && expr) {
-    changed = false;
+    bool changed = true;
+    while (changed && expr) {
+        changed = false;
 
-    if (const auto *cleanups = llvm::dyn_cast<clang::ExprWithCleanups>(expr)) {
-      expr = cleanups->getSubExpr()->IgnoreParenImpCasts();
-      changed = true;
-    } else if (const auto *materialized =
-                   llvm::dyn_cast<clang::MaterializeTemporaryExpr>(expr)) {
-      expr = materialized->getSubExpr()->IgnoreParenImpCasts();
-      changed = true;
-    } else if (const auto *bound =
-                   llvm::dyn_cast<clang::CXXBindTemporaryExpr>(expr)) {
-      expr = bound->getSubExpr()->IgnoreParenImpCasts();
-      changed = true;
+        if (const auto* cleanups = llvm::dyn_cast<clang::ExprWithCleanups>(expr)) {
+            expr = cleanups->getSubExpr()->IgnoreParenImpCasts();
+            changed = true;
+        } else if (const auto* materialized =
+                       llvm::dyn_cast<clang::MaterializeTemporaryExpr>(expr)) {
+            expr = materialized->getSubExpr()->IgnoreParenImpCasts();
+            changed = true;
+        } else if (const auto* bound = llvm::dyn_cast<clang::CXXBindTemporaryExpr>(expr)) {
+            expr = bound->getSubExpr()->IgnoreParenImpCasts();
+            changed = true;
+        }
     }
-  }
 
-  return expr;
+    return expr;
 }
 
-const clang::CXXMethodDecl *
-lambdaCallOperatorFromExpr(const clang::Expr *expr) {
-  expr = stripKernelExpr(expr);
-  if (!expr)
-    return nullptr;
+const clang::CXXMethodDecl* lambdaCallOperatorFromExpr(const clang::Expr* expr) {
+    expr = stripKernelExpr(expr);
+    if (!expr)
+        return nullptr;
 
-  clang::QualType type = expr->getType();
-  if (type->isReferenceType())
-    type = type->getPointeeType();
+    clang::QualType type = expr->getType();
+    if (type->isReferenceType())
+        type = type->getPointeeType();
 
-  const clang::CXXRecordDecl *closure = type->getAsCXXRecordDecl();
-  if (!closure || !closure->isLambda())
-    return nullptr;
+    const clang::CXXRecordDecl* closure = type->getAsCXXRecordDecl();
+    if (!closure || !closure->isLambda())
+        return nullptr;
 
-  return closure->getLambdaCallOperator();
+    return closure->getLambdaCallOperator();
 }
 
-class ReturnedLambdaFinder
-    : public clang::RecursiveASTVisitor<ReturnedLambdaFinder> {
+class ReturnedLambdaFinder : public clang::RecursiveASTVisitor<ReturnedLambdaFinder> {
 public:
-  const clang::CXXMethodDecl *callOperator = nullptr;
+    const clang::CXXMethodDecl* callOperator = nullptr;
 
-  bool VisitReturnStmt(clang::ReturnStmt *stmt) {
-    if (callOperator || !stmt)
-      return !callOperator;
+    bool VisitReturnStmt(clang::ReturnStmt* stmt) {
+        if (callOperator || !stmt)
+            return !callOperator;
 
-    const clang::Expr *value = stripKernelExpr(stmt->getRetValue());
-    const auto *lambda = llvm::dyn_cast_or_null<clang::LambdaExpr>(value);
-    if (!lambda)
-      return true;
+        const clang::Expr* value = stripKernelExpr(stmt->getRetValue());
+        const auto* lambda = llvm::dyn_cast_or_null<clang::LambdaExpr>(value);
+        if (!lambda)
+            return true;
 
-    callOperator = lambda->getCallOperator();
-    return false;
-  }
+        callOperator = lambda->getCallOperator();
+        return false;
+    }
 };
 
-const clang::CXXMethodDecl *
-returnedLambdaCallOperator(const clang::FunctionDecl *function) {
-  if (!function)
-    return nullptr;
+const clang::CXXMethodDecl* returnedLambdaCallOperator(const clang::FunctionDecl* function) {
+    if (!function)
+        return nullptr;
 
-  const clang::FunctionDecl *definition = nullptr;
-  if (!function->hasBody(definition) || !definition || !definition->getBody())
-    return nullptr;
+    const clang::FunctionDecl* definition = nullptr;
+    if (!function->hasBody(definition) || !definition || !definition->getBody())
+        return nullptr;
 
-  ReturnedLambdaFinder finder;
-  finder.TraverseStmt(const_cast<clang::Stmt *>(definition->getBody()));
-  return finder.callOperator;
+    ReturnedLambdaFinder finder;
+    finder.TraverseStmt(const_cast<clang::Stmt*>(definition->getBody()));
+    return finder.callOperator;
 }
 
-const clang::CXXMethodDecl *resolveKernelCallOperator(
-    const clang::Expr *expr, llvm::DenseSet<const clang::Expr *> &seenExprs,
-    llvm::DenseSet<const clang::FunctionDecl *> &seenFunctions) {
-  expr = stripKernelExpr(expr);
-  if (!expr || !seenExprs.insert(expr).second)
+const clang::CXXMethodDecl*
+resolveKernelCallOperator(const clang::Expr* expr, llvm::DenseSet<const clang::Expr*>& seenExprs,
+                          llvm::DenseSet<const clang::FunctionDecl*>& seenFunctions) {
+    expr = stripKernelExpr(expr);
+    if (!expr || !seenExprs.insert(expr).second)
+        return nullptr;
+
+    if (const clang::CXXMethodDecl* op = lambdaCallOperatorFromExpr(expr))
+        return op;
+
+    if (const auto* ref = llvm::dyn_cast<clang::DeclRefExpr>(expr)) {
+        if (const auto* var = llvm::dyn_cast<clang::VarDecl>(ref->getDecl())) {
+            if (var->hasInit()) {
+                if (const clang::CXXMethodDecl* op =
+                        resolveKernelCallOperator(var->getInit(), seenExprs, seenFunctions))
+                    return op;
+            }
+        }
+    }
+
+    if (const auto* call = llvm::dyn_cast<clang::CallExpr>(expr)) {
+        for (const clang::Expr* arg : call->arguments()) {
+            if (const clang::CXXMethodDecl* op =
+                    resolveKernelCallOperator(arg, seenExprs, seenFunctions))
+                return op;
+        }
+
+        if (const clang::FunctionDecl* callee = call->getDirectCallee()) {
+            callee = callee->getCanonicalDecl();
+            if (seenFunctions.insert(callee).second) {
+                if (const clang::CXXMethodDecl* op = returnedLambdaCallOperator(callee))
+                    return op;
+            }
+        }
+    }
+
+    if (const auto* ctor = llvm::dyn_cast<clang::CXXConstructExpr>(expr)) {
+        for (const clang::Expr* arg : ctor->arguments()) {
+            if (const clang::CXXMethodDecl* op =
+                    resolveKernelCallOperator(arg, seenExprs, seenFunctions))
+                return op;
+        }
+    }
+
     return nullptr;
-
-  if (const clang::CXXMethodDecl *op = lambdaCallOperatorFromExpr(expr))
-    return op;
-
-  if (const auto *ref = llvm::dyn_cast<clang::DeclRefExpr>(expr)) {
-    if (const auto *var = llvm::dyn_cast<clang::VarDecl>(ref->getDecl())) {
-      if (var->hasInit()) {
-        if (const clang::CXXMethodDecl *op = resolveKernelCallOperator(
-                var->getInit(), seenExprs, seenFunctions))
-          return op;
-      }
-    }
-  }
-
-  if (const auto *call = llvm::dyn_cast<clang::CallExpr>(expr)) {
-    for (const clang::Expr *arg : call->arguments()) {
-      if (const clang::CXXMethodDecl *op =
-              resolveKernelCallOperator(arg, seenExprs, seenFunctions))
-        return op;
-    }
-
-    if (const clang::FunctionDecl *callee = call->getDirectCallee()) {
-      callee = callee->getCanonicalDecl();
-      if (seenFunctions.insert(callee).second) {
-        if (const clang::CXXMethodDecl *op = returnedLambdaCallOperator(callee))
-          return op;
-      }
-    }
-  }
-
-  if (const auto *ctor = llvm::dyn_cast<clang::CXXConstructExpr>(expr)) {
-    for (const clang::Expr *arg : ctor->arguments()) {
-      if (const clang::CXXMethodDecl *op =
-              resolveKernelCallOperator(arg, seenExprs, seenFunctions))
-        return op;
-    }
-  }
-
-  return nullptr;
 }
 
 } // namespace
 
-void ParaSLambdaHandler::run(
-    const clang::ast_matchers::MatchFinder::MatchResult &result) {
-  if (backend_target.empty() || backend_target[0] != "cuda")
-  return;
+void ParaSLambdaHandler::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
+    if (const clang::LambdaExpr* Lambda = result.Nodes.getNodeAs<clang::LambdaExpr>("lambda")) {
+        parasLog() << "[ParaS] lambda at: ";
+        Lambda->getBeginLoc().print(parasLog(), *result.SourceManager);
+        parasLog() << "\n";
+    }
 
-  const clang::Expr *kernelExpr =
-      result.Nodes.getNodeAs<clang::Expr>("paras-kernel-callable");
-  if (!kernelExpr)
-    return;
+    if (backend_target.empty() || (backend_target[0] != "cuda" && backend_target[0] != "hip"))
+        return;
 
-  llvm::DenseSet<const clang::Expr *> seenExprs;
-  llvm::DenseSet<const clang::FunctionDecl *> seenFunctions;
-  const clang::CXXMethodDecl *callOperator =
-      resolveKernelCallOperator(kernelExpr, seenExprs, seenFunctions);
+    const clang::Expr* kernelExpr = result.Nodes.getNodeAs<clang::Expr>("paras-kernel-callable");
+    if (!kernelExpr)
+        return;
 
-  if (!callOperator)
-    return;
+    llvm::DenseSet<const clang::Expr*> seenExprs;
+    llvm::DenseSet<const clang::FunctionDecl*> seenFunctions;
+    const clang::CXXMethodDecl* callOperator =
+        resolveKernelCallOperator(kernelExpr, seenExprs, seenFunctions);
 
-  const clang::CXXMethodDecl *kernelKey = callOperator->getCanonicalDecl();
-  if (!processedKernels.insert(kernelKey).second)
-    return;
+    if (!callOperator)
+        return;
 
-  llvm::outs() << "[ParaS] Found SYCL kernel callable\n";
-  llvm::outs() << "[ParaS] Kernel lambda call operator: "
+    const clang::CXXMethodDecl* kernelKey = callOperator->getCanonicalDecl();
+    if (!processedKernels.insert(kernelKey).second)
+        return;
+
+    parasLog() << "[ParaS] Found SYCL kernel callable\n";
+    parasLog() << "[ParaS] Kernel lambda call operator: "
                << callOperator->getQualifiedNameAsString() << "\n";
 
-  ParaSDeviceCallGraph deviceGraph(rewriter);
-  deviceGraph.addKernel(callOperator);
-  deviceGraph.run(*result.Context);
+    ParaSDeviceCallGraph deviceGraph(rewriter, headerRewriter);
+    deviceGraph.addKernel(callOperator);
+    deviceGraph.run(*result.Context);
 }
