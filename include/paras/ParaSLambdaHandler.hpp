@@ -30,20 +30,20 @@
 #include <utility>
 #include <vector>
 
-class ParaSLambdaHandler
-    : public clang::ast_matchers::MatchFinder::MatchCallback {
+class ParaSLambdaHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
 
-private: 
-  clang::Rewriter &rewriter;
-  std::vector<std::string> backend_target;
-  llvm::DenseSet<const clang::CXXMethodDecl *> processedKernels;
+private:
+    clang::Rewriter& rewriter;       
+    clang::Rewriter& headerRewriter; 
+    std::vector<std::string> backend_target;
+    llvm::DenseSet<const clang::CXXMethodDecl*> processedKernels;
 
 public:
-  ParaSLambdaHandler(clang::Rewriter &r, std::vector<std::string> backend)
-      : rewriter(r), backend_target(std::move(backend)) {}
-      
-  void
-  run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
+    ParaSLambdaHandler(clang::Rewriter& r, clang::Rewriter& headerRw,
+                       std::vector<std::string> backend)
+        : rewriter(r), headerRewriter(headerRw), backend_target(std::move(backend)) {}
+
+    void run(const clang::ast_matchers::MatchFinder::MatchResult& result) override;
 };
 
 #endif

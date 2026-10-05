@@ -24,30 +24,71 @@
 namespace sycl {
 namespace access {
 
-enum class mode { read, write, read_write, discard_write, discard_read_write };
+enum class mode {
+    read,
+    write,
+    read_write,
+    discard_write,
+    discard_read_write,
+    atomic [[deprecated]]
+};
 
 enum class address_space {
-  private_space,
-  global_space,
-  generic_space,
-  local_space,
-  constant_space,
+    private_space,
+    global_space,
+    generic_space,
+    local_space,
+    constant_space,
 };
 
 enum class decorated {
-  no,
-  yes,
-  legacy,
-  read_only,
-  write_only,
-  read_write,
+    no,
+    yes,
+    legacy,
+    read_only,
+    write_only,
+    read_write,
 };
 
-enum class fence_space : char { local_space, global_space, global_and_local };
+enum class fence_space : char {
+    local_space,
+    global_space,
+    global_and_local
+}; // enum class fence_space
+
+enum class placeholder { false_t, true_t };
 
 } // namespace access
 
 using access_mode = access::mode;
+
+struct read_only_tag_t {
+    static constexpr access::mode value = access::mode::read;
+};
+struct write_only_tag_t {
+    static constexpr access::mode value = access::mode::write;
+};
+struct read_write_tag_t {
+    static constexpr access::mode value = access::mode::read_write;
+};
+
+inline constexpr read_only_tag_t read_only{};
+inline constexpr write_only_tag_t write_only{};
+inline constexpr read_write_tag_t read_write{};
+
+struct read_only_host_task_tag_t {
+    static constexpr access::mode value = access::mode::read;
+};
+struct write_only_host_task_tag_t {
+    static constexpr access::mode value = access::mode::write;
+};
+struct read_write_host_task_tag_t {
+    static constexpr access::mode value = access::mode::read_write;
+};
+
+inline constexpr read_only_host_task_tag_t read_only_host_task{};
+inline constexpr write_only_host_task_tag_t write_only_host_task{};
+inline constexpr read_write_host_task_tag_t read_write_host_task{};
 
 } // namespace sycl
 

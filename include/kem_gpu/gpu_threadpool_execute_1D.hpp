@@ -23,47 +23,85 @@
 
 #include "sycl/id.hpp"
 #include <cstddef>
-#include <cuda_runtime.h>
 #include <stdexcept>
 #include <string>
+#include "gpu_utilities.hpp"
+#include "sycl/item.hpp"
+#include "sycl/range.hpp"
+#if (PARAS_CUDA_BACKEND)
+#include <cuda_runtime.h>
+#elif (PARAS_HIP_BACKEND)
+#include <hip/hip_runtime.h>
+#endif
 
+#if (PARAS_CUDA_BACKEND)
 namespace paras_cuda_detail {
-inline void check(cudaError_t err, const char *where) {
-  if (err != cudaSuccess) {
-    throw std::runtime_error(std::string(where) + ": " +
-                             cudaGetErrorString(err));
-  }
+inline void check(cudaError_t err, const char* where) {
+    if (err != cudaSuccess) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::runtime),
+                              std::string(where) + ": " + cudaGetErrorString(err));
+    }
 }
 } // namespace paras_cuda_detail
+#elif (PARAS_HIP_BACKEND)
+namespace paras_rocm_detail {
+inline void check(hipError_t err, const char* where) {
+    if (err != hipSuccess) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::runtime),
+                              std::string(where) + ": " + hipGetErrorString(err));
+    }
+}
+} // namespace paras_rocm_detail
+#endif
 
 template <typename Func>
 __global__ void gpu_execute_1D_kernel(std::size_t n, Func f) {
-  const std::size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < n) {
-    f(sycl::id<1>(i));
-  }
+    const std::size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) {
+        sycl::detail::invoke_range_kernel<1>(f, sycl::id<1>(i), sycl::range<1>(n));
+    }
 }
 
+#if (PARAS_CUDA_BACKEND)
 template <typename Func>
-void cuda_threadpool::gpu_execute_1D(const sycl::range<1> &r, Func f) {
-  ensure_stream();
-  const std::size_t n = r[0];
-  if (n == 0) {
-    return;
-  }
+void cuda_threadpool::gpu_execute_1D(const sycl::range<1>& r, Func f) {
+    ensure_stream();
+    const std::size_t n = r[0];
+    if (n == 0) {
+        return;
+    }
 
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before 1D kernel");
+    paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()), "cudaSetDevice before 1D kernel");
 
-  constexpr unsigned int threadsPerBlock = 256;
-  const unsigned int blocks =
-      static_cast<unsigned int>((n + threadsPerBlock - 1) / threadsPerBlock);
+    constexpr unsigned int threadsPerBlock = 256;
+    const unsigned int blocks =
+        static_cast<unsigned int>((n + threadsPerBlock - 1) / threadsPerBlock);
 
-  (void)cudaGetLastError();
-  gpu_execute_1D_kernel<<<blocks, threadsPerBlock, 0, stream>>>(n, f);
-  paras_cuda_detail::check(cudaGetLastError(), "1D kernel launch failed");
-  paras_cuda_detail::check(cudaStreamSynchronize(stream),
-                           "1D kernel execution failed");
+    (void)cudaGetLastError();
+    gpu_execute_1D_kernel<<<blocks, threadsPerBlock, 0, stream>>>(n, f);
+    paras_cuda_detail::check(cudaGetLastError(), "1D kernel launch failed");
+    paras_cuda_detail::check(cudaStreamSynchronize(stream), "1D kernel execution failed");
 }
 
+#elif (PARAS_HIP_BACKEND)
+template <typename Func>
+void rocm_threadpool::gpu_execute_1D(const sycl::range<1>& r, Func f) {
+    ensure_stream();
+    const std::size_t n = r[0];
+    if (n == 0) {
+        return;
+    }
+
+    paras_rocm_detail::check(hipSetDevice(dev_.get_native_id()), "hipSetDevice before 1D kernel");
+
+    constexpr unsigned int threadsPerBlock = 256;
+    const unsigned int blocks =
+        static_cast<unsigned int>((n + threadsPerBlock - 1) / threadsPerBlock);
+
+    (void)hipGetLastError();
+    gpu_execute_1D_kernel<<<blocks, threadsPerBlock, 0, stream>>>(n, f);
+    paras_rocm_detail::check(hipGetLastError(), "1D kernel launch failed");
+    paras_rocm_detail::check(hipStreamSynchronize(stream), "1D kernel execution failed");
+}
+#endif
 #endif

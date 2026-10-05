@@ -30,44 +30,44 @@ namespace detail {
 #define SYCL_DETAIL_STRINGIFY(x) SYCL_DETAIL_STRINGIFY_IMPL(x)
 
 inline std::string version_string() {
-  std::string s;
+    std::string s;
 
 #if defined(__clang__)
-  s += "clang ";
-  s += __clang_version__;
+    s += "clang ";
+    s += __clang_version__;
 #elif defined(__GNUC__)
-  s += "gcc ";
-  s += std::to_string(__GNUC__);
-  s += ".";
-  s += std::to_string(__GNUC_MINOR__);
-  s += ".";
-  s += std::to_string(__GNUC_PATCHLEVEL__);
+    s += "gcc ";
+    s += std::to_string(__GNUC__);
+    s += ".";
+    s += std::to_string(__GNUC_MINOR__);
+    s += ".";
+    s += std::to_string(__GNUC_PATCHLEVEL__);
 #elif defined(_MSC_VER)
-  s += "msvc ";
-  s += std::to_string(_MSC_VER);
+    s += "msvc ";
+    s += std::to_string(_MSC_VER);
 #else
-  s += "unknown-compiler";
+    s += "unknown-compiler";
 #endif
 
-  s += "; c++=";
-  s += SYCL_DETAIL_STRINGIFY(__cplusplus);
+    s += "; c++=";
+    s += SYCL_DETAIL_STRINGIFY(__cplusplus);
 
 #ifdef __GLIBCXX__
-  s += "; libstdc++=";
-  s += SYCL_DETAIL_STRINGIFY(__GLIBCXX__);
+    s += "; libstdc++=";
+    s += SYCL_DETAIL_STRINGIFY(__GLIBCXX__);
 #endif
 
 #ifdef _LIBCPP_VERSION
-  s += "; libc++=";
-  s += SYCL_DETAIL_STRINGIFY(_LIBCPP_VERSION);
+    s += "; libc++=";
+    s += SYCL_DETAIL_STRINGIFY(_LIBCPP_VERSION);
 #endif
 
 #ifdef PARAS_GPU_BACKEND
-  s += "; PARAS_GPU_BACKEND=";
-  s += SYCL_DETAIL_STRINGIFY(PARAS_GPU_BACKEND);
+    s += "; PARAS_GPU_BACKEND=";
+    s += SYCL_DETAIL_STRINGIFY(PARAS_GPU_BACKEND);
 #endif
 
-  return s;
+    return s;
 }
 
 #undef SYCL_DETAIL_STRINGIFY_IMPL

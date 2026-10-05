@@ -23,70 +23,74 @@
 
 #include <cstddef>
 #include "kem_gpu/gpu_utilities.hpp"
+#include "index_ops.hpp"
 
 namespace sycl {
 
-template <int Dimensions = 1> class range {
+template <int Dimensions = 1>
+class range {
 public:
-  static constexpr int dimensions = Dimensions;
+    static constexpr int dimensions = Dimensions;
 
-  size_t dims_[Dimensions];
+    size_t dims_[Dimensions];
 
-  PARAS_KERNEL_HD
-  range() {
-    for (int i = 0; i < Dimensions; i++)
-      dims_[i] = 0;
-  }
-
-  PARAS_KERNEL_HD
-  range(size_t dim0) {
-    static_assert(Dimensions == 1, "range(size_t) only valid for range<1>");
-    dims_[0] = dim0;
-  }
-
-  PARAS_KERNEL_HD
-  range(size_t dim0, size_t dim1) {
-    static_assert(Dimensions == 2,
-                  "range(size_t,size_t) only valid for range<2>");
-    dims_[0] = dim0;
-    dims_[1] = dim1;
-  }
-
-  PARAS_KERNEL_HD
-  range(size_t dim0, size_t dim1, size_t dim2) {
-    static_assert(Dimensions == 3,
-                  "range(size_t,size_t,size_t) only valid for range<3>");
-    dims_[0] = dim0;
-    dims_[1] = dim1;
-    dims_[2] = dim2;
-  }
-
-  size_t get(int d) const { return dims_[d]; }
-
-  PARAS_KERNEL_HD
-  size_t &operator[](int d) { return dims_[d]; }
-
-  PARAS_KERNEL_HD
-  size_t operator[](int d) const { return dims_[d]; }
-
-  PARAS_KERNEL_HD
-  range operator*(const range &rhs) const {
-
-    range result;
-    for (int i = 0; i < Dimensions; ++i) {
-      result[i] = dims_[i] * rhs[i];
+    PARAS_KERNEL_HD
+    range() {
+        for (int i = 0; i < Dimensions; i++)
+            dims_[i] = 0;
     }
-    return result;
-  }
 
-  size_t size() const {
-    if constexpr (Dimensions == 1)
-      return dims_[0];
-    else if constexpr (Dimensions == 2)
-      return dims_[0] * dims_[1];
-    else
-      return dims_[0] * dims_[1] * dims_[2];
-  }
+    PARAS_KERNEL_HD
+    range(size_t dim0) {
+        static_assert(Dimensions == 1, "range(size_t) only valid for range<1>");
+        dims_[0] = dim0;
+    }
+
+    PARAS_KERNEL_HD
+    range(size_t dim0, size_t dim1) {
+        static_assert(Dimensions == 2, "range(size_t,size_t) only valid for range<2>");
+        dims_[0] = dim0;
+        dims_[1] = dim1;
+    }
+
+    PARAS_KERNEL_HD
+    range(size_t dim0, size_t dim1, size_t dim2) {
+        static_assert(Dimensions == 3, "range(size_t,size_t,size_t) only valid for range<3>");
+        dims_[0] = dim0;
+        dims_[1] = dim1;
+        dims_[2] = dim2;
+    }
+
+    PARAS_KERNEL_HD
+    size_t get(int d) const { return dims_[d]; }
+
+    PARAS_KERNEL_HD
+    size_t& operator[](int d) { return dims_[d]; }
+
+    PARAS_KERNEL_HD
+    size_t operator[](int d) const { return dims_[d]; }
+
+    PARAS_INDEX_OPERATORS(range, Dimensions)
+
+    PARAS_KERNEL_HD
+    bool operator==(const range& rhs) const {
+        for (int i = 0; i < Dimensions; ++i)
+            if (dims_[i] != rhs.dims_[i])
+                return false;
+        return true;
+    }
+    PARAS_KERNEL_HD
+    bool operator!=(const range& rhs) const { return !(*this == rhs); }
+
+    PARAS_KERNEL_HD
+    size_t size() const {
+        if constexpr (Dimensions == 1)
+            return dims_[0];
+        else if constexpr (Dimensions == 2)
+            return dims_[0] * dims_[1];
+        else
+            return dims_[0] * dims_[1] * dims_[2];
+    }
 };
 
 range(size_t) -> range<1>;

@@ -29,147 +29,170 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-// #include <cuda_runtime.h>
 
 #include "../kem_gpu/gpu_utilities.hpp"
 
+#if (PARAS_HIP_BACKEND)
+#include <hip/hip_runtime.h>
+#endif
+
 namespace paras_extension {
 
-inline void trim_inplace(std::string &s) {
-  const size_t a = s.find_first_not_of(" \t\n\r");
-  if (a == std::string::npos) {
-    s.clear();
-    return;
-  }
-  const size_t b = s.find_last_not_of(" \t\n\r");
-  s = s.substr(a, b - a + 1);
-}
-
-inline bool run_cmd_lines(const char *cmd, std::vector<std::string> &lines) {
-  FILE *p = popen(cmd, "r");
-  if (!p)
-    return false;
-  char buf[512];
-  while (fgets(buf, sizeof(buf), p)) {
-    std::string s(buf);
-    trim_inplace(s);
-    if (!s.empty())
-      lines.push_back(s);
-  }
-  pclose(p);
-  return true;
-}
-
-inline bool run_cmd_lines_cached(const char *cmd,
-                                 std::vector<std::string> &lines) {
-  static std::unordered_map<std::string, std::vector<std::string>> cache;
-  static std::mutex m;
-
-  {
-    std::lock_guard<std::mutex> lock(m);
-    auto it = cache.find(cmd);
-    if (it != cache.end()) {
-      lines = it->second;
-      return true;
+inline void trim_inplace(std::string& s) {
+    const size_t a = s.find_first_not_of(" \t\n\r");
+    if (a == std::string::npos) {
+        s.clear();
+        return;
     }
-  }
-
-  std::vector<std::string> tmp;
-  bool ok = run_cmd_lines(cmd, tmp);
-
-  {
-    std::lock_guard<std::mutex> lock(m);
-    cache.emplace(cmd, tmp);
-  }
-
-  lines = std::move(tmp);
-  return ok;
+    const size_t b = s.find_last_not_of(" \t\n\r");
+    s = s.substr(a, b - a + 1);
 }
 
-inline std::string run_cmd_first_line_cached(const char *cmd) {
-  std::vector<std::string> lines;
-  run_cmd_lines_cached(cmd, lines);
-  return lines.empty() ? std::string{} : lines.front();
+inline bool run_cmd_lines(const char* cmd, std::vector<std::string>& lines) {
+    FILE* p = popen(cmd, "r");
+    if (!p)
+        return false;
+    char buf[512];
+    while (fgets(buf, sizeof(buf), p)) {
+        std::string s(buf);
+        trim_inplace(s);
+        if (!s.empty())
+            lines.push_back(s);
+    }
+    pclose(p);
+    return true;
 }
 
-[[noreturn]] inline void paras_selector_error(const char *msg) {
-  std::cerr << "ParaS selector error: " << msg << "\n";
-  std::exit(1);
+inline bool run_cmd_lines_cached(const char* cmd, std::vector<std::string>& lines) {
+    static std::unordered_map<std::string, std::vector<std::string>> cache;
+    static std::mutex m;
+
+    {
+        std::lock_guard<std::mutex> lock(m);
+        auto it = cache.find(cmd);
+        if (it != cache.end()) {
+            lines = it->second;
+            return true;
+        }
+    }
+
+    std::vector<std::string> tmp;
+    bool ok = run_cmd_lines(cmd, tmp);
+
+    {
+        std::lock_guard<std::mutex> lock(m);
+        cache.emplace(cmd, tmp);
+    }
+
+    lines = std::move(tmp);
+    return ok;
 }
 
-inline unsigned long parse_ul_or0(const std::string &s) {
-  char *end = nullptr;
-  unsigned long v = std::strtoul(s.c_str(), &end, 10);
-  return (end == s.c_str()) ? 0UL : v;
+inline std::string run_cmd_first_line_cached(const char* cmd) {
+    std::vector<std::string> lines;
+    run_cmd_lines_cached(cmd, lines);
+    return lines.empty() ? std::string{} : lines.front();
+}
+
+[[noreturn]] inline void paras_selector_error(const char* msg) {
+    std::cerr << "ParaS selector error: " << msg << "\n";
+    std::exit(1);
+}
+
+inline unsigned long parse_ul_or0(const std::string& s) {
+    char* end = nullptr;
+    unsigned long v = std::strtoul(s.c_str(), &end, 10);
+    return (end == s.c_str()) ? 0UL : v;
 }
 
 class local_memory_allocator {
 public:
-  using address = void *;
+    using address = void*;
 
-  static address alloc_bytes(size_t alignment, size_t bytes) {
-#if PARAS_GPU_BACKEND
+    static address alloc_bytes(size_t alignment, size_t bytes) {
+#if (PARAS_CUDA_BACKEND)
 
-    void *ptr = nullptr;
+        void* ptr = nullptr;
 
-    cudaError_t err = cudaMallocManaged(&ptr, bytes);
+        cudaError_t err = cudaMallocManaged(&ptr, bytes);
 
-    if (err != cudaSuccess) {
-      std::cerr << "cudaMallocManaged failed:"
-                << " bytes=" << bytes << ", error=" << cudaGetErrorString(err)
-                << ", code=" << static_cast<int>(err) << "\n";
+        if (err != cudaSuccess) {
+            std::cerr << "cudaMallocManaged failed:"
+                      << " bytes=" << bytes << ", error=" << cudaGetErrorString(err)
+                      << ", code=" << static_cast<int>(err) << "\n";
 
-      throw std::runtime_error(std::string("cudaMallocManaged failed: ") +
-                               cudaGetErrorString(err));
-    }
+            throw std::runtime_error(std::string("cudaMallocManaged failed: ") +
+                                     cudaGetErrorString(err));
+        }
 
-    return ptr;
+        return ptr;
 
+#elif (PARAS_HIP_BACKEND)
+
+        void* ptr = nullptr;
+
+        hipError_t err = hipMallocManaged(&ptr, bytes);
+
+        if (err != hipSuccess) {
+            std::cerr << "hipMallocManaged failed:"
+                      << " bytes=" << bytes << ", error=" << hipGetErrorString(err)
+                      << ", code=" << static_cast<int>(err) << "\n";
+
+            throw std::runtime_error(std::string("hipMallocManaged failed: ") +
+                                     hipGetErrorString(err));
+        }
+
+        return ptr;
 #else
 
-    void *ptr = nullptr;
+        void* ptr = nullptr;
 
 #if (__cplusplus >= 201703L)
-    ptr = std::aligned_alloc(alignment,
-                             ((bytes + alignment - 1) / alignment) * alignment);
+        ptr = std::aligned_alloc(alignment, ((bytes + alignment - 1) / alignment) * alignment);
 #else
-    posix_memalign(&ptr, alignment, bytes);
+        posix_memalign(&ptr, alignment, bytes);
 #endif
 
-    if (!ptr) {
-      throw std::bad_alloc();
-    }
+        if (!ptr) {
+            throw std::bad_alloc();
+        }
 
-    return ptr;
+        return ptr;
 
 #endif
-  }
-
-  template <class T> static address alloc(size_t elements) {
-    return alloc_bytes(alignof(T), sizeof(T) * elements);
-  }
-
-  static void free(address ptr) noexcept {
-    if (ptr == nullptr) {
-      return;
     }
 
-#if PARAS_GPU_BACKEND
-    cudaError_t err = cudaFree(ptr);
-
-    if (err != cudaSuccess) {
-      std::cerr << "cudaFree for local memory failed: "
-                << cudaGetErrorString(err) << "\n";
+    template <class T>
+    static address alloc(size_t elements) {
+        return alloc_bytes(alignof(T), sizeof(T) * elements);
     }
+
+    static void free(address ptr) noexcept {
+        if (ptr == nullptr) {
+            return;
+        }
+
+#if (PARAS_CUDA_BACKEND)
+        cudaError_t err = cudaFree(ptr);
+
+        if (err != cudaSuccess) {
+            std::cerr << "cudaFree for local memory failed: " << cudaGetErrorString(err) << "\n";
+        }
+#elif (PARAS_HIP_BACKEND)
+        hipError_t err = hipFree(ptr);
+
+        if (err != hipSuccess) {
+            std::cerr << "hipFree for local memory failed: " << hipGetErrorString(err) << "\n";
+        }
 #else
-    std::free(ptr);
+        std::free(ptr);
 #endif
-  }
+    }
 };
 
 class local_memory {
 public:
-  using address = local_memory_allocator::address;
+    using address = local_memory_allocator::address;
 };
 
 } // namespace paras_extension

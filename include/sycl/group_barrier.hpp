@@ -27,18 +27,20 @@
 namespace sycl {
 
 template <typename Group>
-PARAS_KERNEL_HD inline void
-group_barrier(Group, memory_scope scope = Group::fence_scope) {
+PARAS_KERNEL_HD inline void group_barrier(Group, memory_scope scope = Group::fence_scope) {
 #if PARAS_GPU_BACKEND
 
-  if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>) {
-    paras_syncwarp(paras_active_mask());
-  } else {
-    paras_syncthreads();
-  }
+    if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>) {
+        paras_syncwarp(paras_active_mask());
+    } else {
+        paras_syncthreads();
+    }
 
 #else
-
+    (void)scope;
+    if constexpr (!std::is_same_v<std::decay_t<Group>, sub_group>) {
+        paras_syncthreads();
+    }
 #endif
 }
 

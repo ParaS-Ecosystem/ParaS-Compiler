@@ -21,6 +21,11 @@
 #ifndef __PARAS_INFO_HPP__
 #define __PARAS_INFO_HPP__
 
+#include <cstdint>
+#include <string>
+#include <cstddef>
+#include "range.hpp"
+
 namespace sycl {
 namespace info {
 
@@ -29,7 +34,7 @@ enum class event_command_status : unsigned int { submitted, running, complete };
 namespace event {
 
 struct command_execution_status {
-  using return_type = sycl::info::event_command_status;
+    using return_type = sycl::info::event_command_status;
 };
 
 } // namespace event
@@ -37,19 +42,71 @@ struct command_execution_status {
 namespace event_profiling {
 
 struct command_submit {
-  using return_type = unsigned long long;
+    using return_type = unsigned long long;
 };
 
 struct command_start {
-  using return_type = unsigned long long;
+    using return_type = unsigned long long;
 };
 
 struct command_end {
-  using return_type = unsigned long long;
+    using return_type = unsigned long long;
 };
 
 } // namespace event_profiling
+
+namespace kernel {
+
+struct num_args {
+    using return_type = std::uint32_t;
+};
+
+struct attributes {
+    using return_type = std::string;
+};
+
+} // namespace kernel
+
+namespace kernel_device_specific {
+
+struct global_work_size {
+    using return_type = range<3>;
+};
+
+struct compile_work_group_size {
+    using return_type = range<3>;
+};
+
+struct work_group_size {
+    using return_type = std::size_t;
+};
+
+struct preferred_work_group_size_multiple {
+    using return_type = std::size_t;
+};
+
+struct private_mem_size {
+    using return_type = std::size_t;
+};
+
+struct max_num_sub_groups {
+    using return_type = std::uint32_t;
+};
+
+struct compile_num_sub_groups {
+    using return_type = std::uint32_t;
+};
+
+struct max_sub_group_size {
+    using return_type = std::uint32_t;
+};
+
+struct compile_sub_group_size {
+    using return_type = std::uint32_t;
+};
+
+} // namespace kernel_device_specific
+
 } // namespace info
 } // namespace sycl
-
 #endif

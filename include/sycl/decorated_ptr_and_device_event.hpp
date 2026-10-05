@@ -18,36 +18,30 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __PARAS_INTEROP_HANDLER_HPP__
-#define __PARAS_INTEROP_HANDLER_HPP__
+#ifndef __PARAS_DECORATED_PTR_DEVICE_EVENT_HPP__
+#define __PARAS_DECORATED_PTR_DEVICE_EVENT_HPP__
 
-#include "device.hpp"
-
-struct CUstream_st;
+#include "multi_ptr.hpp"
 
 namespace sycl {
 
-class queue;
-class handler;
+template <typename T>
+using decorated_local_ptr =
+    multi_ptr<T, access::address_space::local_space, access::decorated::yes>;
+template <typename T>
+using decorated_global_ptr =
+    multi_ptr<T, access::address_space::global_space, access::decorated::yes>;
+template <typename T>
+using decorated_private_ptr =
+    multi_ptr<T, access::address_space::private_space, access::decorated::yes>;
+template <typename T>
+using decorated_generic_ptr =
+    multi_ptr<T, access::address_space::generic_space, access::decorated::yes>;
 
-class interop_handle {
-private:
-    void* backend_ptr_;
-    backend backend_;
-
-    interop_handle(void* p, backend b) : backend_ptr_(p), backend_(b) {}
-
-    friend class handler;
-
+class device_event {
 public:
-    interop_handle() = delete;
-
-    backend get_backend() const noexcept { return backend_; }
-
-    void* get_native_queue();
-
-    template <backend Backend>
-    backend_return_t<Backend, queue> get_native_queue() const;
+    constexpr device_event() noexcept = default;
+    PARAS_KERNEL_HD void wait() const {}
 };
 
 } // namespace sycl

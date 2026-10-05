@@ -23,19 +23,24 @@
 
 #include "sycl/handler.hpp"
 
-template <typename Func> sycl::event threadpool::spawn_1D(Func f) {
-  sycl::handler cgh(*this);
-  f(cgh);
-  return sycl::event{} ;
+template <typename Func>
+sycl::event threadpool::spawn_1D(Func f) {
+    const std::uint64_t paras_t0 = paras_profiling_start();
+    sycl::handler cgh(*this);
+    f(cgh);
+    return paras_finish_event(paras_t0);
 }
 
-template <typename Func> sycl::event threadpool::spawn_1D_event(Func f) {
-  spawn_1D(f);
-  return sycl::event{};
+template <typename Func>
+sycl::event threadpool::spawn_1D_event(Func f) {
+    return spawn_1D(f);
 }
 
-template <typename Func> void threadpool::spawn_ND(Func f) {
-  sycl::handler cgh(*this);
-  f(cgh);
+template <typename Func>
+sycl::event threadpool::spawn_ND(Func f) {
+    sycl::handler cgh(*this);
+    f(cgh);
+    return sycl::event{};
 }
+
 #endif

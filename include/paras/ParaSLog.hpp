@@ -18,23 +18,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __PARAS_THREADPOOL_BASE_HPP__
-#define __PARAS_THREADPOOL_BASE_HPP__
+#ifndef __PARAS_LOG_HPP__
+#define __PARAS_LOG_HPP__
 
-#include "sycl/context.hpp"
-#include "sycl/device.hpp"
-#include <thread>
+#include <cstdlib>
+#include <cstring>
 
-class threadpool_base {
-public:
-  sycl::device get_device() const { return sycl::device(); }
-  sycl::context get_context() const { return sycl::context(); }
+#include "llvm/Support/raw_ostream.h"
 
-  static unsigned get_num_threads() {
-    unsigned n = std::thread::hardware_concurrency();
-    return n == 0 ? 4 : n;
-  }
+inline bool parasVerbose() {
+    static const bool verbose = [] {
+        const char* v = std::getenv("PARAS_VERBOSE");
+        return v && *v && std::strcmp(v, "0") != 0;
+    }();
+    return verbose;
+}
 
-  void wait() {}
-};
+inline llvm::raw_ostream& parasLog() {
+    return parasVerbose() ? llvm::errs() : llvm::nulls();
+}
+
 #endif

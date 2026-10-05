@@ -18,20 +18,29 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __PARAS_EXECUTOR_HPP__
-#define __PARAS_EXECUTOR_HPP__
+#ifndef __PARAS_ND_RANGE_VALIDATE_HPP__
+#define __PARAS_ND_RANGE_VALIDATE_HPP__
 
-#include <vector>
 #include <string>
-#include <filesystem>
-#include <unistd.h>
-#include <cstdlib>
+#include "sycl/exception.hpp"
+#include "sycl/nd_range.hpp"
 
-namespace fs = std::filesystem;
+namespace paras_detail {
 
-namespace executor {
-std::string find_clangxx(const char* argv0);
-int executor(std::vector<std::string> command, std::vector<std::string> bkend_target);
-} // namespace executor
+template <int D>
+inline void validate_nd_range(const sycl::nd_range<D>& r) {
+    const auto G = r.get_global_range();
+    const auto L = r.get_local_range();
+    for (int d = 0; d < D; ++d) {
+        if (L[d] == 0 || G[d] % L[d] != 0) {
+            throw sycl::exception(sycl::make_error_code(sycl::errc::nd_range),
+                                  "nd_range: global size " + std::to_string(G[d]) +
+                                      " is not divisible by local size " + std::to_string(L[d]) +
+                                      " in dimension " + std::to_string(d));
+        }
+    }
+}
+
+} // namespace paras_detail
 
 #endif

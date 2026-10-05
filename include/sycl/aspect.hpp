@@ -23,12 +23,46 @@
 
 namespace sycl {
 
-    enum class aspect : uint64_t {
-        cpu,
-        fp16, 
-        fp64,
-        queue_profiling 
-    };
+enum class aspect : uint32_t {
+    cpu,
+    gpu,
+    accelerator,
+    custom,
+    emulated,
+    host_debuggable,
+    fp16,
+    fp64,
+    atomic64,
+    image,
+    online_compiler,
+    online_linker,
+    queue_profiling,
+    usm_device_allocations,
+    usm_host_allocations,
+    usm_atomic_host_allocations,
+    usm_shared_allocations,
+    usm_atomic_shared_allocations,
+    usm_system_allocations
+};
+
+#ifndef PARASDEVICE
+#define PARASDEVICE 0
+#endif
+template <aspect Aspect>
+struct any_device_has
+    : std::bool_constant<
+          Aspect == aspect::cpu || Aspect == aspect::queue_profiling ||
+          (PARASDEVICE != 0 && Aspect == aspect::gpu) || Aspect == aspect::usm_device_allocations ||
+          Aspect == aspect::usm_host_allocations || Aspect == aspect::usm_shared_allocations> {};
+
+template <aspect Aspect>
+inline constexpr bool any_device_has_v = any_device_has<Aspect>::value;
+
+template <aspect Aspect>
+struct all_devices_have : std::false_type {};
+
+template <aspect Aspect>
+inline constexpr bool all_devices_have_v = all_devices_have<Aspect>::value;
 
 } // namespace sycl
 

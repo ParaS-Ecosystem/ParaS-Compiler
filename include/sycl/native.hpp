@@ -26,7 +26,10 @@
 namespace sycl {
 namespace native {
 
-inline float rsqrt(float x) { return 1.0f / sycl::sqrt(x); }
+PARAS_KERNEL_HD
+inline float rsqrt(float x) {
+    return 1.0f / sycl::sqrt(x);
+}
 
 } // namespace native
 } // namespace sycl

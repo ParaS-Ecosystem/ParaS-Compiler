@@ -23,26 +23,45 @@
 
 #include "sycl/id.hpp"
 #include <cstddef>
+#include "gpu_utilities.hpp"
+#if (PARAS_CUDA_BACKEND)
 #include <cuda_runtime.h>
+#elif (PARAS_HIP_BACKEND)
+#include <hip/hip_runtime.h>
+#endif
 
 template <typename Func>
 __global__ void gpu_execute_1D_async_kernel(std::size_t n, Func f) {
-  const std::size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < n) {
-    f(sycl::id<1>(i));
-  }
+    const std::size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) {
+        f(sycl::id<1>(i));
+    }
 }
 
-template <typename Func> void cuda_threadpool::gpu_execute_1D_async(Func f) {
-  ensure_stream();
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before async 1D kernel");
+#if (PARAS_CUDA_BACKEND)
+template <typename Func>
+void cuda_threadpool::gpu_execute_1D_async(Func f) {
+    ensure_stream();
+    paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
+                             "cudaSetDevice before async 1D kernel");
 
-  (void)cudaGetLastError();
-  gpu_execute_1D_async_kernel<<<1, 1, 0, stream>>>(1, f);
-  paras_cuda_detail::check(cudaGetLastError(), "async 1D kernel launch failed");
-  paras_cuda_detail::check(cudaStreamSynchronize(stream),
-                           "async 1D kernel execution failed");
+    (void)cudaGetLastError();
+    gpu_execute_1D_async_kernel<<<1, 1, 0, stream>>>(1, f);
+    paras_cuda_detail::check(cudaGetLastError(), "async 1D kernel launch failed");
+    paras_cuda_detail::check(cudaStreamSynchronize(stream), "async 1D kernel execution failed");
 }
 
-#endif 		/** End of gpu_threadpool_execute_1D_async >*/
+#elif (PARAS_HIP_BACKEND)
+template <typename Func>
+void rocm_threadpool::gpu_execute_1D_async(Func f) {
+    ensure_stream();
+    paras_rocm_detail::check(hipSetDevice(dev_.get_native_id()),
+                             "hipSetDevice before async 1D kernel");
+
+    (void)hipGetLastError();
+    gpu_execute_1D_async_kernel<<<1, 1, 0, stream>>>(1, f);
+    paras_rocm_detail::check(hipGetLastError(), "async 1D kernel launch failed");
+    paras_rocm_detail::check(hipStreamSynchronize(stream), "async 1D kernel execution failed");
+}
+#endif
+#endif /** End of gpu_threadpool_execute_1D_async >*/
