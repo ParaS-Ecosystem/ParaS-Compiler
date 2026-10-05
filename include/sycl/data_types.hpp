@@ -1311,7 +1311,7 @@ return (*this) *= static_cast<vec>(rhs);
         }
     }
 
-    template <elem... Indices>
+    template <auto... Indices>
     PARAS_KERNEL_HD
     vec<T, static_cast<int>(sizeof...(Indices))> swizzle() const noexcept {
         return vec<T, static_cast<int>(sizeof...(Indices))>{
@@ -1640,10 +1640,10 @@ return (*this) *= static_cast<vec>(rhs);
 
     };
 
-    template <elem... Indices>
+    template <auto... Indices>
     PARAS_KERNEL_HD
-    swizzle_ref<Indices...> swizzle() noexcept {
-        return swizzle_ref<Indices...>{ data };
+    swizzle_ref<static_cast<elem>(Indices)...> swizzle() noexcept {
+        return swizzle_ref<static_cast<elem>(Indices)...>{ data };
     }
 
     #define PARAS_VEC_NAMED_SWIZZLE2_MUT(NAME, I0, I1)                          \

@@ -1476,6 +1476,157 @@ PARAS_KERNEL_HD inline T1 divide(T1 x_arg, T2 y_arg) {
 
 #undef PARAS_SYCL_NATIVE_UNARY
 
+namespace detail {
+template <typename X>
+PARAS_KERNEL_HD inline auto paras_unswz(const X &x) {
+  if constexpr (paras_is_swizzle_ref_v<X>)
+    return static_cast<vec<typename X::element_type, static_cast<int>(X::size())>>(x);
+  else
+    return x;
+}
+template <typename... Xs>
+inline constexpr bool paras_any_swz_v = (paras_is_swizzle_ref_v<Xs> || ...);
+}
+#define PARAS_SWZ_FORWARD(NAME)                                                \
+  template <typename A, std::enable_if_t<detail::paras_any_swz_v<A>, int> = 0> \
+  PARAS_KERNEL_HD inline auto NAME(const A &a)                                 \
+      ->decltype(NAME(detail::paras_unswz(a))) {                               \
+    return NAME(detail::paras_unswz(a));                                       \
+  }                                                                            \
+  template <typename A, typename B,                                            \
+            std::enable_if_t<detail::paras_any_swz_v<A, B>, int> = 0>          \
+  PARAS_KERNEL_HD inline auto NAME(const A &a, const B &b)                     \
+      ->decltype(NAME(detail::paras_unswz(a), detail::paras_unswz(b))) {       \
+    return NAME(detail::paras_unswz(a), detail::paras_unswz(b));               \
+  }                                                                            \
+  template <typename A, typename B, typename C,                                \
+            std::enable_if_t<detail::paras_any_swz_v<A, B, C>, int> = 0>       \
+  PARAS_KERNEL_HD inline auto NAME(const A &a, const B &b, const C &c)         \
+      ->decltype(NAME(detail::paras_unswz(a), detail::paras_unswz(b),          \
+                      detail::paras_unswz(c))) {                               \
+    return NAME(detail::paras_unswz(a), detail::paras_unswz(b),                \
+                detail::paras_unswz(c));                                       \
+  }
+PARAS_SWZ_FORWARD(abs)
+PARAS_SWZ_FORWARD(acos)
+PARAS_SWZ_FORWARD(acosh)
+PARAS_SWZ_FORWARD(acospi)
+PARAS_SWZ_FORWARD(all)
+PARAS_SWZ_FORWARD(any)
+PARAS_SWZ_FORWARD(asin)
+PARAS_SWZ_FORWARD(asinh)
+PARAS_SWZ_FORWARD(asinpi)
+PARAS_SWZ_FORWARD(atan)
+PARAS_SWZ_FORWARD(atan2)
+PARAS_SWZ_FORWARD(atan2pi)
+PARAS_SWZ_FORWARD(atanh)
+PARAS_SWZ_FORWARD(atanpi)
+PARAS_SWZ_FORWARD(bitselect)
+PARAS_SWZ_FORWARD(cbrt)
+PARAS_SWZ_FORWARD(ceil)
+PARAS_SWZ_FORWARD(clamp)
+PARAS_SWZ_FORWARD(clz)
+PARAS_SWZ_FORWARD(copysign)
+PARAS_SWZ_FORWARD(cos)
+PARAS_SWZ_FORWARD(cosh)
+PARAS_SWZ_FORWARD(cospi)
+PARAS_SWZ_FORWARD(cross)
+PARAS_SWZ_FORWARD(ctz)
+PARAS_SWZ_FORWARD(degrees)
+PARAS_SWZ_FORWARD(distance)
+PARAS_SWZ_FORWARD(dot)
+PARAS_SWZ_FORWARD(erf)
+PARAS_SWZ_FORWARD(erfc)
+PARAS_SWZ_FORWARD(exp)
+PARAS_SWZ_FORWARD(exp10)
+PARAS_SWZ_FORWARD(exp2)
+PARAS_SWZ_FORWARD(expm1)
+PARAS_SWZ_FORWARD(fabs)
+PARAS_SWZ_FORWARD(fast_distance)
+PARAS_SWZ_FORWARD(fast_length)
+PARAS_SWZ_FORWARD(fast_normalize)
+PARAS_SWZ_FORWARD(fdim)
+PARAS_SWZ_FORWARD(floor)
+PARAS_SWZ_FORWARD(fma)
+PARAS_SWZ_FORWARD(fmax)
+PARAS_SWZ_FORWARD(fmin)
+PARAS_SWZ_FORWARD(fmod)
+PARAS_SWZ_FORWARD(fract)
+PARAS_SWZ_FORWARD(frexp)
+PARAS_SWZ_FORWARD(hypot)
+PARAS_SWZ_FORWARD(ilogb)
+PARAS_SWZ_FORWARD(isequal)
+PARAS_SWZ_FORWARD(isfinite)
+PARAS_SWZ_FORWARD(isgreater)
+PARAS_SWZ_FORWARD(isgreaterequal)
+PARAS_SWZ_FORWARD(isinf)
+PARAS_SWZ_FORWARD(isless)
+PARAS_SWZ_FORWARD(islessequal)
+PARAS_SWZ_FORWARD(islessgreater)
+PARAS_SWZ_FORWARD(isnan)
+PARAS_SWZ_FORWARD(isnormal)
+PARAS_SWZ_FORWARD(isnotequal)
+PARAS_SWZ_FORWARD(isordered)
+PARAS_SWZ_FORWARD(isunordered)
+PARAS_SWZ_FORWARD(ldexp)
+PARAS_SWZ_FORWARD(length)
+PARAS_SWZ_FORWARD(lgamma)
+PARAS_SWZ_FORWARD(lgamma_r)
+PARAS_SWZ_FORWARD(log)
+PARAS_SWZ_FORWARD(log10)
+PARAS_SWZ_FORWARD(log1p)
+PARAS_SWZ_FORWARD(log2)
+PARAS_SWZ_FORWARD(logb)
+PARAS_SWZ_FORWARD(mad)
+PARAS_SWZ_FORWARD(max)
+PARAS_SWZ_FORWARD(maxmag)
+PARAS_SWZ_FORWARD(min)
+PARAS_SWZ_FORWARD(minmag)
+PARAS_SWZ_FORWARD(mix)
+PARAS_SWZ_FORWARD(modf)
+PARAS_SWZ_FORWARD(nan)
+PARAS_SWZ_FORWARD(nextafter)
+PARAS_SWZ_FORWARD(normalize)
+PARAS_SWZ_FORWARD(popcount)
+PARAS_SWZ_FORWARD(pow)
+PARAS_SWZ_FORWARD(pown)
+PARAS_SWZ_FORWARD(powr)
+PARAS_SWZ_FORWARD(radians)
+PARAS_SWZ_FORWARD(remainder)
+PARAS_SWZ_FORWARD(remquo)
+PARAS_SWZ_FORWARD(rint)
+PARAS_SWZ_FORWARD(rootn)
+PARAS_SWZ_FORWARD(round)
+PARAS_SWZ_FORWARD(rsqrt)
+PARAS_SWZ_FORWARD(select)
+PARAS_SWZ_FORWARD(sign)
+PARAS_SWZ_FORWARD(signbit)
+PARAS_SWZ_FORWARD(sin)
+PARAS_SWZ_FORWARD(sincos)
+PARAS_SWZ_FORWARD(sinh)
+PARAS_SWZ_FORWARD(sinpi)
+PARAS_SWZ_FORWARD(smoothstep)
+PARAS_SWZ_FORWARD(sqrt)
+PARAS_SWZ_FORWARD(step)
+PARAS_SWZ_FORWARD(tan)
+PARAS_SWZ_FORWARD(tanh)
+PARAS_SWZ_FORWARD(tanpi)
+PARAS_SWZ_FORWARD(tgamma)
+PARAS_SWZ_FORWARD(trunc)
+PARAS_SWZ_FORWARD(upsample)
+PARAS_SWZ_FORWARD(abs_diff)
+PARAS_SWZ_FORWARD(add_sat)
+PARAS_SWZ_FORWARD(hadd)
+PARAS_SWZ_FORWARD(rhadd)
+PARAS_SWZ_FORWARD(mad_hi)
+PARAS_SWZ_FORWARD(mad_sat)
+PARAS_SWZ_FORWARD(mul_hi)
+PARAS_SWZ_FORWARD(rotate)
+PARAS_SWZ_FORWARD(sub_sat)
+PARAS_SWZ_FORWARD(mul24)
+PARAS_SWZ_FORWARD(mad24)
+#undef PARAS_SWZ_FORWARD
+
 }
 
 #endif

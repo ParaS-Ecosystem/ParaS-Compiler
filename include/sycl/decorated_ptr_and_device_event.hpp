@@ -26,22 +26,18 @@
 namespace sycl {
 
 template <typename T>
-using decorated_local_ptr =
-    multi_ptr<T, access::address_space::local_space, access::decorated::yes>;
+using decorated_local_ptr = multi_ptr<T, access::address_space::local_space, access::decorated::yes>;
 template <typename T>
-using decorated_global_ptr =
-    multi_ptr<T, access::address_space::global_space, access::decorated::yes>;
+using decorated_global_ptr = multi_ptr<T, access::address_space::global_space, access::decorated::yes>;
 template <typename T>
-using decorated_private_ptr =
-    multi_ptr<T, access::address_space::private_space, access::decorated::yes>;
+using decorated_private_ptr = multi_ptr<T, access::address_space::private_space, access::decorated::yes>;
 template <typename T>
-using decorated_generic_ptr =
-    multi_ptr<T, access::address_space::generic_space, access::decorated::yes>;
+using decorated_generic_ptr = multi_ptr<T, access::address_space::generic_space, access::decorated::yes>;
 
 class device_event {
-public:
-    constexpr device_event() noexcept = default;
-    PARAS_KERNEL_HD void wait() const {}
+ public:
+  constexpr device_event() noexcept = default;
+  void wait() const {}
 };
 
 }
