@@ -841,6 +841,24 @@ inline void handler::memcpy(void *dest, const void *src, size_t num_bytes) {
   paras_gpu_command_enqueued();
 }
 
+inline void paras_prepare_shared_allocation(void *ptr, size_t bytes, int device) {
+#if PARAS_HIP_BACKEND
+  static const bool keep_fine = [] {
+    const char *e = std::getenv("PARAS_HIP_FINE_GRAIN_SHARED");
+    return e != nullptr && e[0] == '1';
+  }();
+  if (ptr != nullptr && bytes != 0 && !keep_fine) {
+    if (device < 0)
+      (void)hipGetDevice(&device);
+    (void)hipMemAdvise(ptr, bytes, hipMemAdviseSetCoarseGrain, device);
+  }
+#else
+  (void)ptr;
+  (void)bytes;
+  (void)device;
+#endif
+}
+
 template <typename T> T *malloc_shared(size_t n, const cuda_threadpool &) {
   T *ptr = nullptr;
   cudaError_t err = cudaMallocManaged(&ptr, n * sizeof(T));
@@ -849,6 +867,7 @@ template <typename T> T *malloc_shared(size_t n, const cuda_threadpool &) {
               << "\n";
     return nullptr;
   }
+  paras_prepare_shared_allocation(ptr, n * sizeof(T), -1);
   return ptr;
 }
 
@@ -860,6 +879,7 @@ template <typename T> T *malloc_shared(size_t n, const context &) {
               << "\n";
     return nullptr;
   }
+  paras_prepare_shared_allocation(ptr, n * sizeof(T), -1);
   return ptr;
 }
 
