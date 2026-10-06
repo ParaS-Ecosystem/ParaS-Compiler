@@ -144,11 +144,11 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             if constexpr (AccessTarget == target::local)
             {
-                return decorated_local_ptr<DataT>(ptr_);
+                return address_space_cast<access::address_space::local_space, DecorateAddress>(ptr_);
             }
             else
             {
-                return decorated_global_ptr<DataT>(ptr_);
+                return address_space_cast<access::address_space::global_space, DecorateAddress>(ptr_);
             }
         }
 
@@ -677,7 +677,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         template <access::decorated DecorateAddress>
         auto get_multi_ptr() const
         {
-            return decorated_global_ptr<DataT>(ptr_);
+            return address_space_cast<access::address_space::global_space, DecorateAddress>(ptr_);
         }
 
         DataT *begin() const { return ptr_; }
@@ -895,7 +895,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         template <access::decorated DecorateAddress>
         auto get_multi_ptr() const
         {
-            return decorated_global_ptr<DataT>(ptr_);
+            return address_space_cast<access::address_space::global_space, DecorateAddress>(ptr_);
         }
 
         operator reference() const { return *ptr_; }

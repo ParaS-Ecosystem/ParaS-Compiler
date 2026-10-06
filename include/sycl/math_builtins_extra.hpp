@@ -409,7 +409,7 @@ PARAS_KERNEL_HD inline half rootn(half x, int n) { return static_cast<half>(std:
 
 #define PARAS_SYCL_PTR_OUTPUT_UNARY(NAME, SCALAR_BODY)                   \
   template <typename Ptr, typename T,                                    \
-            typename = std::enable_if_t<!detail::is_vector_like_v<T>>>   \
+            typename = std::enable_if_t<(!detail::is_vector_like_v<T> && !paras_is_swizzle_ref_v<T>)>>   \
   PARAS_KERNEL_HD inline T NAME(T x_arg, Ptr ptr_arg) { SCALAR_BODY }                    \
   template <typename T, typename Ptr,                                    \
             typename = std::enable_if_t<detail::is_vector_like_v<T>>>    \
@@ -458,7 +458,7 @@ PARAS_SYCL_PTR_OUTPUT_UNARY(sincos, {
 #undef PARAS_SYCL_PTR_OUTPUT_UNARY
 
 template <typename Ptr, typename T,
-          typename = std::enable_if_t<!detail::is_vector_like_v<T>>>
+          typename = std::enable_if_t<(!detail::is_vector_like_v<T> && !paras_is_swizzle_ref_v<T>)>>
 PARAS_KERNEL_HD inline T remquo(T x, T y, Ptr quo) {
   int q;
   T result = static_cast<T>(std::remquo(static_cast<double>(x), static_cast<double>(y), &q));
@@ -576,6 +576,11 @@ template <typename T, typename = void> struct paras_elem { using type = T; };
 template <typename T>
 struct paras_elem<T, std::void_t<typename T::element_type>> {
   using type = typename T::element_type;
+};
+
+template <typename T, std::size_t N>
+struct paras_elem<marray<T, N>, void> {
+  using type = T;
 };
 template <typename T, typename U>
 inline constexpr bool paras_same_or_elem_v =
@@ -816,7 +821,7 @@ PARAS_KERNEL_HD inline T1 fma(T1 a_arg, T2 b_arg, T3 c_arg) {
 }
 
 template <typename T,
-          typename = std::enable_if_t<detail::is_valid_math_arg_v<T> && !detail::is_vector_like_v<T>>>
+          typename = std::enable_if_t<detail::is_valid_math_arg_v<T> && (!detail::is_vector_like_v<T> && !paras_is_swizzle_ref_v<T>)>>
 PARAS_KERNEL_HD inline T fma(T a_arg, T b_arg, T c_arg) {
   return fma(a_arg, b_arg, static_cast<T>(c_arg));
 }
@@ -1004,7 +1009,9 @@ PARAS_KERNEL_HD inline auto any(T x_arg) {
   }
 }
 
-template <typename T1, typename T2>
+template <typename T1, typename T2,
+          typename = std::enable_if_t<detail::is_valid_math_arg_v<T1> &&
+                                      detail::is_valid_math_arg_v<T2>>>
 PARAS_KERNEL_HD inline T1 max(T1 a_arg, T2 b_arg) {
   if constexpr (detail::is_vector_like_v<T1>) {
     T1 result{};
@@ -1023,7 +1030,9 @@ PARAS_KERNEL_HD inline T1 max(T1 a_arg, T2 b_arg) {
   }
 }
 
-template <typename T1, typename T2>
+template <typename T1, typename T2,
+          typename = std::enable_if_t<detail::is_valid_math_arg_v<T1> &&
+                                      detail::is_valid_math_arg_v<T2>>>
 PARAS_KERNEL_HD inline T1 min(T1 a_arg, T2 b_arg) {
   if constexpr (detail::is_vector_like_v<T1>) {
     T1 result{};
@@ -1042,7 +1051,10 @@ PARAS_KERNEL_HD inline T1 min(T1 a_arg, T2 b_arg) {
   }
 }
 
-template <typename T1, typename T2, typename T3>
+template <typename T1, typename T2, typename T3,
+          typename = std::enable_if_t<detail::is_valid_math_arg_v<T1> &&
+                                      detail::is_valid_math_arg_v<T2> &&
+                                      detail::is_valid_math_arg_v<T3>>>
 PARAS_KERNEL_HD inline T1 select(T1 a_arg, T2 b_arg, T3 c_arg) {
   if constexpr (detail::is_vector_like_v<T1>) {
     T1 result{};

@@ -460,7 +460,7 @@ void VarDeclReplacer::run(
 
       else if (each_bkend_target == "hip") {
 
-        rewriter.ReplaceText(replaceRange, "roc_threadpool");
+        rewriter.ReplaceText(replaceRange, "rocm_threadpool");
 
         return;
       }
@@ -512,7 +512,7 @@ void VarDeclReplacer::run(
 
       else if (each_bkend_target == "hip") {
 
-        rewriter.ReplaceText(replaceRange, "roc_threadpool");
+        rewriter.ReplaceText(replaceRange, "rocm_threadpool");
 
         return;
       }
@@ -560,7 +560,7 @@ void VarDeclReplacer::run(
 
       else if (each_bkend_target == "hip") {
 
-        rewriter.ReplaceText(replaceRange, "roc_threadpool");
+        rewriter.ReplaceText(replaceRange, "rocm_threadpool");
 
         return;
       }
