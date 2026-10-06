@@ -37,8 +37,8 @@ __global__ void gpu_execute_1D_async_kernel(std::size_t n, Func f) {
 
 template <typename Func> void cuda_threadpool::gpu_execute_1D_async(Func f) {
   ensure_stream();
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before async 1D kernel");
+  paras_cuda_detail::use_device(dev_.get_native_id(),
+                                "cudaSetDevice before async 1D kernel");
 
   (void)cudaGetLastError();
   gpu_execute_1D_async_kernel<<<1, 1, 0, stream>>>(1, f);

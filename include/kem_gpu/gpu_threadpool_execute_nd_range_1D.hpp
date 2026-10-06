@@ -81,14 +81,11 @@ void cuda_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1> &r,
                              "the local size");
   }
 
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before 1D nd_range kernel");
+  paras_cuda_detail::use_device(dev_.get_native_id(),
+                                "cudaSetDevice before 1D nd_range kernel");
 
-  cudaDeviceProp props{};
-
-  paras_cuda_detail::check(
-      cudaGetDeviceProperties(&props, dev_.get_native_id()),
-      "cudaGetDeviceProperties for 1D nd_range");
+  const cudaDeviceProp &props =
+      paras_cuda_detail::device_props(dev_.get_native_id());
 
   if (localSize > static_cast<std::size_t>(props.maxThreadsPerBlock)) {
     throw std::runtime_error("1D local range exceeds CUDA maxThreadsPerBlock");

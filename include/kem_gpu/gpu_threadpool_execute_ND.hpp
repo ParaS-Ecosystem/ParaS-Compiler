@@ -68,8 +68,8 @@ void cuda_threadpool::gpu_execute_2D(const sycl::range<2> &r, Func f) {
     return;
   }
 
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before 2D kernel");
+  paras_cuda_detail::use_device(dev_.get_native_id(),
+                                "cudaSetDevice before 2D kernel");
 
   const dim3 block(16, 16);
   const dim3 grid(static_cast<unsigned int>((cols + block.x - 1) / block.x),
@@ -91,8 +91,8 @@ void cuda_threadpool::gpu_execute_3D(const sycl::range<3> &r, Func f) {
     return;
   }
 
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before 3D kernel");
+  paras_cuda_detail::use_device(dev_.get_native_id(),
+                                "cudaSetDevice before 3D kernel");
 
   constexpr unsigned int threadsPerBlock = 256;
   const std::size_t wanted = (total + threadsPerBlock - 1) / threadsPerBlock;

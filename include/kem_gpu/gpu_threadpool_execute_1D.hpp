@@ -54,8 +54,8 @@ void cuda_threadpool::gpu_execute_1D(const sycl::range<1> &r, Func f) {
     return;
   }
 
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before 1D kernel");
+  paras_cuda_detail::use_device(dev_.get_native_id(),
+                                "cudaSetDevice before 1D kernel");
 
   constexpr unsigned int threadsPerBlock = 256;
   const unsigned int blocks =

@@ -35,6 +35,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -49,6 +50,49 @@
 #include "sycl/property_list.hpp"
 #include "sycl/queue.hpp"
 #include "utilities/selector_logic.hpp"
+
+namespace paras_cuda_detail {
+
+inline const cudaDeviceProp &device_props(int device) {
+  static std::mutex mtx;
+  static std::map<int, cudaDeviceProp> cache;
+  std::lock_guard<std::mutex> lock(mtx);
+  auto it = cache.find(device);
+  if (it == cache.end()) {
+    cudaDeviceProp props{};
+    const cudaError_t err = cudaGetDeviceProperties(&props, device);
+    if (err != cudaSuccess) {
+      throw std::runtime_error(std::string("cudaGetDeviceProperties: ") +
+                               cudaGetErrorString(err));
+    }
+    it = cache.emplace(device, props).first;
+  }
+  return it->second;
+}
+
+inline cudaError_t select_device(int device) noexcept {
+  static const bool always = [] {
+    const char *e = std::getenv("PARAS_GPU_ALWAYS_SET_DEVICE");
+    return e != nullptr && e[0] == '1';
+  }();
+  thread_local int current = -1;
+  if (!always && current == device) {
+    return cudaSuccess;
+  }
+  const cudaError_t err = cudaSetDevice(device);
+  current = (err == cudaSuccess) ? device : -1;
+  return err;
+}
+
+inline void use_device(int device, const char *where) {
+  const cudaError_t err = select_device(device);
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string(where) + ": " +
+                             cudaGetErrorString(err));
+  }
+}
+
+}
 
 class cuda_threadpool {
 public:
@@ -567,7 +611,7 @@ private:
     st.stream = nullptr;
 
     if (st.native_device >= 0) {
-      cudaError_t setErr = cudaSetDevice(st.native_device);
+      cudaError_t setErr = paras_cuda_detail::select_device(st.native_device);
       if (setErr != cudaSuccess) {
         std::cerr << "cudaSetDevice before cudaStreamDestroy failed: "
                   << cudaGetErrorString(setErr) << '\n';
@@ -589,7 +633,8 @@ private:
 
   static void init_cuda_for(const sycl::device &d) {
     if (d.is_gpu()) {
-      cudaError_t setErr = cudaSetDevice(d.get_native_id());
+      cudaError_t setErr =
+          paras_cuda_detail::select_device(d.get_native_id());
       if (setErr != cudaSuccess) {
         throw sycl::exception(cudaGetErrorString(setErr));
       }
@@ -694,7 +739,8 @@ template <typename T> T *malloc_device(size_t n, const cuda_threadpool &) {
 template <typename T>
 T *malloc_device(size_t n, const sycl::device &dev, const sycl::context &) {
   if (dev.is_gpu()) {
-    const cudaError_t setErr = cudaSetDevice(dev.get_native_id());
+    const cudaError_t setErr =
+        paras_cuda_detail::select_device(dev.get_native_id());
     if (setErr != cudaSuccess) {
       std::cerr << "cudaSetDevice failed before cudaMalloc: "
                 << cudaGetErrorString(setErr) << "\n";

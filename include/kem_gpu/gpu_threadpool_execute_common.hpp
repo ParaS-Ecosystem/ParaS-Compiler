@@ -28,14 +28,14 @@ using std::cout;
 
 inline unsigned cuda_threadpool::gpu_get_num_threads() {
 
-  unsigned int devCount = 0, totalThreads;
-  cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, devCount);
+  unsigned int totalThreads = 0;
+  try {
+    const cudaDeviceProp &prop = paras_cuda_detail::device_props(0);
+    totalThreads = static_cast<unsigned int>(prop.maxThreadsPerMultiProcessor) *
+                   static_cast<unsigned int>(prop.multiProcessorCount);
+  } catch (...) {
 
-  int maxThreadsPerSM = prop.maxThreadsPerMultiProcessor;
-  int numsSM = prop.multiProcessorCount;
-
-  totalThreads = maxThreadsPerSM * numsSM;
+  }
 
   return (totalThreads == 0 ? 32 : totalThreads);
 }

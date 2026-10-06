@@ -67,13 +67,11 @@ void cuda_threadpool::gpu_execute_nd_range_2D(const sycl::nd_range<2> &r,
     throw std::runtime_error("2D nd_range has a zero dimension");
   }
 
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before 2D nd_range kernel");
+  paras_cuda_detail::use_device(dev_.get_native_id(),
+                                "cudaSetDevice before 2D nd_range kernel");
 
-  cudaDeviceProp props{};
-  paras_cuda_detail::check(
-      cudaGetDeviceProperties(&props, dev_.get_native_id()),
-      "cudaGetDeviceProperties for 2D nd_range");
+  const cudaDeviceProp &props =
+      paras_cuda_detail::device_props(dev_.get_native_id());
   if (sharedMemoryBytes > static_cast<std::size_t>(props.sharedMemPerBlock)) {
     throw std::runtime_error(
         "2D local_accessor allocation exceeds CUDA shared memory per block");

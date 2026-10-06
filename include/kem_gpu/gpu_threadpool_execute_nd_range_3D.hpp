@@ -112,19 +112,11 @@ void cuda_threadpool::gpu_execute_nd_range_3D(const sycl::nd_range<3> &r,
 
   const std::size_t threadsPerBlock = localSize0 * localSize1 * localSize2;
 
-  int currentDevice = -1;
-  cudaError_t err = cudaGetDevice(&currentDevice);
-  if (err != cudaSuccess) {
-    throw std::runtime_error(std::string("cudaGetDevice failed: ") +
-                             cudaGetErrorString(err));
-  }
-
-  cudaDeviceProp properties{};
-  err = cudaGetDeviceProperties(&properties, currentDevice);
-  if (err != cudaSuccess) {
-    throw std::runtime_error(std::string("cudaGetDeviceProperties failed: ") +
-                             cudaGetErrorString(err));
-  }
+  paras_cuda_detail::use_device(dev_.get_native_id(),
+                                "cudaSetDevice before 3D nd_range kernel");
+  const cudaDeviceProp &properties =
+      paras_cuda_detail::device_props(dev_.get_native_id());
+  cudaError_t err = cudaSuccess;
 
   if (sharedMemoryBytes >
       static_cast<std::size_t>(properties.sharedMemPerBlock)) {
