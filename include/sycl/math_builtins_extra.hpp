@@ -50,6 +50,11 @@ template <typename T>
 inline constexpr bool is_valid_math_arg_v =
     is_vector_like_v<T> || std::is_arithmetic_v<T> || std::is_same_v<T, half>;
 
+template <typename S> struct math_fp { using type = double; };
+template <> struct math_fp<float> { using type = float; };
+template <> struct math_fp<half> { using type = float; };
+template <typename S> using math_fp_t = typename math_fp<S>::type;
+
 template <typename T>
 inline constexpr bool is_valid_geninteger_arg_v =
     is_vector_like_v<T> || (std::is_arithmetic_v<T> && !std::is_floating_point_v<T> && !std::is_same_v<T, bool>);
@@ -114,24 +119,24 @@ using same_size_uint_t = std::conditional_t<sizeof(S) == 4, std::uint32_t, std::
     }                                                                     \
   }
 
-PARAS_SYCL_UNARY_GENFLOAT(sin, S, x, static_cast<S>(std::sin(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(cos, S, x, static_cast<S>(std::cos(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(tan, S, x, static_cast<S>(std::tan(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(asin, S, x, static_cast<S>(std::asin(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(acos, S, x, static_cast<S>(std::acos(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(atan, S, x, static_cast<S>(std::atan(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(sinh, S, x, static_cast<S>(std::sinh(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(cosh, S, x, static_cast<S>(std::cosh(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(asinh, S, x, static_cast<S>(std::asinh(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(acosh, S, x, static_cast<S>(std::acosh(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(log, S, x, static_cast<S>(std::log(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(exp, S, x, static_cast<S>(std::exp(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(sqrt, S, x, static_cast<S>(std::sqrt(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(exp2, S, x, static_cast<S>(std::exp2(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(sin, S, x, static_cast<S>(std::sin(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(cos, S, x, static_cast<S>(std::cos(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(tan, S, x, static_cast<S>(std::tan(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(asin, S, x, static_cast<S>(std::asin(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(acos, S, x, static_cast<S>(std::acos(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(atan, S, x, static_cast<S>(std::atan(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(sinh, S, x, static_cast<S>(std::sinh(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(cosh, S, x, static_cast<S>(std::cosh(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(asinh, S, x, static_cast<S>(std::asinh(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(acosh, S, x, static_cast<S>(std::acosh(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(log, S, x, static_cast<S>(std::log(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(exp, S, x, static_cast<S>(std::exp(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(sqrt, S, x, static_cast<S>(std::sqrt(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(exp2, S, x, static_cast<S>(std::exp2(static_cast<detail::math_fp_t<S>>(x))))
 PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(exp10, S, x, static_cast<S>(std::pow(10.0, static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(expm1, S, x, static_cast<S>(std::expm1(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(expm1, S, x, static_cast<S>(std::expm1(static_cast<detail::math_fp_t<S>>(x))))
 PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(rsqrt, S, x, static_cast<S>(1.0 / std::sqrt(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(fabs, S, x, static_cast<S>(std::fabs(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(fabs, S, x, static_cast<S>(std::fabs(static_cast<detail::math_fp_t<S>>(x))))
 
 PARAS_SYCL_UNARY_GENFLOAT(sinpi, S, x, static_cast<S>(std::sin(static_cast<double>(x) * M_PI)))
 PARAS_SYCL_UNARY_GENFLOAT(cospi, S, x, static_cast<S>(std::cos(static_cast<double>(x) * M_PI)))
@@ -139,30 +144,30 @@ PARAS_SYCL_UNARY_GENFLOAT(tanpi, S, x, static_cast<S>(std::tan(static_cast<doubl
 PARAS_SYCL_UNARY_GENFLOAT(acospi, S, x, static_cast<S>(std::acos(static_cast<double>(x)) / M_PI))
 PARAS_SYCL_UNARY_GENFLOAT(asinpi, S, x, static_cast<S>(std::asin(static_cast<double>(x)) / M_PI))
 PARAS_SYCL_UNARY_GENFLOAT(atanpi, S, x, static_cast<S>(std::atan(static_cast<double>(x)) / M_PI))
-PARAS_SYCL_UNARY_GENFLOAT(cbrt, S, x, static_cast<S>(std::cbrt(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(atanh, S, x, static_cast<S>(std::atanh(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(cbrt, S, x, static_cast<S>(std::cbrt(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(atanh, S, x, static_cast<S>(std::atanh(static_cast<detail::math_fp_t<S>>(x))))
 
-PARAS_SYCL_UNARY_GENFLOAT(tanh, S, x, static_cast<S>(std::tanh(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(log10, S, x, static_cast<S>(std::log10(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(log1p, S, x, static_cast<S>(std::log1p(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(log2, S, x, static_cast<S>(std::log2(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(logb, S, x, static_cast<S>(std::logb(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(tanh, S, x, static_cast<S>(std::tanh(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(log10, S, x, static_cast<S>(std::log10(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(log1p, S, x, static_cast<S>(std::log1p(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(log2, S, x, static_cast<S>(std::log2(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(logb, S, x, static_cast<S>(std::logb(static_cast<detail::math_fp_t<S>>(x))))
 
 PARAS_SYCL_UNARY_GENFLOAT(degrees, S, x, static_cast<S>(static_cast<double>(x) * (180.0 / M_PI)))
 PARAS_SYCL_UNARY_GENFLOAT(radians, S, x, static_cast<S>(static_cast<double>(x) * (M_PI / 180.0)))
 PARAS_SYCL_UNARY_GENFLOAT(sign, S, x, (x > S(0)) ? S(1) : ((x < S(0)) ? S(-1) : S(0)))
 
-PARAS_SYCL_UNARY_GENFLOAT(erf, S, x, static_cast<S>(std::erf(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(erfc, S, x, static_cast<S>(std::erfc(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(tgamma, S, x, static_cast<S>(std::tgamma(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(lgamma, S, x, static_cast<S>(std::lgamma(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT(round, S, x, static_cast<S>(std::round(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(erf, S, x, static_cast<S>(std::erf(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(erfc, S, x, static_cast<S>(std::erfc(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(tgamma, S, x, static_cast<S>(std::tgamma(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(lgamma, S, x, static_cast<S>(std::lgamma(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(round, S, x, static_cast<S>(std::round(static_cast<detail::math_fp_t<S>>(x))))
 
-PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(ceil, S, x, static_cast<S>(std::ceil(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(floor, S, x, static_cast<S>(std::floor(static_cast<double>(x))))
-PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(trunc, S, x, static_cast<S>(std::trunc(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(ceil, S, x, static_cast<S>(std::ceil(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(floor, S, x, static_cast<S>(std::floor(static_cast<detail::math_fp_t<S>>(x))))
+PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(trunc, S, x, static_cast<S>(std::trunc(static_cast<detail::math_fp_t<S>>(x))))
 
-PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(rint, S, x, static_cast<S>(std::rint(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(rint, S, x, static_cast<S>(std::rint(static_cast<detail::math_fp_t<S>>(x))))
 
 #undef PARAS_SYCL_UNARY_GENFLOAT
 #undef PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY
@@ -213,12 +218,12 @@ PARAS_SYCL_UNARY_MATH(popcount, S, x, [&]() -> S {
     }                                                                   \
   }
 
-PARAS_KERNEL_HD inline float atan2(float a, float b) { return static_cast<float>(std::atan2(static_cast<double>(a), static_cast<double>(b))); }
-PARAS_KERNEL_HD inline half atan2(half a, half b) { return static_cast<half>(std::atan2(static_cast<double>(a), static_cast<double>(b))); }
-PARAS_KERNEL_HD inline float fmax(float a, float b) { return static_cast<float>(std::fmax(static_cast<double>(a), static_cast<double>(b))); }
-PARAS_KERNEL_HD inline half fmax(half a, half b) { return static_cast<half>(std::fmax(static_cast<double>(a), static_cast<double>(b))); }
-PARAS_KERNEL_HD inline float fmin(float a, float b) { return static_cast<float>(std::fmin(static_cast<double>(a), static_cast<double>(b))); }
-PARAS_KERNEL_HD inline half fmin(half a, half b) { return static_cast<half>(std::fmin(static_cast<double>(a), static_cast<double>(b))); }
+PARAS_KERNEL_HD inline float atan2(float a, float b) { return std::atan2(a, b); }
+PARAS_KERNEL_HD inline half atan2(half a, half b) { return static_cast<half>(std::atan2(static_cast<float>(a), static_cast<float>(b))); }
+PARAS_KERNEL_HD inline float fmax(float a, float b) { return std::fmax(a, b); }
+PARAS_KERNEL_HD inline half fmax(half a, half b) { return static_cast<half>(std::fmax(static_cast<float>(a), static_cast<float>(b))); }
+PARAS_KERNEL_HD inline float fmin(float a, float b) { return std::fmin(a, b); }
+PARAS_KERNEL_HD inline half fmin(half a, half b) { return static_cast<half>(std::fmin(static_cast<float>(a), static_cast<float>(b))); }
 
 template <typename T1, typename T2,
           typename = std::enable_if_t<detail::is_valid_math_arg_v<T1>>>
@@ -292,15 +297,15 @@ PARAS_KERNEL_HD inline T1 fmin(T1 a_arg, T2 b_arg) {
     }                                                                    \
   }
 
-PARAS_SYCL_BINARY_MATH(fmod, S, a, b, static_cast<S>(std::fmod(static_cast<double>(a), static_cast<double>(b))))
-PARAS_SYCL_BINARY_MATH(hypot, S, a, b, static_cast<S>(std::hypot(static_cast<double>(a), static_cast<double>(b))))
-PARAS_SYCL_BINARY_MATH(copysign, S, a, b, static_cast<S>(std::copysign(static_cast<double>(a), static_cast<double>(b))))
+PARAS_SYCL_BINARY_MATH(fmod, S, a, b, static_cast<S>(std::fmod(static_cast<detail::math_fp_t<S>>(a), static_cast<detail::math_fp_t<S>>(b))))
+PARAS_SYCL_BINARY_MATH(hypot, S, a, b, static_cast<S>(std::hypot(static_cast<detail::math_fp_t<S>>(a), static_cast<detail::math_fp_t<S>>(b))))
+PARAS_SYCL_BINARY_MATH(copysign, S, a, b, static_cast<S>(std::copysign(static_cast<detail::math_fp_t<S>>(a), static_cast<detail::math_fp_t<S>>(b))))
 
 PARAS_SYCL_BINARY_MATH(atan2pi, S, a, b, static_cast<S>(std::atan2(static_cast<double>(a), static_cast<double>(b)) / M_PI))
 PARAS_SYCL_BINARY_MATH(maxmag, S, a, b, (std::fabs(static_cast<double>(a)) > std::fabs(static_cast<double>(b))) ? a : ((std::fabs(static_cast<double>(a)) < std::fabs(static_cast<double>(b))) ? b : (a > b ? a : b)))
 PARAS_SYCL_BINARY_MATH(minmag, S, a, b, (std::fabs(static_cast<double>(a)) < std::fabs(static_cast<double>(b))) ? a : ((std::fabs(static_cast<double>(a)) > std::fabs(static_cast<double>(b))) ? b : (a < b ? a : b)))
-PARAS_SYCL_BINARY_MATH(remainder, S, a, b, static_cast<S>(std::remainder(static_cast<double>(a), static_cast<double>(b))))
-PARAS_SYCL_BINARY_MATH(powr, S, a, b, static_cast<S>(std::pow(static_cast<double>(a), static_cast<double>(b))))
+PARAS_SYCL_BINARY_MATH(remainder, S, a, b, static_cast<S>(std::remainder(static_cast<detail::math_fp_t<S>>(a), static_cast<detail::math_fp_t<S>>(b))))
+PARAS_SYCL_BINARY_MATH(powr, S, a, b, static_cast<S>(std::pow(static_cast<detail::math_fp_t<S>>(a), static_cast<detail::math_fp_t<S>>(b))))
 
 #undef PARAS_SYCL_BINARY_MATH
 
@@ -496,8 +501,8 @@ PARAS_KERNEL_HD inline auto nan(T nancode) {
   }
 }
 
-PARAS_KERNEL_HD inline float fdim(float x, float y) { return static_cast<float>(std::fdim(static_cast<double>(x), static_cast<double>(y))); }
-PARAS_KERNEL_HD inline half fdim(half x, half y) { return static_cast<half>(std::fdim(static_cast<double>(x), static_cast<double>(y))); }
+PARAS_KERNEL_HD inline float fdim(float x, float y) { return std::fdim(x, y); }
+PARAS_KERNEL_HD inline half fdim(half x, half y) { return static_cast<half>(std::fdim(static_cast<float>(x), static_cast<float>(y))); }
 
 template <typename T1, typename T2,
           typename = std::enable_if_t<detail::is_valid_math_arg_v<T1>>>
@@ -797,8 +802,8 @@ PARAS_KERNEL_HD inline auto upsample(Hi hi, Lo lo) {
   }
 }
 
-PARAS_KERNEL_HD inline float fma(float a, float b, float c) { return static_cast<float>(std::fma(static_cast<double>(a), static_cast<double>(b), static_cast<double>(c))); }
-PARAS_KERNEL_HD inline half fma(half a, half b, half c) { return static_cast<half>(std::fma(static_cast<double>(a), static_cast<double>(b), static_cast<double>(c))); }
+PARAS_KERNEL_HD inline float fma(float a, float b, float c) { return std::fma(a, b, c); }
+PARAS_KERNEL_HD inline half fma(half a, half b, half c) { return static_cast<half>(std::fma(static_cast<float>(a), static_cast<float>(b), static_cast<float>(c))); }
 
 template <typename T1, typename T2, typename T3,
           typename = std::enable_if_t<detail::is_vector_like_v<T1>>>
@@ -1386,9 +1391,9 @@ PARAS_KERNEL_HD inline T recip(T x) {
   }
 }
 
-PARAS_KERNEL_HD inline float powr(float x, float y) { return static_cast<float>(std::pow(static_cast<double>(x), static_cast<double>(y))); }
+PARAS_KERNEL_HD inline float powr(float x, float y) { return std::pow(x, y); }
 PARAS_KERNEL_HD inline double powr(double x, double y) { return std::pow(x, y); }
-PARAS_KERNEL_HD inline half powr(half x, half y) { return static_cast<half>(std::pow(static_cast<double>(x), static_cast<double>(y))); }
+PARAS_KERNEL_HD inline half powr(half x, half y) { return static_cast<half>(std::pow(static_cast<float>(x), static_cast<float>(y))); }
 template <typename T1, typename T2, typename = std::enable_if_t<detail::is_valid_math_arg_v<T1>>>
 PARAS_KERNEL_HD inline T1 powr(T1 x, T2 y) {
   if constexpr (detail::is_vector_like_v<T1>) {
@@ -1440,9 +1445,9 @@ PARAS_KERNEL_HD inline T recip(T x) {
   }
 }
 
-PARAS_KERNEL_HD inline float powr(float x, float y) { return static_cast<float>(std::pow(static_cast<double>(x), static_cast<double>(y))); }
+PARAS_KERNEL_HD inline float powr(float x, float y) { return std::pow(x, y); }
 PARAS_KERNEL_HD inline double powr(double x, double y) { return std::pow(x, y); }
-PARAS_KERNEL_HD inline half powr(half x, half y) { return static_cast<half>(std::pow(static_cast<double>(x), static_cast<double>(y))); }
+PARAS_KERNEL_HD inline half powr(half x, half y) { return static_cast<half>(std::pow(static_cast<float>(x), static_cast<float>(y))); }
 template <typename T1, typename T2, typename = std::enable_if_t<detail::is_valid_math_arg_v<T1>>>
 PARAS_KERNEL_HD inline T1 powr(T1 x, T2 y) {
   if constexpr (detail::is_vector_like_v<T1>) {
