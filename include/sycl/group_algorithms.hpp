@@ -74,32 +74,80 @@ inline T shift_group_right(Group g,
 #endif
 }
 
+namespace detail {
+
+template <typename Group>
+PARAS_KERNEL_HD inline std::size_t wg_team_size(const Group &g) {
+#if PARAS_DEVICE_PASS
+    const std::size_t launched = static_cast<std::size_t>(blockDim.x) *
+                                 static_cast<std::size_t>(blockDim.y) *
+                                 static_cast<std::size_t>(blockDim.z);
+    return launched == g.get_local_linear_range() ? launched : 1;
+#else
+    return paras_host_detail::tl_barrier ? g.get_local_linear_range() : 1;
+#endif
+}
+
+}
+
 template <typename Group, typename InPtr, typename OutPtr,
           typename T, typename BinaryOperation>
 PARAS_KERNEL_HD
-OutPtr joint_exclusive_scan(Group,
+OutPtr joint_exclusive_scan(Group g,
                             InPtr first,
                             InPtr last,
                             OutPtr result,
                             T init,
                             BinaryOperation binary_op)
 {
+    const std::size_t n = static_cast<std::size_t>(last - first);
+
+    if constexpr (!std::is_same_v<std::decay_t<Group>, sub_group> &&
+                  sizeof(T) * detail::kMaxWorkGroupSize <= 32768)
+    {
+        const std::size_t team = detail::wg_team_size(g);
+        if (team > 1)
+        {
+            const std::size_t lid   = detail::wg_local_linear_id();
+            const std::size_t piece = (n + team - 1) / team;
+            const std::size_t begin = (lid * piece < n) ? lid * piece : n;
+            const std::size_t end   = (begin + piece < n) ? begin + piece : n;
+
+            T total = init;
+            for (std::size_t i = begin; i < end; ++i)
+            {
+                const T v = first[i];
+                total = (i == begin) ? v : binary_op(total, v);
+            }
+
+            T running = detail::wg_exclusive_scan(g, total, init, binary_op);
+
+            for (std::size_t i = begin; i < end; ++i)
+            {
+                const T v = first[i];
+                result[i] = running;
+                running   = binary_op(running, v);
+            }
+
+            paras_syncthreads();
+            return result + n;
+        }
+    }
+
     #if PARAS_GPU_BACKEND
 
-        const int tid = threadIdx.x;
-        const int N   = last - first;
-
-        if (tid == 0){
+        if (detail::wg_local_linear_id() == 0){
             T running = init;
-            for (int i = 0; i < N; ++i){
+            for (std::size_t i = 0; i < n; ++i){
+                const T v = first[i];
                 result[i] = running;
-                running   = binary_op(running, first[i]);
+                running   = binary_op(running, v);
             }
         }
 
         paras_syncthreads();
 
-        return result + N;
+        return result + n;
 
     #else
 
