@@ -55,8 +55,14 @@ inline constexpr auto accelerator_selector_v = device_selector{
 
 inline constexpr auto default_selector_v =
     device_selector{[](const device &dev) -> int {
+
+#if defined(PARASDEVICE) && PARASDEVICE
+      return dev.is_gpu()           ? 3
+             : dev.is_cpu()         ? 2
+#else
       return dev.is_cpu()           ? 3
              : dev.is_gpu()         ? 2
+#endif
              : dev.is_accelerator() ? 1
                                     : -1;
     }};
