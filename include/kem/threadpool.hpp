@@ -21,21 +21,19 @@
 #ifndef __PARAS_THREADPOOL_HPP__
 #define __PARAS_THREADPOOL_HPP__
 
-#include "sycl/context.hpp"
-#include "sycl/device.hpp"
-#include "sycl/device_selector.hpp"
-#include "sycl/event.hpp"
-#include "sycl/id.hpp"
-#include "sycl/item.hpp"
-#include "sycl/property_list.hpp"
-#include "sycl/range.hpp"
-#include "utilities/selector_logic.hpp"
-#include <algorithm>
-#include <cstring>
-#include <functional>
-#include <mutex>
 #include <thread>
 #include <vector>
+#include <functional>
+#include <cstring>
+#include "sycl/id.hpp"
+#include "sycl/range.hpp"
+#include "sycl/item.hpp"
+#include "sycl/device.hpp"
+#include "sycl/device_selector.hpp"
+#include "sycl/context.hpp"
+#include "sycl/event.hpp"
+
+#include "sycl/queue.hpp"
 
 namespace sycl {
 class handler;
@@ -44,212 +42,220 @@ class handler;
 
 class threadpool {
 public:
-  threadpool() {}
-  sycl::device get_device() const { return dev_; }
-  sycl::context get_context() const { return ctx_; }
+    threadpool() {};
+    sycl::device get_device() const { return dev_; }
+    sycl::context get_context() const { return ctx_; }
 
-  sycl::backend get_backend() const { return sycl::backend::host; }
+    sycl::backend get_backend() const { return sycl::backend::host; }
 
-  template <typename Selector>
-  explicit threadpool(const Selector &selector,
-                      const sycl::property_list &props = {})
-      : dev_(::paras_extension::select_device_with_selector(selector)),
-        props_(props) {}
+    bool operator==(const threadpool& rhs) const noexcept { return id_ == rhs.id_; }
 
-  explicit threadpool(const sycl::context &ctx, const sycl::device &dev,
-                      const sycl::property_list &props = {})
-      : ctx_(ctx), dev_(dev) {
-    props_ = props;
-  }
+    bool operator!=(const threadpool& rhs) const noexcept { return !(*this == rhs); }
 
-  explicit threadpool(const sycl::device &dev,
-                      const sycl::property_list &props = {})
-      : dev_(dev), props_(props) {}
+    template <typename Selector, typename = std::enable_if_t<std::is_invocable_r_v<
+                                     int, const Selector&, const sycl::device&>>>
+    explicit threadpool(const Selector&, const sycl::property_list& props = {}) : props_(props) {}
 
-  static unsigned get_num_threads();
+    explicit threadpool(const sycl::property_list& props) : props_(props) {}
 
-  template <typename Func> sycl::event spawn_1D(Func f);
+    threadpool(const sycl::queue& q) : ctx_(q.get_context()), dev_(q.get_device()) {}
 
-  template <typename Func> sycl::event spawn_1D_event(Func f);
+    explicit threadpool(const sycl::async_handler&, const sycl::property_list& props = {})
+        : props_(props) {}
 
-  template <typename Func> void spawn_ND(Func f);
+    explicit threadpool(const sycl::device& dev, const sycl::property_list& props = {})
+        : dev_(dev), props_(props) {}
 
-  template <typename CGF> sycl::event submit(CGF &&cgf) {
-    std::lock_guard<std::mutex> lock(submit_mutex_);
-    sycl::handler cgh(*this);
-    std::forward<CGF>(cgf)(cgh);
-    return sycl::event{};
-  }
+    threadpool(const sycl::device& dev, const sycl::async_handler&,
+               const sycl::property_list& props = {})
+        : dev_(dev), props_(props) {}
 
-  void wait() {}
-
-  void wait_and_throw() { wait(); }
-
-  template <typename Func> void execute_1D(const sycl::range<1> &r, Func f);
-
-  template <typename Func> void execute_2D(const sycl::range<2> &r, Func f);
-
-  template <typename Func>
-  void execute_nd_range_1D(const sycl::nd_range<1> &r, Func f);
-
-  template <typename Func>
-  void execute_nd_range_2D(const sycl::nd_range<2> &r, Func f);
-
-  template <typename Func>
-  void execute_nd_range_3D(const sycl::nd_range<3> &r, Func f);
-
-  template <typename KernelName, typename Func, int dim>
-  void parallel_for(sycl::range<dim> r, Func f) {
-    if constexpr (dim == 1) {
-      execute_1D(r, f);
-    } else if constexpr (dim == 2) {
-      execute_2D(r, f);
-    } else {
-      static_assert(dim <= 2, "Only 1D/2D supported");
+    std::uint64_t paras_profiling_start() const {
+        return props_.has_profiling() ? sycl::paras_now_ns() : 0;
     }
-  }
-
-  template <typename KernelName, typename Func, int dim>
-  void parallel_for(const sycl::nd_range<dim> &r, Func f) {
-    if constexpr (dim == 1) {
-      execute_nd_range_1D(r, f);
-    } else if constexpr (dim == 2) {
-      execute_nd_range_2D(r, f);
-    } else if constexpr (dim == 3) {
-      execute_nd_range_3D(r, f);
-    } else {
-      static_assert(dim <= 3, "Only 1D, 2D and 3D supported");
+    sycl::event paras_finish_event(std::uint64_t t0) const {
+        if (!props_.has_profiling()) {
+            return sycl::event{};
+        }
+        return sycl::event::paras_profiled(t0, t0, sycl::paras_now_ns());
     }
-  }
-
-  template <typename Func, int dim>
-  void parallel_for(const sycl::range<dim> &r, Func f) {
-    if constexpr (dim == 1) {
-      execute_1D(r, f);
-    } else if constexpr (dim == 2) {
-      execute_2D(r, f);
-    } else {
-      static_assert(dim <= 2, "Only 1D/2D supported");
+    bool is_in_order() const { return props_.has_in_order(); }
+    const void* paras_identity() const noexcept { return id_.get(); }
+    template <typename Property>
+    bool has_property() const noexcept {
+        if constexpr (std::is_same_v<Property, sycl::property::queue::in_order>) {
+            return props_.has_in_order();
+        } else if constexpr (std::is_same_v<Property, sycl::property::queue::enable_profiling>) {
+            return props_.has_profiling();
+        } else {
+            return false;
+        }
     }
-  }
 
-  template <typename Func, int dim>
-  void parallel_for(const sycl::nd_range<dim> &r, Func f) {
-    if constexpr (dim == 1) {
-      execute_nd_range_1D(r, f);
-    } else if constexpr (dim == 2) {
-      execute_nd_range_2D(r, f);
-    } else if constexpr (dim == 3) {
-      execute_nd_range_3D(r, f);
-    } else {
-      static_assert(dim <= 3, "Only 1D, 2D and 3D supported");
+    template <typename Selector, typename = std::enable_if_t<std::is_invocable_r_v<
+                                     int, const Selector&, const sycl::device&>>>
+    threadpool(const Selector&, const sycl::async_handler&, const sycl::property_list& props = {})
+        : props_(props) {}
+
+    explicit threadpool(const sycl::context& ctx, const sycl::device& dev,
+                        const sycl::property_list& props = {})
+        : ctx_(ctx), dev_(dev), props_(props) {}
+
+    static unsigned get_num_threads();
+
+    template <typename Func>
+    sycl::event spawn_1D(Func f);
+
+    template <typename Func>
+    sycl::event spawn_1D_event(Func f);
+
+    template <typename Func>
+    sycl::event spawn_ND(Func f);
+
+    void wait() {}
+
+    void wait_and_throw() { wait(); }
+
+    template <typename CGF>
+    sycl::event submit(CGF cgf) {
+        const std::uint64_t paras_t0 = paras_profiling_start();
+        sycl::handler h(*this);
+        cgf(h);
+        return paras_finish_event(paras_t0);
     }
-  }
 
-  sycl::event memcpy(void *dest, const void *src, size_t numBytes) {
-    std::memcpy(dest, src, numBytes);
-    return sycl::event{};
-  }
+    template <typename Func>
+    void execute_1D(const sycl::range<1>& r, Func f);
 
-  template <typename T> sycl::event copy(const T *src, T *dest, size_t count) {
-    std::copy(src, src + count, dest);
-    return sycl::event{};
-  }
+    template <typename Func>
+    void execute_2D(const sycl::range<2>& r, Func f);
 
-  sycl::event memset(void *ptr, int value, size_t numBytes) {
-    std::memset(ptr, value, numBytes);
-    return sycl::event{};
-  }
+    template <typename Func>
+    void execute_3D(const sycl::range<3>& r, Func f);
+
+    template <typename Func>
+    void execute_nd_range_1D(const sycl::nd_range<1>& r, Func f);
+
+    template <typename Func>
+    void execute_nd_range_2D(const sycl::nd_range<2>& r, Func f);
+
+    template <typename Func>
+    void execute_nd_range_3D(const sycl::nd_range<3>& r, Func f);
+
+    template <typename KernelName = void, typename Func, int dim>
+    sycl::event parallel_for(sycl::range<dim> r, Func f) {
+        const std::uint64_t paras_t0 = paras_profiling_start();
+        if constexpr (dim == 1) {
+            execute_1D(r, f);
+        } else if constexpr (dim == 2) {
+            execute_2D(r, f);
+        } else if constexpr (dim == 3) {
+            execute_3D(r, f);
+        } else {
+            static_assert(dim <= 3, "Only 1D/2D/3D supported");
+        }
+        return paras_finish_event(paras_t0);
+    }
+
+    template <typename KernelName = void, typename Func, int dim>
+    sycl::event parallel_for(const sycl::nd_range<dim>& r, Func f) {
+        const std::uint64_t paras_t0 = paras_profiling_start();
+        if constexpr (dim == 1) {
+            execute_nd_range_1D(r, f);
+        } else if constexpr (dim == 2) {
+            execute_nd_range_2D(r, f);
+        } else if constexpr (dim == 3) {
+            execute_nd_range_3D(r, f);
+        } else {
+            static_assert(dim <= 3, "Only 1D/2D/3D supported");
+        }
+        return paras_finish_event(paras_t0);
+    }
+
+    sycl::event memset(void* ptr, int value, size_t numBytes) {
+        const std::uint64_t paras_t0 = paras_profiling_start();
+        std::memset(ptr, value, numBytes);
+        return paras_finish_event(paras_t0);
+    }
+
+    sycl::event memcpy(void* dest, const void* src, size_t numBytes) {
+        const std::uint64_t paras_t0 = paras_profiling_start();
+        std::memcpy(dest, src, numBytes);
+        return paras_finish_event(paras_t0);
+    }
+
+    template <typename T>
+    sycl::event copy(const T* src, T* dest, size_t count) {
+        return memcpy(dest, src, count * sizeof(T));
+    }
+
+#include "kem/queue_shortcuts.hpp"
 
 private:
-  sycl::context ctx_{};
-  sycl::device dev_{};
-  sycl::property_list props_{};
-  std::mutex submit_mutex_;
+    sycl::context ctx_{};
+    sycl::device dev_{};
+    sycl::property_list props_{};
+    std::shared_ptr<int> id_{std::make_shared<int>()};
 };
 
+#include "threadpool_spawn.hpp"
+#include "threadpool_execute_common.hpp"
 #include "threadpool_execute_1D.hpp"
 #include "threadpool_execute_ND.hpp"
-#include "threadpool_execute_common.hpp"
+#include "threadpool_execute_3D.hpp"
 #include "threadpool_execute_nd_range_1D.hpp"
 #include "threadpool_execute_nd_range_2D.hpp"
 #include "threadpool_execute_nd_range_3D.hpp"
-#include "threadpool_spawn.hpp"
-
 namespace sycl {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
+    if constexpr (std::is_invocable_v<const Func&, id<dim>, kernel_handler>) {
+        this->template parallel_for<KernelName>(r, [f](id<dim> i) { f(i, kernel_handler{}); });
+        return;
+    } else if constexpr (std::is_invocable_v<const Func&, item<dim>, kernel_handler>) {
+        this->template parallel_for<KernelName>(r, [f](item<dim> i) { f(i, kernel_handler{}); });
+        return;
+    } else {
 
-  if constexpr (dim == 1) {
-    pool_->execute_1D(r, f);
-  } else if (dim == 2) {
-    pool_->execute_2D(r, f);
-  } else {
-    static_assert(dim <= 2, "Only 1D and 2D supported");
-  }
+        if constexpr (dim == 1) {
+            pool_->execute_1D(r, f);
+        } else if constexpr (dim == 2) {
+            pool_->execute_2D(r, f);
+        } else if constexpr (dim == 3) {
+            pool_->execute_3D(r, f);
+        } else {
+            static_assert(dim <= 3, "Only 1D/2D/3D supported");
+        }
+    }
 }
 
 template <typename KernelName, typename Func, int dim>
-void handler::parallel_for(const nd_range<dim> &r, Func f) {
+void handler::parallel_for(const nd_range<dim>& r, Func f) {
+    if constexpr (std::is_invocable_v<const Func&, nd_item<dim>, kernel_handler>) {
+        this->template parallel_for<KernelName>(r, [f](nd_item<dim> i) { f(i, kernel_handler{}); });
+        return;
+    } else {
 
-  if constexpr (dim == 1) {
-    pool_->execute_nd_range_1D(r, f);
-  } else if constexpr (dim == 2) {
-    pool_->execute_nd_range_2D(r, f);
-  } else if constexpr (dim == 3) {
-    pool_->execute_nd_range_3D(r, f);
-  } else {
-    static_assert(dim <= 3, "Only 1D, 2D and 3D supported");
-  }
+        if constexpr (dim == 1) {
+            pool_->execute_nd_range_1D(r, f);
+        } else if constexpr (dim == 2) {
+            pool_->execute_nd_range_2D(r, f);
+        } else if constexpr (dim == 3) {
+            pool_->execute_nd_range_3D(r, f);
+        } else {
+            static_assert(dim <= 3, "Only 1D/2D/3D supported");
+        }
+    }
 }
 
-void handler::memcpy(void *dest, const void *src, size_t num_bytes) {
-  std::memcpy(dest, src, num_bytes);
+inline void handler::memset(void* ptr, int value, size_t num_bytes) {
+    std::memset(ptr, value, num_bytes);
 }
 
-void handler::memset(void *ptr, int value, size_t num_bytes) {
-  std::memset(ptr, value, num_bytes);
+inline void handler::memcpy(void* dest, const void* src, size_t num_bytes) {
+    std::memcpy(dest, src, num_bytes);
 }
-
-template <typename T> T *malloc_shared(size_t n, const threadpool &) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
-
-template <typename T>
-T *malloc_shared(size_t n, const device &dev, const context &ctx,
-                 const property_list &propList = {}) {
-
-  (void)dev;
-  (void)ctx;
-  (void)propList;
-
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
-
-template <typename T> T *malloc_host(size_t n, const threadpool &) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
-
-template <typename T>
-T *malloc_device(size_t n, const device &dev, const context &ctx,
-                 const property_list &propList = {}) {
-  (void)dev;
-  (void)ctx;
-  (void)propList;
-
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
-
-inline void *malloc_device(size_t numBytes, const threadpool &) {
-  return std::malloc(numBytes);
-}
-
-template <typename T> T *malloc_device(size_t n, const threadpool &) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
-}
-
-inline void free(void *ptr, const threadpool &) { std::free(ptr); }
 
 } // namespace sycl
 #endif

@@ -35,83 +35,76 @@
 namespace paras_extension {
 
 template <typename SelectorV>
-static inline std::vector<sycl::device>
-selector_domain_devices(const SelectorV &) {
-  return sycl::device::get_devices(sycl::info::device_type::all);
+static inline std::vector<sycl::device> selector_domain_devices(const SelectorV&) {
+    return sycl::device::get_devices(sycl::info::device_type::all);
+}
+
+template <>
+inline std::vector<sycl::device> selector_domain_devices(const decltype(sycl::cpu_selector_v)&) {
+    return sycl::device::get_devices(sycl::info::device_type::cpu);
+}
+
+template <>
+inline std::vector<sycl::device> selector_domain_devices(const decltype(sycl::gpu_selector_v)&) {
+    return sycl::device::get_devices(sycl::info::device_type::gpu);
 }
 
 template <>
 inline std::vector<sycl::device>
-selector_domain_devices(const decltype(sycl::cpu_selector_v) &) {
-  return sycl::device::get_devices(sycl::info::device_type::cpu);
-}
-
-template <>
-inline std::vector<sycl::device>
-selector_domain_devices(const decltype(sycl::gpu_selector_v) &) {
-  return sycl::device::get_devices(sycl::info::device_type::gpu);
-}
-
-template <>
-inline std::vector<sycl::device>
-selector_domain_devices(const decltype(sycl::accelerator_selector_v) &) {
-  return sycl::device::get_devices(sycl::info::device_type::accelerator);
+selector_domain_devices(const decltype(sycl::accelerator_selector_v)&) {
+    return sycl::device::get_devices(sycl::info::device_type::accelerator);
 }
 
 template <typename SelectorV>
-inline sycl::device select_device_with_selector(const SelectorV &selector_v) {
-  constexpr bool has_flag = (PARASDEVICE != 0);
+inline sycl::device select_device_with_selector(const SelectorV& selector_v) {
+    constexpr bool has_flag = (PARASDEVICE != 0);
 
-  auto candidates = selector_domain_devices(selector_v);
+    auto candidates = selector_domain_devices(selector_v);
 
-  int best_score = std::numeric_limits<int>::min();
-  sycl::device *best = nullptr;
+    int best_score = std::numeric_limits<int>::min();
+    sycl::device* best = nullptr;
 
-  for (auto &dev : candidates) {
-    int score = selector_v(dev);
-    if (score > best_score) {
-      best_score = score;
-      best = &dev;
+    for (auto& dev : candidates) {
+        int score = selector_v(dev);
+        if (score > best_score) {
+            best_score = score;
+            best = &dev;
+        }
     }
-  }
 
-  if constexpr (std::is_same_v<std::decay_t<SelectorV>,
-                               std::decay_t<decltype(sycl::cpu_selector_v)>>) {
-    if constexpr (has_flag) {
-      paras_selector_error(
-          "cpu_selector_v used but -parasdevice flag is present");
+    if constexpr (std::is_same_v<std::decay_t<SelectorV>,
+                                 std::decay_t<decltype(sycl::cpu_selector_v)>>) {
+        if constexpr (has_flag) {
+            paras_selector_error("cpu_selector_v used but -parasdevice flag is present");
+        }
+        return best ? *best : sycl::device{};
     }
+
+    if constexpr (std::is_same_v<std::decay_t<SelectorV>,
+                                 std::decay_t<decltype(sycl::gpu_selector_v)>>) {
+        if constexpr (!has_flag) {
+            paras_selector_error("gpu_selector_v used but -parasdevice flag is NOT present");
+        }
+        if (!best) {
+            return sycl::device(device_ctor_tag{}, "No GPU present", "", "", "", 0, 0, 0,
+                                sycl::info::local_mem_type::none, false, false, false, -1, false);
+        }
+        return *best;
+    }
+
     return best ? *best : sycl::device{};
-  }
-
-  if constexpr (std::is_same_v<std::decay_t<SelectorV>,
-                               std::decay_t<decltype(sycl::gpu_selector_v)>>) {
-    if constexpr (!has_flag) {
-      paras_selector_error(
-          "gpu_selector_v used but -parasdevice flag is NOT present");
-    }
-    if (!best) {
-      return sycl::device(device_ctor_tag{}, "No GPU present", "", "", "", 0, 0,
-                          0, sycl::info::local_mem_type::none, false, false,
-                          false, -1, false, false, false);
-    }
-    return *best;
-  }
-
-  return best ? *best : sycl::device{};
 }
 
 inline sycl::device select_device_no_selector() {
 #if PARASDEVICE
-  auto gpus = sycl::device::get_devices(sycl::info::device_type::gpu);
-  if (gpus.empty()) {
-    return sycl::device(device_ctor_tag{}, "No GPU present", "", "", "", 0, 0,
-                        0, sycl::info::local_mem_type::none, false, false,
-                        false, -1, false, false, false);
-  }
-  return gpus.front();
+    auto gpus = sycl::device::get_devices(sycl::info::device_type::gpu);
+    if (gpus.empty()) {
+        return sycl::device(device_ctor_tag{}, "No GPU present", "", "", "", 0, 0, 0,
+                            sycl::info::local_mem_type::none, false, false, false, -1, false);
+    }
+    return gpus.front();
 #else
-  return sycl::device{};
+    return sycl::device{};
 #endif
 }
 

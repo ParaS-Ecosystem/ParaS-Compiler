@@ -26,28 +26,33 @@
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "clang/Basic/SourceManager.h"
 
 class ParaSDeviceCallGraph {
 private:
-  clang::Rewriter &rewriter;
-  llvm::DenseSet<const clang::FunctionDecl *> visited;
-  llvm::DenseSet<const clang::FunctionDecl *> annotated;
-  llvm::SmallVector<const clang::FunctionDecl *, 64> workList;
+    clang::Rewriter& rewriter;
+    clang::Rewriter& headerRewriter;
 
-  const clang::FunctionDecl *normalize(const clang::FunctionDecl *FD) const;
-  const clang::FunctionDecl *
-  annotationIdentity(const clang::FunctionDecl *FD) const;
-  bool isRewritable(const clang::FunctionDecl *FD,
-                    const clang::SourceManager &SM) const;
-  void annotate(const clang::FunctionDecl *FD, clang::ASTContext &context);
-  void process(const clang::FunctionDecl *FD, clang::ASTContext &context);
+    clang::Rewriter& rewriterFor(clang::SourceLocation loc, const clang::SourceManager& SM) {
+        return SM.isInMainFile(loc) ? rewriter : headerRewriter;
+    }
+    llvm::DenseSet<const clang::FunctionDecl*> visited;
+    llvm::DenseSet<const clang::FunctionDecl*> annotated;
+    llvm::SmallVector<const clang::FunctionDecl*, 64> workList;
+
+    const clang::FunctionDecl* normalize(const clang::FunctionDecl* FD) const;
+    const clang::FunctionDecl* annotationIdentity(const clang::FunctionDecl* FD) const;
+    bool isRewritable(const clang::FunctionDecl* FD, const clang::SourceManager& SM) const;
+    void annotate(const clang::FunctionDecl* FD, clang::ASTContext& context);
+    void process(const clang::FunctionDecl* FD, clang::ASTContext& context);
 
 public:
-  explicit ParaSDeviceCallGraph(clang::Rewriter &r) : rewriter(r) {}
+    ParaSDeviceCallGraph(clang::Rewriter& mainRw, clang::Rewriter& headerRw)
+        : rewriter(mainRw), headerRewriter(headerRw) {}
 
-  void addKernel(const clang::CXXMethodDecl *callOperator);
-  void enqueue(const clang::FunctionDecl *FD);
-  void run(clang::ASTContext &context);
+    void addKernel(const clang::CXXMethodDecl* callOperator);
+    void enqueue(const clang::FunctionDecl* FD);
+    void run(clang::ASTContext& context);
 };
 
 #endif

@@ -18,8 +18,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __PARAS_INTEROP_HANDLE_HPP__
-#define __PARAS_INTEROP_HANDLE_HPP__
+#ifndef __PARAS_INTEROP_HANDLER_HPP__
+#define __PARAS_INTEROP_HANDLER_HPP__
 
 #include "device.hpp"
 
@@ -32,22 +32,22 @@ class handler;
 
 class interop_handle {
 private:
-  void *backend_ptr_;
-  backend backend_;
+    void* backend_ptr_;
+    backend backend_;
 
-  interop_handle(void *p, backend b) : backend_ptr_(p), backend_(b) {}
+    interop_handle(void* p, backend b) : backend_ptr_(p), backend_(b) {}
 
-  friend class handler;
+    friend class handler;
 
 public:
-  interop_handle() = delete;
+    interop_handle() = delete;
 
-  backend get_backend() const noexcept { return backend_; }
+    backend get_backend() const noexcept { return backend_; }
 
-  void *get_native_queue();
+    void* get_native_queue();
 
-  template <backend Backend>
-  backend_return_t<Backend, queue> get_native_queue() const;
+    template <backend Backend>
+    backend_return_t<Backend, queue> get_native_queue() const;
 };
 
 } // namespace sycl

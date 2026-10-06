@@ -18,20 +18,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __PARAS_GPU_THREADPOOL_BASE_HPP__
-#define __PARAS_GPU_THREADPOOL_BASE_HPP__
+#ifndef __PARAS_DEVICE_FUNCTION_MARKER_HPP__
+#define __PARAS_DEVICE_FUNCTION_MARKER_HPP__
 
-#include "sycl/context.hpp"
-#include "sycl/device.hpp"
-#include <thread>
+#include <clang/AST/ASTContext.h>
+#include <clang/Rewrite/Core/Rewriter.h>
 
-#include <cuda_runtime.h>
+void markKernelReachableFunctions(clang::ASTContext& ctx, clang::Rewriter& rw);
 
-class cuda_threadpool_base {
-public:
-  sycl::device get_device() const { return sycl::device(); }
-  sycl::context get_context() const { return sycl::context(); }
-
-  void wait() {}
-};
-#endif /** End of gpu_threadpool_base >*/
+#endif

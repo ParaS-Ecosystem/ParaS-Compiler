@@ -25,33 +25,37 @@
 #include "clang/Basic/SourceManager.h"
 #include <clang/AST/AST.h>
 #include <clang/AST/ASTConsumer.h>
-#include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/ASTMatchers/ASTMatchers.h>
+#include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Rewrite/Core/Rewriter.h>
-#include <string>
 #include <unordered_set>
+#include <string>
 
-#include "paras/ParaSFuncParameterHandler.hpp"
-#include "paras/ParaSLambdaHandler.hpp"
+#include "paras/ParaSSubmitHandler.hpp"
 #include "paras/ParaSParallelforHandler.hpp"
 #include "paras/ParaSQueueHandler.hpp"
-#include "paras/ParaSSubmitHandler.hpp"
+#include "paras/ParaSFuncParameterHandler.hpp"
 #include "paras/ParaSVarDeclHandler.hpp"
+#include "paras/ParaSDeviceFunctionMarker.hpp"
+#include "paras/ParaSLambdaHandler.hpp"
 
 class ParaSConsumer : public clang::ASTConsumer {
 private:
-  clang::ast_matchers::MatchFinder matchers;
-  SubmitFunctionCallback s_callback;
-  ParallelForFunctionCallback pf_callback;
-  QueueHandler qh_callback;
-  FunctionParameterHandler fph_callback;
-  VarDeclReplacer vdr_callback;
-  ParaSLambdaHandler lambda_callback;
+    clang::ast_matchers::MatchFinder matchers;
+    SubmitFunctionCallback s_callback;
+    ParallelForFunctionCallback pf_callback;
+    QueueHandler qh_callback;
+    FunctionParameterHandler fph_callback;
+    VarDeclReplacer vdr_callback;
+    ParaSLambdaHandler lambda_callback;
+    clang::Rewriter& rewriter_;
+    std::vector<std::string> backend_target_;
 
 public:
-  ParaSConsumer(clang::Rewriter &r, std::vector<std::string> backend_target);
+    ParaSConsumer(clang::Rewriter& r, clang::Rewriter& headerRewriter,
+                  std::vector<std::string> backend_target);
 
-  void HandleTranslationUnit(clang::ASTContext &context) override;
+    void HandleTranslationUnit(clang::ASTContext& context) override;
 };
 
 #endif

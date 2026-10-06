@@ -21,8 +21,15 @@
 #ifndef __GPU_UTILITIES_HPP__
 #define __GPU_UTILITIES_HPP__
 
+#include <cstdint>
+#include "kem/host_group_runtime.hpp" // host work-group barrier (no-op in device passes)
+
+#if defined(__HIP__) || defined(__HIPCC__) || defined(__HIP_DEVICE_COMPILE__)
+#include <hip/hip_runtime.h>
+#endif
+
 #ifndef PARAS_KERNEL_HD
-#if defined(__CUDA_ARCH__) || defined(__CUDACC__)
+#if defined(__CUDA_ARCH__) || defined(__CUDACC__) || defined(__HIPCC__)
 #define PARAS_KERNEL_HD __host__ __device__
 #else
 #define PARAS_KERNEL_HD
@@ -30,18 +37,19 @@
 #endif
 
 PARAS_KERNEL_HD
-inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
-#if defined(__CUDA_ARCH__)
-  extern __shared__ unsigned char paras_dynamic_shared_memory[];
-  return paras_dynamic_shared_memory;
+inline unsigned char* paras_get_dynamic_shared_memory() noexcept {
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+    extern __shared__ unsigned char paras_dynamic_shared_memory[];
+    return paras_dynamic_shared_memory;
 #else
-  return nullptr;
+    return nullptr;
 #endif
 }
 
 #ifndef PARAS_GPU_BACKEND
-#if defined(__CUDA_ARCH__) || defined(__CUDACC__) || defined(__NVPTX__)  
-    
+#if defined(__CUDA_ARCH__) || defined(__NVPTX__) || defined(__CUDACC__) || defined(__AMDGCN__) ||  \
+    defined(__SPIRV__) || defined(__HIP_DEVICE_COMPILE__) || defined(__HIPCC__) ||                 \
+    defined(__HIP_PLATFORM_AMD__) || defined(__HIP_PLATFORM_NVIDIA__)
 #define PARAS_GPU_BACKEND 1
 #else
 #define PARAS_GPU_BACKEND 0
@@ -50,15 +58,15 @@ inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
 
 #ifndef __paras_if_target_host
 #if PARAS_GPU_BACKEND
-#define __paras_if_target_host(...)                                            \
-  if constexpr (false) {                                                       \
-    __VA_ARGS__                                                                \
-  }
+#define __paras_if_target_host(...)                                                                \
+    if constexpr (false) {                                                                         \
+        __VA_ARGS__                                                                                \
+    }
 #else
-#define ____paras_if_target_host(...)                                          \
-  if constexpr (true) {                                                        \
-    __VA_ARGS__                                                                \
-  }
+#define ____paras_if_target_host(...)                                                              \
+    if constexpr (true) {                                                                          \
+        __VA_ARGS__                                                                                \
+    }
 #endif
 #endif
 
@@ -70,73 +78,174 @@ inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
 #endif
 #endif
 
-#if defined(__CUDA_ARCH__)
+#if !defined(PARAS_AMD_WAVEFRONT_SIZE) && defined(__AMDGCN__)
+#if defined(__GFX10__) || defined(__GFX11__) || defined(__GFX12__)
+#define PARAS_AMD_WAVEFRONT_SIZE 32
+#else
+#define PARAS_AMD_WAVEFRONT_SIZE 64
+#endif
+#endif
+#if defined(__AMDGCN__) && defined(__HIP_DEVICE_COMPILE__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-pragma"
+#if defined(__AMDGCN_WAVEFRONT_SIZE__) && __AMDGCN_WAVEFRONT_SIZE__ != PARAS_AMD_WAVEFRONT_SIZE
+#error "PARAS_AMD_WAVEFRONT_SIZE does not match the target's wavefront size"
+#endif
+#pragma clang diagnostic pop
+#endif
+
+#ifndef PARAS_WARP_SIZE
+#if defined(PARAS_AMD_WAVEFRONT_SIZE)
+#define PARAS_WARP_SIZE PARAS_AMD_WAVEFRONT_SIZE
+#elif defined(__HIP__) || defined(__HIPCC__)
+#define PARAS_WARP_SIZE 64
+#elif defined(__CUDACC__) || defined(__CUDA_ARCH__)
+#define PARAS_WARP_SIZE 32
+#else
+#define PARAS_WARP_SIZE 1
+#endif
+#endif
+
+#if defined(__CUDA_ARCH__) || defined(__HIP_PLATFORM_AMD__)
 #define PARAS_KERNEL_D __device__
 #else
 #define PARAS_KERNEL_D
 #endif
 
 PARAS_KERNEL_HD
-inline bool paras_any_sync(unsigned mask, bool pred) {
+inline bool paras_any_sync(std::uint64_t mask, bool pred) {
 #if defined(__CUDA_ARCH__)
-  return __any_sync(mask, pred);
+    return __any_sync(static_cast<unsigned>(mask), pred);
+#elif defined(__AMDGCN__)
+    (void)mask;
+#if PARAS_AMD_WAVEFRONT_SIZE == 32
+    return __builtin_amdgcn_ballot_w32(pred) != 0;
+#elif PARAS_AMD_WAVEFRONT_SIZE == 64
+    return __builtin_amdgcn_ballot_w64(pred) != 0;
 #else
-  (void)mask;
-  return pred;
+#error "Unsupported AMDGCN wavefront size"
+#endif
+#elif defined(__HIP_DEVICE_COMPILE__)
+    (void)mask;
+    return __any(pred);
+#else
+    (void)mask;
+    return pred;
 #endif
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl_down(unsigned mask, T v, int delta) {
+PARAS_KERNEL_HD inline T paras_shfl_down(std::uint64_t mask, T v, int delta) {
 #if defined(__CUDA_ARCH__)
-  return __shfl_down_sync(mask, v, delta);
+    return __shfl_down_sync(static_cast<unsigned>(mask), v, delta);
+#elif defined(__AMDGCN__)
+    (void)mask;
+    return __shfl_down(v, delta);
+#elif defined(__HIP_DEVICE_COMPILE__)
+    return __shfl_down_sync(mask, v, delta);
 #else
-  return v;
+    (void)mask;
+    (void)delta;
+    return v;
 #endif
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl_up(unsigned mask, T v, int delta) {
+PARAS_KERNEL_HD inline T paras_shfl_up(std::uint64_t mask, T v, int delta) {
 #if defined(__CUDA_ARCH__)
-  return __shfl_up_sync(mask, v, delta);
+    return __shfl_up_sync(static_cast<unsigned>(mask), v, delta);
+#elif defined(__AMDGCN__)
+    (void)mask;
+    return __shfl_up(v, delta);
+#elif defined(__HIP_DEVICE_COMPILE__)
+    return __shfl_up_sync(mask, v, delta);
 #else
-  return v;
+    (void)mask;
+    (void)delta;
+    return v;
 #endif
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl(unsigned mask, T v, int lane) {
+PARAS_KERNEL_HD inline T paras_shfl(std::uint64_t mask, T v, int lane) {
 #if defined(__CUDA_ARCH__)
-  return __shfl_sync(mask, v, lane);
+    return __shfl_sync(static_cast<unsigned>(mask), v, lane);
+#elif defined(__AMDGCN__)
+    (void)mask;
+    return __shfl(v, lane);
+#elif defined(__HIP_DEVICE_COMPILE__)
+    return __shfl_sync(mask, v, lane);
 #else
-  return v;
+    (void)mask;
+    (void)lane;
+    return v;
+#endif
+}
+
+template <typename T>
+PARAS_KERNEL_HD inline T paras_shfl_xor(std::uint64_t mask, T v, int lane_mask) {
+#if defined(__CUDA_ARCH__)
+    return __shfl_xor_sync(static_cast<unsigned>(mask), v, lane_mask);
+#elif defined(__AMDGCN__)
+    (void)mask;
+    return __shfl_xor(v, lane_mask);
+#elif defined(__HIP_DEVICE_COMPILE__)
+    return __shfl_xor_sync(mask, v, lane_mask);
+#else
+    (void)mask;
+    (void)lane_mask;
+    return v;
 #endif
 }
 
 PARAS_KERNEL_HD
-inline unsigned paras_active_mask() {
+inline std::uint64_t paras_active_mask() {
 #if defined(__CUDA_ARCH__)
-  return __activemask();
+    return static_cast<std::uint64_t>(__activemask());
+
+#elif defined(__HIP_DEVICE_COMPILE__) && defined(__HIP_PLATFORM_NVIDIA__)
+    return static_cast<std::uint64_t>(__activemask());
+
+#elif defined(__AMDGCN__)
+#if PARAS_AMD_WAVEFRONT_SIZE == 32
+    return static_cast<std::uint64_t>(__builtin_amdgcn_read_exec_lo());
+#elif PARAS_AMD_WAVEFRONT_SIZE == 64
+    return static_cast<std::uint64_t>(__builtin_amdgcn_read_exec());
 #else
-  return 0xffffffffu;
+#error "Unsupported AMDGCN wavefront size"
+#endif
+
+#else
+    return 0xffffffffu;
 #endif
 }
 
 PARAS_KERNEL_HD
-inline void paras_syncwarp(unsigned mask = 0xffffffff) {
+inline void paras_syncwarp(std::uint64_t mask = 0xffffffffu) {
 #if defined(__CUDA_ARCH__)
-  __syncwarp(mask);
+    __syncwarp(static_cast<unsigned>(mask));
+#elif defined(__HIP_DEVICE_COMPILE__) && defined(__HIP_PLATFORM_NVIDIA__)
+    __syncwarp(static_cast<unsigned>(mask));
+#elif defined(__AMDGCN__)
+    (void)mask;
+    __builtin_amdgcn_wave_barrier();
 #else
-  (void)mask;
+    (void)mask;
 #endif
 }
 
 PARAS_KERNEL_HD
 inline void paras_syncthreads() {
 #if defined(__CUDA_ARCH__)
-  __syncthreads();
+    __syncthreads();
+#elif defined(__AMDGCN__)
+    __builtin_amdgcn_fence(__ATOMIC_RELEASE, "workgroup");
+    __builtin_amdgcn_s_barrier();
+    __builtin_amdgcn_fence(__ATOMIC_ACQUIRE, "workgroup");
+#elif defined(__HIP_DEVICE_COMPILE__)
+    __syncthreads();
 #else
-
+    paras_host_detail::work_group_barrier();
 #endif
 }
 
@@ -153,9 +262,8 @@ inline void paras_syncthreads() {
 #define GMX_HOSTDEVICE_ATTRIBUTE __host__ __device__
 
 template <typename PointerType, typename IndexType, bool aligned>
-PARAS_KERNEL_HD inline PointerType indexedAddress(PointerType address,
-                                                  IndexType index) {
-  return address + index;
+PARAS_KERNEL_HD inline PointerType indexedAddress(PointerType address, IndexType index) {
+    return address + index;
 }
 
 #ifdef GMX_ALWAYS_INLINE
@@ -173,5 +281,12 @@ PARAS_KERNEL_HD inline PointerType indexedAddress(PointerType address,
 #endif
 #endif
 
+#ifndef PARAS_HIP_BACKEND
+#if defined(__HIP__) || defined(__HIPCC__) || defined(__HIP_DEVICE_COMPILE__)
+#define PARAS_HIP_BACKEND 1
+#else
+#define PARAS_HIP_BACKEND 0
+#endif
+#endif
 
 #endif // End of gpu_utilities

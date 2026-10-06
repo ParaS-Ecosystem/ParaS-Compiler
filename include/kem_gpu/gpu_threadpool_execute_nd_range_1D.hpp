@@ -23,94 +23,158 @@
 
 #include <cstddef>
 #include <stdexcept>
-
-#include <cuda_runtime.h>
-
 #include <sycl/id.hpp>
 #include <sycl/nd_item.hpp>
 #include <sycl/range.hpp>
+#include "gpu_utilities.hpp"
+#include "kem/nd_range_validate.hpp"
+#if (PARAS_CUDA_BACKEND)
+#include <cuda_runtime.h>
+#elif (PARAS_HIP_BACKEND)
+#include <hip/hip_runtime.h>
+#endif
 
 template <typename Func>
-__global__ void gpu_execute_nd_range_1D_kernel(std::size_t globalSize,
-                                               sycl::range<1> globalRange,
-                                               sycl::range<1> localRange,
-                                               sycl::range<1> groupRange,
+__global__ void gpu_execute_nd_range_1D_kernel(std::size_t globalSize, sycl::range<1> globalRange,
+                                               sycl::range<1> localRange, sycl::range<1> groupRange,
                                                Func f) {
-  extern __shared__ unsigned char paras_dynamic_shared_memory[];
+    extern __shared__ unsigned char paras_dynamic_shared_memory[];
 
-  (void)paras_dynamic_shared_memory;
+    (void)paras_dynamic_shared_memory;
 
-  const std::size_t gid = static_cast<std::size_t>(blockIdx.x) *
-                              static_cast<std::size_t>(blockDim.x) +
-                          static_cast<std::size_t>(threadIdx.x);
+    const std::size_t gid =
+        static_cast<std::size_t>(blockIdx.x) * static_cast<std::size_t>(blockDim.x) +
+        static_cast<std::size_t>(threadIdx.x);
 
-  if (gid >= globalSize) {
-    return;
-  }
+    if (gid >= globalSize) {
+        return;
+    }
 
-  const sycl::nd_item<1> item(
-      sycl::id<1>(gid), sycl::id<1>(static_cast<std::size_t>(threadIdx.x)),
-      sycl::id<1>(static_cast<std::size_t>(blockIdx.x)), globalRange,
-      localRange, groupRange);
+    const sycl::nd_item<1> item(
+        sycl::id<1>(gid), sycl::id<1>(static_cast<std::size_t>(threadIdx.x)),
+        sycl::id<1>(static_cast<std::size_t>(blockIdx.x)), globalRange, localRange, groupRange);
 
-  f(item);
+    f(item);
 }
 
+#if (PARAS_CUDA_BACKEND)
 template <typename Func>
-void cuda_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1> &r,
-                                              Func f,
+void cuda_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1>& r, Func f,
                                               std::size_t sharedMemoryBytes) {
-  ensure_stream();
+    paras_detail::validate_nd_range(r);
+    ensure_stream();
 
-  const auto globalRange = r.get_global_range();
-  const auto localRange = r.get_local_range();
+    const auto globalRange = r.get_global_range();
+    const auto localRange = r.get_local_range();
 
-  const std::size_t globalSize = globalRange[0];
-  const std::size_t localSize = localRange[0];
+    const std::size_t globalSize = globalRange[0];
+    const std::size_t localSize = localRange[0];
 
-  if (globalSize == 0 || localSize == 0) {
-    throw std::runtime_error("1D nd_range has a zero dimension");
-  }
+    if (globalSize == 0 || localSize == 0) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::nd_range),
+                              "1D nd_range has a zero dimension");
+    }
 
-  if ((globalSize % localSize) != 0) {
-    throw std::runtime_error("1D nd_range global size is not divisible by "
-                             "the local size");
-  }
+    if ((globalSize % localSize) != 0) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::nd_range),
+                              "1D nd_range global size is not divisible by "
+                              "the local size");
+    }
 
-  paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
-                           "cudaSetDevice before 1D nd_range kernel");
+    paras_cuda_detail::check(cudaSetDevice(dev_.get_native_id()),
+                             "cudaSetDevice before 1D nd_range kernel");
 
-  cudaDeviceProp props{};
+    cudaDeviceProp props{};
 
-  paras_cuda_detail::check(
-      cudaGetDeviceProperties(&props, dev_.get_native_id()),
-      "cudaGetDeviceProperties for 1D nd_range");
+    paras_cuda_detail::check(cudaGetDeviceProperties(&props, dev_.get_native_id()),
+                             "cudaGetDeviceProperties for 1D nd_range");
 
-  if (localSize > static_cast<std::size_t>(props.maxThreadsPerBlock)) {
-    throw std::runtime_error("1D local range exceeds CUDA maxThreadsPerBlock");
-  }
+    if (localSize > static_cast<std::size_t>(props.maxThreadsPerBlock)) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::nd_range),
+                              "1D local range exceeds CUDA maxThreadsPerBlock");
+    }
 
-  if (sharedMemoryBytes > static_cast<std::size_t>(props.sharedMemPerBlock)) {
-    throw std::runtime_error("local_accessor allocation exceeds CUDA "
-                             "shared memory per block");
-  }
+    if (sharedMemoryBytes > static_cast<std::size_t>(props.sharedMemPerBlock)) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::memory_allocation),
+                              "local_accessor allocation exceeds CUDA "
+                              "shared memory per block");
+    }
 
-  const std::size_t groups = globalSize / localSize;
+    const std::size_t groups = globalSize / localSize;
 
-  const sycl::range<1> launchedGroupRange(groups);
+    const sycl::range<1> launchedGroupRange(groups);
 
-  (void)cudaGetLastError();
+    (void)cudaGetLastError();
 
-  gpu_execute_nd_range_1D_kernel<<<static_cast<unsigned int>(groups),
-                                   static_cast<unsigned int>(localSize),
-                                   sharedMemoryBytes, stream>>>(
-      globalSize, globalRange, localRange, launchedGroupRange, f);
+    gpu_execute_nd_range_1D_kernel<<<static_cast<unsigned int>(groups),
+                                     static_cast<unsigned int>(localSize), sharedMemoryBytes,
+                                     stream>>>(globalSize, globalRange, localRange,
+                                               launchedGroupRange, f);
 
-  paras_cuda_detail::check(cudaGetLastError(),
-                           "1D nd_range kernel launch failed");
+    paras_cuda_detail::check(cudaGetLastError(), "1D nd_range kernel launch failed");
 
-  paras_cuda_detail::check(cudaStreamSynchronize(stream),
-                           "1D nd_range kernel execution failed");
+    paras_cuda_detail::check(cudaStreamSynchronize(stream), "1D nd_range kernel execution failed");
 }
 
-#endif		/** End of gpu_threadpool_execute_nd_range_1D >*/
+#elif (PARAS_HIP_BACKEND)
+template <typename Func>
+void rocm_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1>& r, Func f,
+                                              std::size_t sharedMemoryBytes) {
+    paras_detail::validate_nd_range(r);
+    ensure_stream();
+
+    const auto globalRange = r.get_global_range();
+    const auto localRange = r.get_local_range();
+
+    const std::size_t globalSize = globalRange[0];
+    const std::size_t localSize = localRange[0];
+
+    if (globalSize == 0 || localSize == 0) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::nd_range),
+                              "1D nd_range has a zero dimension");
+    }
+
+    if ((globalSize % localSize) != 0) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::nd_range),
+                              "1D nd_range global size is not divisible by "
+                              "the local size");
+    }
+
+    paras_rocm_detail::check(hipSetDevice(dev_.get_native_id()),
+                             "hipSetDevice before 1D nd_range kernel");
+
+    hipDeviceProp_t props{};
+
+    paras_rocm_detail::check(hipGetDeviceProperties(&props, dev_.get_native_id()),
+                             "hipGetDeviceProperties for 1D nd_range");
+
+    if (localSize > static_cast<std::size_t>(props.maxThreadsPerBlock)) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::nd_range),
+                              "1D local range exceeds HIP maxThreadsPerBlock");
+    }
+
+    if (sharedMemoryBytes > static_cast<std::size_t>(props.sharedMemPerBlock)) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::memory_allocation),
+                              "local_accessor allocation exceeds HIP "
+                              "shared memory per block");
+    }
+
+    const std::size_t groups = globalSize / localSize;
+
+    const sycl::range<1> launchedGroupRange(groups);
+
+    (void)hipGetLastError();
+
+    gpu_execute_nd_range_1D_kernel<<<static_cast<unsigned int>(groups),
+                                     static_cast<unsigned int>(localSize), sharedMemoryBytes,
+                                     stream>>>(globalSize, globalRange, localRange,
+                                               launchedGroupRange, f);
+
+    paras_rocm_detail::check(hipGetLastError(), "1D nd_range kernel launch failed");
+
+    paras_rocm_detail::check(hipStreamSynchronize(stream), "1D nd_range kernel execution failed");
+}
+
+#endif /** End of PARAS_CUDA_BACKEND || PARAS_HIP_BACKEND */
+
+#endif /** End of gpu_threadpool_execute_nd_range_1D >*/
