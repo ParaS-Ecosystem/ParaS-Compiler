@@ -373,6 +373,9 @@ private:
 
 namespace sycl {
 
+inline void handler::paras_enqueue_dependencies() { wait_for_dependencies(); }
+inline void handler::paras_gpu_command_enqueued(bool) {}
+
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
   wait_for_dependencies();

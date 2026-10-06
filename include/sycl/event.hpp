@@ -25,6 +25,8 @@
 #include <functional>
 #include <type_traits>
 #include <stdexcept>
+#include <atomic>
+#include <memory>
 #include <mutex>
 #include <future>
 #include <exception>
@@ -37,6 +39,42 @@ namespace sycl {
 class event;
 namespace detail {
 
+struct queue_gpu_state {
+  std::mutex mtx;
+  void *stream = nullptr;
+  int native_device = -1;
+  bool arch_checked = false;
+
+  std::atomic<unsigned long long> submitted{0};
+  std::atomic<unsigned long long> completed{0};
+  std::vector<void *> free_events;
+
+  void (*destroy)(queue_gpu_state &) noexcept = nullptr;
+
+  void (*wait_until)(queue_gpu_state &, unsigned long long seq,
+                     void *native) = nullptr;
+
+  bool (*is_done)(queue_gpu_state &, unsigned long long seq,
+                  void *native) = nullptr;
+  void (*release_event)(queue_gpu_state &, void *native) noexcept = nullptr;
+
+  queue_gpu_state() = default;
+  queue_gpu_state(const queue_gpu_state &) = delete;
+  queue_gpu_state &operator=(const queue_gpu_state &) = delete;
+  ~queue_gpu_state() {
+    if (stream != nullptr && destroy != nullptr)
+      destroy(*this);
+  }
+
+  void note_completed(unsigned long long upto) noexcept {
+    unsigned long long seen = completed.load(std::memory_order_relaxed);
+    while (seen < upto &&
+           !completed.compare_exchange_weak(seen, upto,
+                                            std::memory_order_relaxed)) {
+    }
+  }
+};
+
 struct event_state {
   std::shared_future<void> done;
   std::vector<event> deps;
@@ -45,9 +83,15 @@ struct event_state {
 
   std::function<void(std::vector<std::exception_ptr>)> report;
   bool profiling = false;
+
+  std::shared_ptr<queue_gpu_state> gpu;
+  std::atomic<unsigned long long> gpu_seq{0};
+  std::atomic<void *> gpu_event{nullptr};
+
+  event_state() = default;
+  ~event_state();
 };
 }
-
 class event {
   std::shared_ptr<detail::event_state> m_state =
       std::make_shared<detail::event_state>();
@@ -68,11 +112,34 @@ public:
     return e;
   }
   std::shared_ptr<detail::event_state> paras_state() const { return m_state; }
-  bool paras_complete() const {
+
+  bool paras_host_complete() const {
     return !m_state->done.valid() ||
            m_state->done.wait_for(std::chrono::seconds(0)) ==
                std::future_status::ready;
   }
+
+  bool paras_gpu_complete() const {
+    detail::event_state &s = *m_state;
+    if (!s.gpu)
+      return true;
+    const unsigned long long seq = s.gpu_seq.load();
+    if (s.gpu->completed.load(std::memory_order_relaxed) >= seq)
+      return true;
+    return s.gpu->is_done != nullptr &&
+           s.gpu->is_done(*s.gpu, seq, s.gpu_event.load());
+  }
+  bool paras_complete() const {
+    return paras_host_complete() && paras_gpu_complete();
+  }
+
+  void paras_attach_gpu(std::shared_ptr<detail::queue_gpu_state> st,
+                        unsigned long long seq, void *native = nullptr) {
+    m_state->gpu = std::move(st);
+    m_state->gpu_seq.store(seq);
+    m_state->gpu_event.store(native);
+  }
+  bool paras_has_wait_list() const { return !m_state->deps.empty(); }
 
   void set_dependencies(const std::vector<event> &deps) {
     m_state->deps = deps;
@@ -89,6 +156,12 @@ public:
   void wait() const {
     if (m_state->done.valid())
       m_state->done.wait();
+    detail::event_state &s = *m_state;
+    if (s.gpu && s.gpu->wait_until != nullptr) {
+      const unsigned long long seq = s.gpu_seq.load();
+      if (s.gpu->completed.load(std::memory_order_relaxed) < seq)
+        s.gpu->wait_until(*s.gpu, seq, s.gpu_event.load());
+    }
   }
 
   void wait_and_throw() const {
@@ -148,12 +221,18 @@ public:
 
 namespace detail {
 
+inline event_state::~event_state() {
+  void *native = gpu_event.load();
+  if (native != nullptr && gpu && gpu->release_event != nullptr)
+    gpu->release_event(*gpu, native);
+}
+
 struct pending_events {
   std::mutex mtx;
   std::vector<event> events;
   void add(const event &e) {
 
-    if (e.paras_complete() && !e.paras_state()->error)
+    if (e.paras_host_complete() && !e.paras_state()->error)
       return;
     std::lock_guard<std::mutex> lock(mtx);
     events.push_back(e);

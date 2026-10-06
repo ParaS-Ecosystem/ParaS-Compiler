@@ -97,8 +97,7 @@ void cuda_threadpool::gpu_execute_nd_range_2D(const sycl::nd_range<2> &r,
 
   paras_cuda_detail::check(cudaGetLastError(),
                            "2D nd_range kernel launch failed");
-  paras_cuda_detail::check(cudaStreamSynchronize(stream),
-                           "2D nd_range kernel execution failed");
+  paras_command_enqueued("2D nd_range kernel execution failed");
 }
 
 #endif

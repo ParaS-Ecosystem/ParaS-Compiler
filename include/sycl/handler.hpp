@@ -137,10 +137,14 @@ public:
   }
 
   event paras_take_event() {
-    if (result_.paras_complete() && result_.get_wait_list().empty())
+    if (result_.paras_host_complete() && !result_.paras_has_wait_list())
       result_.set_dependencies(deps_);
     return result_;
   }
+
+  void paras_enqueue_dependencies();
+  void paras_gpu_command_enqueued(bool by_interop = false);
+  void paras_request_native_event() { want_native_event_ = true; }
 
   template <auto &SpecName>
   void set_specialization_constant(
@@ -281,7 +285,7 @@ public:
           "custom CUDA operation has no cuda_threadpool backend");
     }
 
-    wait_for_dependencies();
+    paras_enqueue_dependencies();
     async_mode_ = true;
     interop_handle ih(static_cast<void *>(gpu_pool_),
                       PARAS_HIP_BACKEND ? sycl::backend::hip
@@ -294,11 +298,14 @@ public:
       async_mode_ = false;
       throw;
     }
+
+    paras_gpu_command_enqueued( true);
   }
 
 private:
   std::size_t local_memory_bytes_ = 0;
   bool async_mode_ = false;
+  bool want_native_event_ = false;
 };
 
 }

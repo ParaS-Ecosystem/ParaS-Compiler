@@ -26,13 +26,31 @@
 
 namespace sycl {
 
+inline void handler::paras_enqueue_dependencies() {
+  if (gpu_pool_ != nullptr) {
+    gpu_pool_->paras_enqueue_dependencies(deps_);
+  } else {
+    wait_for_dependencies();
+  }
+}
+
+inline void handler::paras_gpu_command_enqueued(bool by_interop) {
+  if (gpu_pool_ != nullptr) {
+    if (by_interop) {
+
+      gpu_pool_->paras_command_enqueued("custom operation failed");
+    }
+    result_ = gpu_pool_->paras_last_command_event(want_native_event_);
+  }
+}
+
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
   if (gpu_pool_ == nullptr) {
     throw std::runtime_error("GPU handler has no cuda_threadpool backend");
   }
 
-  wait_for_dependencies();
+  paras_enqueue_dependencies();
 
   if constexpr (dim == 1) {
     if (isAsyncEnabled()) {
@@ -47,6 +65,7 @@ void handler::parallel_for(range<dim> r, Func f) {
   } else {
     static_assert(dim <= 3, "Only 1D/2D/3D supported");
   }
+  paras_gpu_command_enqueued();
 }
 
 template <typename KernelName, typename Func, int dim>
@@ -55,7 +74,7 @@ void handler::parallel_for(const nd_range<dim> &r, Func f) {
     throw std::runtime_error("GPU handler has no cuda_threadpool backend");
   }
 
-  wait_for_dependencies();
+  paras_enqueue_dependencies();
 
   const std::size_t sharedMemoryBytes = local_memory_size();
 
@@ -68,6 +87,7 @@ void handler::parallel_for(const nd_range<dim> &r, Func f) {
   } else {
     static_assert(dim <= 3, "Only 1D/2D/3D supported");
   }
+  paras_gpu_command_enqueued();
 }
 
 }

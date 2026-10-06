@@ -157,13 +157,6 @@ void cuda_threadpool::gpu_execute_nd_range_3D(const sycl::nd_range<3> &r,
 
   const sycl::range<3> launchedGroupRange(groups0, groups1, groups2);
 
-  err = cudaStreamSynchronize(stream);
-  if (err != cudaSuccess) {
-    throw std::runtime_error(
-        std::string("CUDA failure before 3D kernel launch: ") +
-        cudaGetErrorString(err));
-  }
-
   (void)cudaGetLastError();
 
   gpu_execute_nd_range_3D_kernel<<<grid, block, sharedMemoryBytes, stream>>>(
@@ -176,11 +169,7 @@ void cuda_threadpool::gpu_execute_nd_range_3D(const sycl::nd_range<3> &r,
                              cudaGetErrorString(err));
   }
 
-  err = cudaStreamSynchronize(stream);
-  if (err != cudaSuccess) {
-    throw std::runtime_error(std::string("3D kernel execution failed: ") +
-                             cudaGetErrorString(err));
-  }
+  paras_command_enqueued("3D kernel execution failed");
 }
 
 #endif

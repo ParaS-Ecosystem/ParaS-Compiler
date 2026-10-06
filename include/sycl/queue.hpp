@@ -40,22 +40,6 @@ namespace sycl {
 
 namespace detail {
 
-struct queue_gpu_state {
-  std::mutex mtx;
-  void *stream = nullptr;
-  int native_device = -1;
-  bool arch_checked = false;
-  void (*destroy)(queue_gpu_state &) noexcept = nullptr;
-
-  queue_gpu_state() = default;
-  queue_gpu_state(const queue_gpu_state &) = delete;
-  queue_gpu_state &operator=(const queue_gpu_state &) = delete;
-  ~queue_gpu_state() {
-    if (stream != nullptr && destroy != nullptr)
-      destroy(*this);
-  }
-};
-
 template <typename Pool>
 auto adopt_gpu_state(std::shared_ptr<queue_gpu_state> &state, const Pool &pool,
                      int) -> decltype(pool.paras_gpu_state(), void()) {
@@ -177,13 +161,19 @@ public:
   }
 
   template <typename KernelName = void, typename Func, int dim>
-  event parallel_for(range<dim> r, event, Func f) {
-    return parallel_for<KernelName>(r, f);
+  event parallel_for(range<dim> r, event dep, Func f) {
+    return submit([&](handler &cgh) {
+      cgh.depends_on(dep);
+      cgh.template parallel_for<KernelName>(r, f);
+    });
   }
 
   template <typename KernelName = void, typename Func, int dim>
-  event parallel_for(range<dim> r, const std::vector<event> &, Func f) {
-    return parallel_for<KernelName>(r, f);
+  event parallel_for(range<dim> r, const std::vector<event> &deps, Func f) {
+    return submit([&](handler &cgh) {
+      cgh.depends_on(deps);
+      cgh.template parallel_for<KernelName>(r, f);
+    });
   }
 
   template <typename KernelName = void, typename Func, int dim>
@@ -193,14 +183,20 @@ public:
   }
 
   template <typename KernelName = void, typename Func, int dim>
-  event parallel_for(const nd_range<dim> &r, event, Func f) {
-    return parallel_for<KernelName>(r, f);
+  event parallel_for(const nd_range<dim> &r, event dep, Func f) {
+    return submit([&](handler &cgh) {
+      cgh.depends_on(dep);
+      cgh.template parallel_for<KernelName>(r, f);
+    });
   }
 
   template <typename KernelName = void, typename Func, int dim>
-  event parallel_for(const nd_range<dim> &r, const std::vector<event> &,
+  event parallel_for(const nd_range<dim> &r, const std::vector<event> &deps,
                      Func f) {
-    return parallel_for<KernelName>(r, f);
+    return submit([&](handler &cgh) {
+      cgh.depends_on(deps);
+      cgh.template parallel_for<KernelName>(r, f);
+    });
   }
 
   template <typename KernelName = void, typename Func>
@@ -208,17 +204,24 @@ public:
     return submit([&](handler &cgh) { cgh.template single_task<KernelName>(f); });
   }
   template <typename KernelName = void, typename Func>
-  event single_task(event, Func f) {
-    return single_task<KernelName>(f);
+  event single_task(event dep, Func f) {
+    return submit([&](handler &cgh) {
+      cgh.depends_on(dep);
+      cgh.template single_task<KernelName>(f);
+    });
   }
   template <typename KernelName = void, typename Func>
-  event single_task(const std::vector<event> &, Func f) {
-    return single_task<KernelName>(f);
+  event single_task(const std::vector<event> &deps, Func f) {
+    return submit([&](handler &cgh) {
+      cgh.depends_on(deps);
+      cgh.template single_task<KernelName>(f);
+    });
   }
 
   template <typename injectCustomFunc>
   event parasSYCL_enqueue_custom_operation(injectCustomFunc cgf) {
     return this->submit([&](sycl::handler &cgh) {
+      cgh.paras_request_native_event();
       cgh.parasSYCL_enqueue_custom_operation(cgf);
     });
   }

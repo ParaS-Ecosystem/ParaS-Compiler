@@ -43,8 +43,7 @@ template <typename Func> void cuda_threadpool::gpu_execute_1D_async(Func f) {
   (void)cudaGetLastError();
   gpu_execute_1D_async_kernel<<<1, 1, 0, stream>>>(1, f);
   paras_cuda_detail::check(cudaGetLastError(), "async 1D kernel launch failed");
-  paras_cuda_detail::check(cudaStreamSynchronize(stream),
-                           "async 1D kernel execution failed");
+  paras_command_enqueued("async 1D kernel execution failed");
 }
 
 #endif

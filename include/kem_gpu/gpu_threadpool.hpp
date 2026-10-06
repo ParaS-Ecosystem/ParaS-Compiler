@@ -92,6 +92,120 @@ inline void use_device(int device, const char *where) {
   }
 }
 
+inline bool sync_mode() {
+  static const bool on = [] {
+    const char *e = std::getenv("PARAS_GPU_SYNC");
+    return e != nullptr && e[0] == '1';
+  }();
+  return on;
+}
+
+inline void throw_on_error(cudaError_t err, const char *where) {
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string(where) + ": " +
+                             cudaGetErrorString(err));
+  }
+}
+
+inline void state_wait_until(sycl::detail::queue_gpu_state &st,
+                             unsigned long long seq, void *native) {
+  if (st.stream == nullptr) {
+    return;
+  }
+  use_device(st.native_device, "cudaSetDevice before waiting for a queue");
+  if (native != nullptr) {
+    throw_on_error(cudaEventSynchronize(static_cast<cudaEvent_t>(native)),
+                   "waiting for a command of a GPU queue");
+    st.note_completed(seq);
+  } else {
+    const unsigned long long target = st.submitted.load();
+    throw_on_error(cudaStreamSynchronize(static_cast<cudaStream_t>(st.stream)),
+                   "waiting for a GPU queue");
+    st.note_completed(target);
+  }
+}
+
+inline bool state_is_done(sycl::detail::queue_gpu_state &st,
+                          unsigned long long seq, void *native) {
+  if (st.stream == nullptr) {
+    return true;
+  }
+  use_device(st.native_device, "cudaSetDevice before querying a queue");
+  cudaError_t err;
+  unsigned long long target = seq;
+  if (native != nullptr) {
+    err = cudaEventQuery(static_cast<cudaEvent_t>(native));
+  } else {
+    target = st.submitted.load();
+    err = cudaStreamQuery(static_cast<cudaStream_t>(st.stream));
+  }
+  if (err == cudaErrorNotReady) {
+    (void)cudaGetLastError();
+    return false;
+  }
+  throw_on_error(err, "querying a GPU queue");
+  st.note_completed(target);
+  return true;
+}
+
+inline void state_release_event(sycl::detail::queue_gpu_state &st,
+                                void *native) noexcept {
+  std::lock_guard<std::mutex> lock(st.mtx);
+  st.free_events.push_back(native);
+}
+
+inline void *state_record_event(sycl::detail::queue_gpu_state &st,
+                                unsigned long long &seq) {
+  use_device(st.native_device, "cudaSetDevice before recording an event");
+  std::lock_guard<std::mutex> lock(st.mtx);
+  cudaEvent_t ev = nullptr;
+  if (!st.free_events.empty()) {
+    ev = static_cast<cudaEvent_t>(st.free_events.back());
+    st.free_events.pop_back();
+  } else {
+    throw_on_error(cudaEventCreateWithFlags(&ev, cudaEventDisableTiming),
+                   "cudaEventCreateWithFlags");
+  }
+  const cudaError_t err =
+      cudaEventRecord(ev, static_cast<cudaStream_t>(st.stream));
+  if (err != cudaSuccess) {
+    st.free_events.push_back(ev);
+    throw_on_error(err, "cudaEventRecord");
+  }
+  seq = st.submitted.fetch_add(1) + 1;
+  return ev;
+}
+
+inline void state_destroy(sycl::detail::queue_gpu_state &st) noexcept {
+  cudaStream_t s = static_cast<cudaStream_t>(st.stream);
+  st.stream = nullptr;
+
+  if (st.native_device >= 0) {
+    cudaError_t setErr = select_device(st.native_device);
+    if (setErr != cudaSuccess) {
+      std::cerr << "cudaSetDevice before cudaStreamDestroy failed: "
+                << cudaGetErrorString(setErr) << '\n';
+    }
+  }
+
+  cudaError_t syncErr = cudaStreamSynchronize(s);
+  if (syncErr != cudaSuccess) {
+    std::cerr << "cudaStreamSynchronize before destroy failed: "
+              << cudaGetErrorString(syncErr) << '\n';
+  }
+
+  for (void *ev : st.free_events) {
+    (void)cudaEventDestroy(static_cast<cudaEvent_t>(ev));
+  }
+  st.free_events.clear();
+
+  cudaError_t err = cudaStreamDestroy(s);
+  if (err != cudaSuccess) {
+    std::cerr << "cudaStreamDestroy failed: " << cudaGetErrorString(err)
+              << '\n';
+  }
+}
+
 }
 
 class cuda_threadpool {
@@ -334,11 +448,81 @@ public:
   void wait() {
     pending_->wait_all();
     ensure_stream();
-    cudaError_t errSync = cudaStreamSynchronize(stream);
-    if (errSync != cudaSuccess) {
+    try {
+      paras_cuda_detail::state_wait_until(*st_, 0, nullptr);
+    } catch (const std::runtime_error &e) {
       throw sycl::exception(
           std::string("cudaStreamSynchronize in queue::wait failed: ") +
-          cudaGetErrorString(errSync));
+          e.what());
+    }
+  }
+
+  template <typename injectCustomFunc>
+  sycl::event parasSYCL_enqueue_custom_operation(injectCustomFunc cgf) {
+    return submit([&](sycl::handler &cgh) {
+      cgh.paras_request_native_event();
+      cgh.parasSYCL_enqueue_custom_operation(cgf);
+    });
+  }
+
+  void paras_command_enqueued(const char *where) {
+    const unsigned long long seq = st_->submitted.fetch_add(1) + 1;
+    if (paras_cuda_detail::sync_mode()) {
+      paras_cuda_detail::throw_on_error(cudaStreamSynchronize(stream), where);
+      st_->note_completed(seq);
+    }
+  }
+
+  sycl::event paras_last_command_event(bool native = false) {
+    sycl::event e;
+    if (stream == nullptr) {
+      return e;
+    }
+    unsigned long long seq = st_->submitted.load();
+    void *ev = nullptr;
+    if (native && st_->completed.load() < seq) {
+      ev = paras_cuda_detail::state_record_event(*st_, seq);
+    }
+    e.paras_attach_gpu(st_, seq, ev);
+    return e;
+  }
+
+  void paras_enqueue_dependency(const sycl::event &dep) {
+    const auto ds = dep.paras_state();
+    if (ds->done.valid()) {
+      ds->done.wait();
+    }
+    const std::shared_ptr<sycl::detail::queue_gpu_state> other = ds->gpu;
+    if (!other || other == st_ || other->stream == nullptr) {
+      return;
+    }
+    if (other->completed.load() >= ds->gpu_seq.load()) {
+      return;
+    }
+    ensure_stream();
+    void *ev = ds->gpu_event.load();
+    if (ev == nullptr) {
+      unsigned long long seq = 0;
+      void *recorded = paras_cuda_detail::state_record_event(*other, seq);
+      void *expected = nullptr;
+      if (ds->gpu_event.compare_exchange_strong(expected, recorded)) {
+
+        ds->gpu_seq.store(seq);
+        ev = recorded;
+      } else {
+        paras_cuda_detail::state_release_event(*other, recorded);
+        ev = expected;
+      }
+    }
+    paras_cuda_detail::use_device(dev_.get_native_id(),
+                                  "cudaSetDevice before cudaStreamWaitEvent");
+    paras_cuda_detail::throw_on_error(
+        cudaStreamWaitEvent(stream, static_cast<cudaEvent_t>(ev), 0),
+        "cudaStreamWaitEvent");
+  }
+  void paras_enqueue_dependencies(const std::vector<sycl::event> &deps) {
+    for (const auto &e : deps) {
+      paras_enqueue_dependency(e);
     }
   }
 
@@ -372,14 +556,16 @@ public:
   template <typename KernelName = void, typename Func>
   sycl::event single_task(Func f) {
     gpu_execute_1D(sycl::range<1>(1), sycl::detail::single_task_kernel<Func>{f});
-    return sycl::event{};
+    return paras_last_command_event();
   }
   template <typename KernelName = void, typename Func>
-  sycl::event single_task(sycl::event, Func f) {
+  sycl::event single_task(sycl::event dep, Func f) {
+    paras_enqueue_dependency(dep);
     return single_task<KernelName>(f);
   }
   template <typename KernelName = void, typename Func>
-  sycl::event single_task(const std::vector<sycl::event> &, Func f) {
+  sycl::event single_task(const std::vector<sycl::event> &deps, Func f) {
+    paras_enqueue_dependencies(deps);
     return single_task<KernelName>(f);
   }
 
@@ -394,7 +580,7 @@ public:
     } else {
       static_assert(dim <= 3, "Only 1D/2D/3D supported");
     }
-    return sycl::event{};
+    return paras_last_command_event();
   }
 
   template <typename KernelName = void, typename Func, int dim>
@@ -408,71 +594,71 @@ public:
     } else {
       static_assert(dim <= 3, "Only 1D/2D/3D supported");
     }
-    return sycl::event{};
+    return paras_last_command_event();
   }
 
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(sycl::range<dim> r, sycl::event dep, Func f) {
-    dep.wait();
+    paras_enqueue_dependency(dep);
     return parallel_for<KernelName>(r, f);
   }
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(sycl::range<dim> r,
                            const std::vector<sycl::event> &deps, Func f) {
-    for (auto &e : deps) e.wait();
+    paras_enqueue_dependencies(deps);
     return parallel_for<KernelName>(r, f);
   }
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(const sycl::nd_range<dim> &r, sycl::event dep,
                            Func f) {
-    dep.wait();
+    paras_enqueue_dependency(dep);
     return parallel_for<KernelName>(r, f);
   }
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(const sycl::nd_range<dim> &r,
                            const std::vector<sycl::event> &deps, Func f) {
-    for (auto &e : deps) e.wait();
+    paras_enqueue_dependencies(deps);
     return parallel_for<KernelName>(r, f);
   }
   sycl::event memcpy(void *dest, const void *src, size_t numBytes,
                      sycl::event dep) {
-    dep.wait();
+    paras_enqueue_dependency(dep);
     return memcpy(dest, src, numBytes);
   }
   sycl::event memcpy(void *dest, const void *src, size_t numBytes,
                      const std::vector<sycl::event> &deps) {
-    for (auto &e : deps) e.wait();
+    paras_enqueue_dependencies(deps);
     return memcpy(dest, src, numBytes);
   }
   sycl::event memset(void *ptr, int value, size_t numBytes, sycl::event dep) {
-    dep.wait();
+    paras_enqueue_dependency(dep);
     return memset(ptr, value, numBytes);
   }
   sycl::event memset(void *ptr, int value, size_t numBytes,
                      const std::vector<sycl::event> &deps) {
-    for (auto &e : deps) e.wait();
+    paras_enqueue_dependencies(deps);
     return memset(ptr, value, numBytes);
   }
   template <typename T>
   sycl::event copy(const T *src, T *dest, size_t count, sycl::event dep) {
-    dep.wait();
+    paras_enqueue_dependency(dep);
     return copy(src, dest, count);
   }
   template <typename T>
   sycl::event copy(const T *src, T *dest, size_t count,
                    const std::vector<sycl::event> &deps) {
-    for (auto &e : deps) e.wait();
+    paras_enqueue_dependencies(deps);
     return copy(src, dest, count);
   }
   template <typename T>
   sycl::event fill(void *ptr, const T &pattern, size_t count, sycl::event dep) {
-    dep.wait();
+    paras_enqueue_dependency(dep);
     return fill(ptr, pattern, count);
   }
   template <typename T>
   sycl::event fill(void *ptr, const T &pattern, size_t count,
                    const std::vector<sycl::event> &deps) {
-    for (auto &e : deps) e.wait();
+    paras_enqueue_dependencies(deps);
     return fill(ptr, pattern, count);
   }
 
@@ -486,6 +672,8 @@ public:
 
   sycl::event memcpy(void *dest, const void *src, size_t numBytes) {
     ensure_stream();
+    paras_cuda_detail::use_device(dev_.get_native_id(),
+                                  "cudaSetDevice before memcpy");
 
     cudaError_t err =
         cudaMemcpyAsync(dest, src, numBytes, cudaMemcpyDefault, stream);
@@ -495,18 +683,14 @@ public:
                                cudaGetErrorString(err));
     }
 
-    err = cudaStreamSynchronize(stream);
-    if (err != cudaSuccess) {
-      throw std::runtime_error(
-          std::string("cudaStreamSynchronize after memcpy failed: ") +
-          cudaGetErrorString(err));
-    }
-
-    return sycl::event{};
+    paras_command_enqueued("cudaStreamSynchronize after memcpy failed");
+    return paras_last_command_event();
   }
 
   template <typename T> sycl::event copy(const T *src, T *dest, size_t count) {
     ensure_stream();
+    paras_cuda_detail::use_device(dev_.get_native_id(),
+                                  "cudaSetDevice before copy");
 
     cudaError_t err = cudaMemcpyAsync(
         static_cast<void *>(dest), static_cast<const void *>(src),
@@ -516,18 +700,18 @@ public:
       throw sycl::exception(cudaGetErrorString(err));
     }
 
-    err = cudaStreamSynchronize(stream);
-    if (err != cudaSuccess) {
-      throw sycl::exception(
-          std::string("cudaStreamSynchronize after copy failed: ") +
-          cudaGetErrorString(err));
+    try {
+      paras_command_enqueued("cudaStreamSynchronize after copy failed");
+    } catch (const std::runtime_error &e) {
+      throw sycl::exception(e.what());
     }
-
-    return sycl::event{};
+    return paras_last_command_event();
   }
 
   sycl::event memset(void *ptr, int value, size_t numBytes) {
     ensure_stream();
+    paras_cuda_detail::use_device(dev_.get_native_id(),
+                                  "cudaSetDevice before memset");
 
     cudaError_t err = cudaMemsetAsync(ptr, value, numBytes, stream);
 
@@ -536,14 +720,8 @@ public:
                                cudaGetErrorString(err));
     }
 
-    err = cudaStreamSynchronize(stream);
-    if (err != cudaSuccess) {
-      throw std::runtime_error(
-          std::string("cudaStreamSynchronize after memset failed: ") +
-          cudaGetErrorString(err));
-    }
-
-    return sycl::event{};
+    paras_command_enqueued("cudaStreamSynchronize after memset failed");
+    return paras_last_command_event();
   }
 
   ~cuda_threadpool() noexcept = default;
@@ -584,7 +762,10 @@ private:
       }
       st_->stream = created;
       st_->native_device = dev_.get_native_id();
-      st_->destroy = &destroy_shared_stream;
+      st_->destroy = &paras_cuda_detail::state_destroy;
+      st_->wait_until = &paras_cuda_detail::state_wait_until;
+      st_->is_done = &paras_cuda_detail::state_is_done;
+      st_->release_event = &paras_cuda_detail::state_release_event;
     }
     stream = static_cast<cudaStream_t>(st_->stream);
   }
@@ -602,32 +783,6 @@ private:
     if (!st_->arch_checked) {
       paras_detail::check_offload_arch(dev_.get_native_id());
       st_->arch_checked = true;
-    }
-  }
-
-  static void
-  destroy_shared_stream(sycl::detail::queue_gpu_state &st) noexcept {
-    cudaStream_t s = static_cast<cudaStream_t>(st.stream);
-    st.stream = nullptr;
-
-    if (st.native_device >= 0) {
-      cudaError_t setErr = paras_cuda_detail::select_device(st.native_device);
-      if (setErr != cudaSuccess) {
-        std::cerr << "cudaSetDevice before cudaStreamDestroy failed: "
-                  << cudaGetErrorString(setErr) << '\n';
-      }
-    }
-
-    cudaError_t syncErr = cudaStreamSynchronize(s);
-    if (syncErr != cudaSuccess) {
-      std::cerr << "cudaStreamSynchronize before destroy failed: "
-                << cudaGetErrorString(syncErr) << '\n';
-    }
-
-    cudaError_t err = cudaStreamDestroy(s);
-    if (err != cudaSuccess) {
-      std::cerr << "cudaStreamDestroy failed: " << cudaGetErrorString(err)
-                << '\n';
     }
   }
 
@@ -672,16 +827,18 @@ inline void handler::memset(void *ptr, int value, size_t num_bytes) {
   if (gpu_pool_ == nullptr) {
     throw std::runtime_error("handler::memset has no CUDA backend");
   }
-  wait_for_dependencies();
+  paras_enqueue_dependencies();
   (void)gpu_pool_->memset(ptr, value, num_bytes);
+  paras_gpu_command_enqueued();
 }
 
 inline void handler::memcpy(void *dest, const void *src, size_t num_bytes) {
   if (gpu_pool_ == nullptr) {
     throw std::runtime_error("handler::memcpy has no CUDA backend");
   }
-  wait_for_dependencies();
+  paras_enqueue_dependencies();
   (void)gpu_pool_->memcpy(dest, src, num_bytes);
+  paras_gpu_command_enqueued();
 }
 
 template <typename T> T *malloc_shared(size_t n, const cuda_threadpool &) {
@@ -888,12 +1045,16 @@ inline void sycl::queue::wait() {
   paras_wait_pending();
   if (gpu_pool_) {
     gpu_pool_->wait();
+  } else if (gpu_state_->stream != nullptr) {
+    paras_cuda_detail::state_wait_until(*gpu_state_, 0, nullptr);
   }
 }
 
 inline void sycl::queue::wait_and_throw() {
   if (gpu_pool_) {
     gpu_pool_->wait_and_throw();
+  } else if (gpu_state_->stream != nullptr) {
+    paras_cuda_detail::state_wait_until(*gpu_state_, 0, nullptr);
   }
 
   throw_async_exceptns();

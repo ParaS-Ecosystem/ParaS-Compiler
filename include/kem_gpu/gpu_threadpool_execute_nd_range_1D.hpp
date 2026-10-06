@@ -110,8 +110,7 @@ void cuda_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1> &r,
   paras_cuda_detail::check(cudaGetLastError(),
                            "1D nd_range kernel launch failed");
 
-  paras_cuda_detail::check(cudaStreamSynchronize(stream),
-                           "1D nd_range kernel execution failed");
+  paras_command_enqueued("1D nd_range kernel execution failed");
 }
 
 #endif
