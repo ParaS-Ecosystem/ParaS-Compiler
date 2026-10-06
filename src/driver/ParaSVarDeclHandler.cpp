@@ -18,618 +18,603 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "paras/ParaSVarDeclHandler.hpp"
 #include <system_error>
+#include "paras/ParaSVarDeclHandler.hpp"
 
 #include "clang/AST/Decl.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
-#include "clang/Lex/Lexer.h"
 #include <iostream>
+#include "clang/Lex/Lexer.h"
 
 namespace {
 
-std::string backendThreadpoolName(const std::vector<std::string> &targets) {
-  for (const std::string &target : targets) {
-    if (target == "cuda")
-      return "cuda_threadpool";
-    if (target == "hip")
-      return "rocm_threadpool";
-  }
-  return "threadpool";
+std::string backendThreadpoolName(const std::vector<std::string>& targets) {
+    for (const std::string& target : targets) {
+        if (target == "cuda")
+            return "cuda_threadpool";
+        if (target == "hip")
+            return "rocm_threadpool";
+    }
+    return "threadpool";
 }
 
-bool hasAutoTypeSpelling(const clang::VarDecl *VD) {
-  const clang::TypeSourceInfo *TSI = VD->getTypeSourceInfo();
-  return TSI && TSI->getTypeLoc().getAs<clang::AutoTypeLoc>();
+bool hasAutoTypeSpelling(const clang::VarDecl* VD) {
+    const clang::TypeSourceInfo* TSI = VD->getTypeSourceInfo();
+    return TSI && TSI->getTypeLoc().getAs<clang::AutoTypeLoc>();
+}
+
+bool isInitializedWithNewQueue(const clang::VarDecl* VD) {
+    if (!VD || !VD->hasInit())
+        return false;
+    const clang::Expr* init = VD->getInit()->IgnoreParenImpCasts();
+    if (const auto* EWC = llvm::dyn_cast<clang::ExprWithCleanups>(init))
+        init = EWC->getSubExpr()->IgnoreParenImpCasts();
+    const auto* NE = llvm::dyn_cast<clang::CXXNewExpr>(init);
+    if (!NE)
+        return false;
+    const clang::CXXRecordDecl* Record = NE->getAllocatedType()->getAsCXXRecordDecl();
+    return Record && Record->getQualifiedNameAsString() == "sycl::queue";
 }
 
 } // namespace
 
-void VarDeclReplacer::run(
-    const clang::ast_matchers::MatchFinder::MatchResult &result) {
-
-  if (const clang::CXXNewExpr *NE =
-          result.Nodes.getNodeAs<clang::CXXNewExpr>("new-queue")) {
-    const clang::CXXRecordDecl *Record =
-        NE->getAllocatedType()->getAsCXXRecordDecl();
-    if (!Record || Record->getQualifiedNameAsString() != "sycl::queue")
-      return;
-
-    clang::TypeSourceInfo *TSI = NE->getAllocatedTypeSourceInfo();
-    if (!TSI)
-      return;
-
-    clang::TypeLoc TL = TSI->getTypeLoc();
-    clang::SourceRange replaceRange = TL.getSourceRange();
-    if (!replaceRange.isValid())
-      return;
-
-    rewriter.ReplaceText(replaceRange,
-                         backendThreadpoolName(bkend_target));
-    return;
-  }
-
-    if (const auto *CtorExpr = result.Nodes.getNodeAs<clang::CXXConstructExpr>(
-          "queue-copy-construct")) {
-    if (!result.SourceManager || !result.Context)
-      return;
-
-    const clang::CXXConstructorDecl *Ctor = CtorExpr->getConstructor();
-    if (!Ctor || !Ctor->isCopyConstructor() || CtorExpr->getNumArgs() != 1)
-      return;
-
-    const clang::SourceManager &SM = *result.SourceManager;
-    const clang::LangOptions &LangOpts = result.Context->getLangOpts();
-
-    clang::SourceLocation beginLoc = CtorExpr->getBeginLoc();
-    clang::SourceLocation endLoc = CtorExpr->getEndLoc();
-
-    if (!beginLoc.isValid() || !endLoc.isValid() || beginLoc.isMacroID() ||
-        endLoc.isMacroID() || !SM.isWrittenInSameFile(beginLoc, endLoc))
-      return;
-
-    clang::CharSourceRange constructRange =
-        clang::CharSourceRange::getTokenRange(beginLoc, endLoc);
-
-    bool invalid = false;
-    llvm::StringRef constructSource =
-        clang::Lexer::getSourceText(constructRange, SM, LangOpts, &invalid);
-    if (invalid)
-      return;
-
-    if (constructSource.find("sycl::queue") == llvm::StringRef::npos)
-      return;
-
-    const clang::Expr *Arg = CtorExpr->getArg(0);
-    if (!Arg)
-      return;
-
-    clang::SourceLocation argBegin = Arg->getBeginLoc();
-    clang::SourceLocation argEnd = Arg->getEndLoc();
-
-    if (!argBegin.isValid() || !argEnd.isValid() || argBegin.isMacroID() ||
-        argEnd.isMacroID() || !SM.isWrittenInSameFile(argBegin, argEnd))
-      return;
-
-    clang::CharSourceRange argRange =
-        clang::CharSourceRange::getTokenRange(argBegin, argEnd);
-
-    invalid = false;
-    llvm::StringRef argSource =
-        clang::Lexer::getSourceText(argRange, SM, LangOpts, &invalid);
-    if (invalid || argSource.empty())
-      return;
-
-    const std::string replacement = "(" + argSource.str() + ")";
-
-    if (rewriter.ReplaceText(constructRange, replacement)) {
-      llvm::errs() << "[ParaS] failed to lower explicit sycl::queue copy\n";
-      return;
-    }
-
-    llvm::errs() << "[ParaS] lowered explicit sycl::queue copy to underlying "
-                    "queue expression\n";
-    return;
-  }
-
-  if (const clang::VarDecl *VD =
-          result.Nodes.getNodeAs<clang::VarDecl>("vardecl-1")) {
-    if (hasAutoTypeSpelling(VD))
-      return;
-
-    int flag = 0;
-    const clang::Expr *StrippedExpr = VD->getInit()->IgnoreParenImpCasts();
-
-    if (const auto *EWC =
-            llvm::dyn_cast<clang::ExprWithCleanups>(StrippedExpr)) {
-      StrippedExpr = EWC->getSubExpr()->IgnoreParenImpCasts();
-    }
-
-    if (const auto *MTE =
-            llvm::dyn_cast<clang::MaterializeTemporaryExpr>(StrippedExpr)) {
-      StrippedExpr = MTE->getSubExpr()->IgnoreParenImpCasts();
-    }
-
-    if (const auto *CtorExpr =
-            llvm::dyn_cast<clang::CXXConstructExpr>(StrippedExpr)) {
-      if (CtorExpr->getNumArgs() == 2) {
-        if (const clang::DeclRefExpr *lambda =
-                llvm::dyn_cast<clang::DeclRefExpr>(CtorExpr->getArg(0))) {
-          if (const clang::VarDecl *selector =
-                  llvm::dyn_cast<clang::VarDecl>(lambda->getDecl())) {
-
-            if (selector->getNameAsString() == "cpu_selector_v" &&
-                !bkend_target[0].empty()) {
-              llvm::errs() << "Error: Found cpu queue but compiling for gpu "
-                              "(gave -parasdevice flag)"
-                           << "\n";
-              exit(1);
-            } else if (selector->getNameAsString() == "gpu_selector_v" &&
-                       bkend_target[0].empty()) {
-              llvm::errs() << "Error: Found gpu queue but no device found!"
-                           << "\n";
-              exit(1);
-            } else if (selector->getNameAsString() == "gpu_selector_v" &&
-                       !bkend_target[0].empty()) {
-              for (std::string each_bkend_target : bkend_target) {
-                if (each_bkend_target == "cuda") {
-                  flag = 1;
-                } else if (each_bkend_target == "hip") {
-                  flag = 2;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    const clang::SourceManager *SM = result.SourceManager;
-    clang::SourceLocation type_startloc = VD->getTypeSpecStartLoc();
-    clang::SourceLocation type_endloc = VD->getTypeSpecEndLoc();
-    if (flag == 1) {
-      rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc),
-                           "cuda_threadpool");
-      return;
-    }
-
-    else if (flag == 2) {
-      rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc),
-                           "rocm_threadpool");
-      return;
-    } else {
-      if (bkend_target[0].empty()) {
-        rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc),
-                             "threadpool");
-      } else {
-        for (std::string each_bkend_target : bkend_target) {
-          if (each_bkend_target == "cuda") {
-            rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc),
-                                 "cuda_threadpool");
+void VarDeclReplacer::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
+    if (const clang::CXXNewExpr* NE = result.Nodes.getNodeAs<clang::CXXNewExpr>("new-queue")) {
+        const clang::CXXRecordDecl* Record = NE->getAllocatedType()->getAsCXXRecordDecl();
+        if (!Record || Record->getQualifiedNameAsString() != "sycl::queue")
             return;
-          } else if (each_bkend_target == "hip") {
-            rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc),
-                                 "rocm_threadpool");
+
+        clang::TypeSourceInfo* TSI = NE->getAllocatedTypeSourceInfo();
+        if (!TSI)
             return;
-          }
-        }
-      }
+
+        clang::TypeLoc TL = TSI->getTypeLoc();
+        clang::SourceRange replaceRange = TL.getSourceRange();
+        if (!replaceRange.isValid())
+            return;
+
+        rewriter.ReplaceText(replaceRange, backendThreadpoolName(bkend_target));
+        return;
     }
 
-    return;
-  }
+    if (const auto* CtorExpr =
+            result.Nodes.getNodeAs<clang::CXXConstructExpr>("queue-copy-construct")) {
+        if (!result.SourceManager || !result.Context)
+            return;
 
-  if (const clang::VarDecl *VD =
-          result.Nodes.getNodeAs<clang::VarDecl>("vardecl-2")) {
-    int flag = 0;
-    if (VD->hasInit()) {
-      if (const clang::DeclRefExpr *RefVar =
-              llvm::dyn_cast<clang::DeclRefExpr>(VD->getInit())) {
-        if (const clang::VarDecl *RefVD =
-                llvm::dyn_cast<clang::VarDecl>(RefVar->getDecl())) {
-          const clang::Expr *StrippedExpr =
-              RefVD->getInit()->IgnoreParenImpCasts();
+        const clang::CXXConstructorDecl* Ctor = CtorExpr->getConstructor();
+        if (!Ctor || !Ctor->isCopyConstructor() || CtorExpr->getNumArgs() != 1)
+            return;
 
-          if (const auto *EWC =
-                  llvm::dyn_cast<clang::ExprWithCleanups>(StrippedExpr)) {
+        const clang::SourceManager& SM = *result.SourceManager;
+        const clang::LangOptions& LangOpts = result.Context->getLangOpts();
+
+        clang::SourceLocation beginLoc = CtorExpr->getBeginLoc();
+        clang::SourceLocation endLoc = CtorExpr->getEndLoc();
+
+        if (!beginLoc.isValid() || !endLoc.isValid() || beginLoc.isMacroID() ||
+            endLoc.isMacroID() || !SM.isWrittenInSameFile(beginLoc, endLoc))
+            return;
+
+        clang::CharSourceRange constructRange =
+            clang::CharSourceRange::getTokenRange(beginLoc, endLoc);
+
+        bool invalid = false;
+        llvm::StringRef constructSource =
+            clang::Lexer::getSourceText(constructRange, SM, LangOpts, &invalid);
+        if (invalid)
+            return;
+
+        if (constructSource.find("sycl::queue") == llvm::StringRef::npos)
+            return;
+
+        const clang::Expr* Arg = CtorExpr->getArg(0);
+        if (!Arg)
+            return;
+
+        clang::SourceLocation argBegin = Arg->getBeginLoc();
+        clang::SourceLocation argEnd = Arg->getEndLoc();
+
+        if (!argBegin.isValid() || !argEnd.isValid() || argBegin.isMacroID() ||
+            argEnd.isMacroID() || !SM.isWrittenInSameFile(argBegin, argEnd))
+            return;
+
+        clang::CharSourceRange argRange = clang::CharSourceRange::getTokenRange(argBegin, argEnd);
+
+        invalid = false;
+        llvm::StringRef argSource = clang::Lexer::getSourceText(argRange, SM, LangOpts, &invalid);
+        if (invalid || argSource.empty())
+            return;
+
+        const std::string replacement = "(" + argSource.str() + ")";
+
+        if (rewriter.ReplaceText(constructRange, replacement)) {
+            llvm::errs() << "[ParaS] failed to lower explicit sycl::queue copy\n";
+            return;
+        }
+
+        llvm::errs() << "[ParaS] lowered explicit sycl::queue copy to underlying "
+                        "queue expression\n";
+        return;
+    }
+
+    if (const clang::VarDecl* VD = result.Nodes.getNodeAs<clang::VarDecl>("vardecl-1")) {
+        int flag = 0;
+        const clang::Expr* Init = VD->getInit();
+        const clang::Expr* StrippedExpr = Init ? Init->IgnoreParenImpCasts() : nullptr;
+
+        if (const auto* EWC = llvm::dyn_cast_or_null<clang::ExprWithCleanups>(StrippedExpr)) {
             StrippedExpr = EWC->getSubExpr()->IgnoreParenImpCasts();
-          }
-
-          if (const auto *MTE = llvm::dyn_cast<clang::MaterializeTemporaryExpr>(
-                  StrippedExpr)) {
-            StrippedExpr = MTE->getSubExpr()->IgnoreParenImpCasts();
-          }
-
-          if (const auto *CtorExpr =
-                  llvm::dyn_cast<clang::CXXConstructExpr>(StrippedExpr)) {
-            if (CtorExpr->getNumArgs() == 2) {
-              if (const clang::DeclRefExpr *lambda =
-                      llvm::dyn_cast<clang::DeclRefExpr>(CtorExpr->getArg(0))) {
-                if (const clang::VarDecl *selector =
-                        llvm::dyn_cast<clang::VarDecl>(lambda->getDecl())) {
-                  if (selector->getNameAsString() == "cpu_selector_v" &&
-                      !bkend_target[0].empty()) {
-                    llvm::errs() << "Error: Found cpu queue but compiling for "
-                                    "gpu (gave -parasdevice flag)"
-                                 << "\n";
-                    exit(1);
-                  } else if (selector->getNameAsString() == "gpu_selector_v" &&
-                             bkend_target[0].empty()) {
-                    llvm::errs()
-                        << "Error: Found gpu queue but no device found!"
-                        << "\n";
-                    exit(1);
-                  } else if (selector->getNameAsString() == "gpu_selector_v" &&
-                             !bkend_target[0].empty()) {
-                    for (std::string each_bkend_target : bkend_target) {
-                      if (each_bkend_target == "cuda") {
-                        flag = 1;
-                      } else if (each_bkend_target == "hip") {
-                        flag = 2;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
         }
-      }
+
+        if (const auto* MTE =
+                llvm::dyn_cast_or_null<clang::MaterializeTemporaryExpr>(StrippedExpr)) {
+            StrippedExpr = MTE->getSubExpr()->IgnoreParenImpCasts();
+        }
+
+        if (const auto* CtorExpr = llvm::dyn_cast_or_null<clang::CXXConstructExpr>(StrippedExpr)) {
+            if (CtorExpr->getNumArgs() == 2) {
+                if (const clang::DeclRefExpr* lambda =
+                        llvm::dyn_cast<clang::DeclRefExpr>(CtorExpr->getArg(0))) {
+                    if (const clang::VarDecl* selector =
+                            llvm::dyn_cast<clang::VarDecl>(lambda->getDecl())) {
+
+                        if (selector->getNameAsString() == "cpu_selector_v" &&
+                            !bkend_target[0].empty()) {
+                            llvm::errs()
+                                << "Error: Found cpu queue but compiling for gpu (gave -parasdevice flag)"
+                                << "\n";
+                            exit(1);
+                        } else if (selector->getNameAsString() == "gpu_selector_v" &&
+                                   bkend_target[0].empty()) {
+                            llvm::errs() << "Error: Found gpu queue but no device found!" << "\n";
+                            exit(1);
+                        } else if (selector->getNameAsString() == "gpu_selector_v" &&
+                                   !bkend_target[0].empty()) {
+                            for (std::string each_bkend_target : bkend_target) {
+                                if (each_bkend_target == "cuda") {
+                                    flag = 1;
+                                } else if (each_bkend_target == "hip") {
+                                    flag = 2;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const clang::SourceManager* SM = result.SourceManager;
+        clang::SourceLocation type_startloc = VD->getTypeSpecStartLoc();
+        clang::SourceLocation type_endloc = VD->getTypeSpecEndLoc();
+        if (flag == 1) {
+            rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc), "cuda_threadpool");
+            return;
+        }
+
+        else if (flag == 2) {
+            rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc), "rocm_threadpool");
+            return;
+        } else {
+            if (bkend_target[0].empty()) {
+                rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc), "threadpool");
+            } else {
+                for (std::string each_bkend_target : bkend_target) {
+                    if (each_bkend_target == "cuda") {
+                        rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc),
+                                             "cuda_threadpool");
+                        return;
+                    } else if (each_bkend_target == "hip") {
+                        rewriter.ReplaceText(clang::SourceRange(type_startloc, type_endloc),
+                                             "rocm_threadpool");
+                        return;
+                    }
+                }
+            }
+        }
+
+        return;
     }
 
-    const clang::SourceManager *SM = result.SourceManager;
-    clang::SourceLocation type_startloc = VD->getTypeSpecStartLoc();
-    clang::QualType pointeetype = VD->getType()->getPointeeType();
-    clang::TypeLoc TL = VD->getTypeSourceInfo()->getTypeLoc();
-    clang::ReferenceTypeLoc RTL = TL.castAs<clang::ReferenceTypeLoc>();
-    clang::TypeLoc InnerTL = RTL.getPointeeLoc();
-    clang::SourceRange replaceRange = InnerTL.getSourceRange();
+    if (const clang::VarDecl* VD = result.Nodes.getNodeAs<clang::VarDecl>("vardecl-2")) {
+        int flag = 0;
+        if (VD->hasInit()) {
+            if (const clang::DeclRefExpr* RefVar =
+                    llvm::dyn_cast<clang::DeclRefExpr>(VD->getInit())) {
+                if (const clang::VarDecl* RefVD =
+                        llvm::dyn_cast<clang::VarDecl>(RefVar->getDecl())) {
+                    const clang::Expr* StrippedExpr = RefVD->getInit()->IgnoreParenImpCasts();
 
-    if (flag == 1) {
-      rewriter.ReplaceText(replaceRange, "cuda_threadpool");
-      return;
-    }
+                    if (const auto* EWC = llvm::dyn_cast<clang::ExprWithCleanups>(StrippedExpr)) {
+                        StrippedExpr = EWC->getSubExpr()->IgnoreParenImpCasts();
+                    }
 
-    else if (flag == 2) {
-      rewriter.ReplaceText(replaceRange, "rocm_threadpool");
-      return;
-    } else {
-      if (bkend_target[0].empty()) {
-        rewriter.ReplaceText(replaceRange, "threadpool");
-      } else {
-        for (std::string each_bkend_target : bkend_target) {
-          if (each_bkend_target == "cuda") {
+                    if (const auto* MTE =
+                            llvm::dyn_cast<clang::MaterializeTemporaryExpr>(StrippedExpr)) {
+                        StrippedExpr = MTE->getSubExpr()->IgnoreParenImpCasts();
+                    }
+
+                    if (const auto* CtorExpr =
+                            llvm::dyn_cast<clang::CXXConstructExpr>(StrippedExpr)) {
+                        if (CtorExpr->getNumArgs() == 2) {
+                            if (const clang::DeclRefExpr* lambda =
+                                    llvm::dyn_cast<clang::DeclRefExpr>(CtorExpr->getArg(0))) {
+                                if (const clang::VarDecl* selector =
+                                        llvm::dyn_cast<clang::VarDecl>(lambda->getDecl())) {
+                                    if (selector->getNameAsString() == "cpu_selector_v" &&
+                                        !bkend_target[0].empty()) {
+                                        llvm::errs()
+                                            << "Error: Found cpu queue but compiling for gpu (gave -parasdevice flag)"
+                                            << "\n";
+                                        exit(1);
+                                    } else if (selector->getNameAsString() == "gpu_selector_v" &&
+                                               bkend_target[0].empty()) {
+                                        llvm::errs()
+                                            << "Error: Found gpu queue but no device found!"
+                                            << "\n";
+                                        exit(1);
+                                    } else if (selector->getNameAsString() == "gpu_selector_v" &&
+                                               !bkend_target[0].empty()) {
+                                        for (std::string each_bkend_target : bkend_target) {
+                                            if (each_bkend_target == "cuda") {
+                                                flag = 1;
+                                            } else if (each_bkend_target == "hip") {
+                                                flag = 2;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const clang::SourceManager* SM = result.SourceManager;
+        clang::SourceLocation type_startloc = VD->getTypeSpecStartLoc();
+        clang::QualType pointeetype = VD->getType()->getPointeeType();
+        clang::TypeLoc TL = VD->getTypeSourceInfo()->getTypeLoc();
+        clang::ReferenceTypeLoc RTL = TL.castAs<clang::ReferenceTypeLoc>();
+        clang::TypeLoc InnerTL = RTL.getPointeeLoc();
+        clang::SourceRange replaceRange = InnerTL.getSourceRange();
+
+        if (flag == 1) {
             rewriter.ReplaceText(replaceRange, "cuda_threadpool");
             return;
-          } else if (each_bkend_target == "hip") {
+        }
+
+        else if (flag == 2) {
             rewriter.ReplaceText(replaceRange, "rocm_threadpool");
             return;
-          }
-        }
-      }
-    }
-  }
-
-  if (const clang::VarDecl *VD =
-          result.Nodes.getNodeAs<clang::VarDecl>("vardecl-3")) {
-  }
-
-  if (const clang::FieldDecl *FD =
-          result.Nodes.getNodeAs<clang::FieldDecl>("vardecl-4")) {
-    int flag = 0;
-
-    if (!FD->getType()->isReferenceType()) {
-
-      if (FD->hasInClassInitializer()) {
-
-        const clang::Expr *StrippedExpr =
-            FD->getInClassInitializer()->IgnoreParenImpCasts();
-
-        if (const auto *EWC =
-                llvm::dyn_cast<clang::ExprWithCleanups>(StrippedExpr)) {
-          StrippedExpr = EWC->getSubExpr()->IgnoreParenImpCasts();
-        }
-
-        if (const auto *MTE =
-                llvm::dyn_cast<clang::MaterializeTemporaryExpr>(StrippedExpr)) {
-          StrippedExpr = MTE->getSubExpr()->IgnoreParenImpCasts();
-        }
-
-        if (const auto *CtorExpr =
-                llvm::dyn_cast<clang::CXXConstructExpr>(StrippedExpr)) {
-
-          if (CtorExpr->getNumArgs() == 2) {
-
-            if (const clang::DeclRefExpr *lambda =
-                    llvm::dyn_cast<clang::DeclRefExpr>(CtorExpr->getArg(0))) {
-
-              if (const clang::VarDecl *selector =
-                      llvm::dyn_cast<clang::VarDecl>(lambda->getDecl())) {
-
-                if (selector->getNameAsString() == "cpu_selector_v" &&
-                    !bkend_target[0].empty()) {
-
-                  llvm::errs()
-                      << "Error: Found cpu queue but compiling for gpu "
-                         "(gave -parasdevice flag)\n";
-                  exit(1);
-                }
-
-                else if (selector->getNameAsString() == "gpu_selector_v" &&
-                         bkend_target[0].empty()) {
-
-                  llvm::errs()
-                      << "Error: Found gpu queue but no device found!\n";
-                  exit(1);
-                }
-
-                else if (selector->getNameAsString() == "gpu_selector_v" &&
-                         !bkend_target[0].empty()) {
-
-                  for (std::string each_bkend_target : bkend_target) {
-
+        } else {
+            if (bkend_target[0].empty()) {
+                rewriter.ReplaceText(replaceRange, "threadpool");
+            } else {
+                for (std::string each_bkend_target : bkend_target) {
                     if (each_bkend_target == "cuda") {
-                      flag = 1;
+                        rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+                        return;
+                    } else if (each_bkend_target == "hip") {
+                        rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+                        return;
                     }
-
-                    else if (each_bkend_target == "hip") {
-                      flag = 2;
-                    }
-                  }
                 }
-              }
             }
-          }
         }
-      }
+    }
 
-      clang::TypeLoc TL = FD->getTypeSourceInfo()->getTypeLoc();
+    if (const clang::VarDecl* VD = result.Nodes.getNodeAs<clang::VarDecl>("vardecl-3")) {
+    }
 
-      clang::SourceRange replaceRange = TL.getSourceRange();
+    if (const clang::FieldDecl* FD = result.Nodes.getNodeAs<clang::FieldDecl>("vardecl-4")) {
+        int flag = 0;
 
-      if (flag == 1) {
+        if (!FD->getType()->isReferenceType()) {
 
-        rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+            if (FD->hasInClassInitializer()) {
 
-        return;
-      }
+                const clang::Expr* StrippedExpr =
+                    FD->getInClassInitializer()->IgnoreParenImpCasts();
 
-      else if (flag == 2) {
+                if (const auto* EWC = llvm::dyn_cast<clang::ExprWithCleanups>(StrippedExpr)) {
+                    StrippedExpr = EWC->getSubExpr()->IgnoreParenImpCasts();
+                }
 
-        rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+                if (const auto* MTE =
+                        llvm::dyn_cast<clang::MaterializeTemporaryExpr>(StrippedExpr)) {
+                    StrippedExpr = MTE->getSubExpr()->IgnoreParenImpCasts();
+                }
 
-        return;
-      }
+                if (const auto* CtorExpr = llvm::dyn_cast<clang::CXXConstructExpr>(StrippedExpr)) {
 
-      else {
+                    if (CtorExpr->getNumArgs() == 2) {
 
-        if (bkend_target[0].empty()) {
+                        if (const clang::DeclRefExpr* lambda =
+                                llvm::dyn_cast<clang::DeclRefExpr>(CtorExpr->getArg(0))) {
 
-          rewriter.ReplaceText(replaceRange, "threadpool");
-          return;
+                            if (const clang::VarDecl* selector =
+                                    llvm::dyn_cast<clang::VarDecl>(lambda->getDecl())) {
+
+                                if (selector->getNameAsString() == "cpu_selector_v" &&
+                                    !bkend_target[0].empty()) {
+
+                                    llvm::errs() << "Error: Found cpu queue but compiling for gpu "
+                                                    "(gave -parasdevice flag)\n";
+                                    exit(1);
+                                }
+
+                                else if (selector->getNameAsString() == "gpu_selector_v" &&
+                                         bkend_target[0].empty()) {
+
+                                    llvm::errs() << "Error: Found gpu queue but no device found!\n";
+                                    exit(1);
+                                }
+
+                                else if (selector->getNameAsString() == "gpu_selector_v" &&
+                                         !bkend_target[0].empty()) {
+
+                                    for (std::string each_bkend_target : bkend_target) {
+
+                                        if (each_bkend_target == "cuda") {
+                                            flag = 1;
+                                        }
+
+                                        else if (each_bkend_target == "hip") {
+                                            flag = 2;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            clang::TypeLoc TL = FD->getTypeSourceInfo()->getTypeLoc();
+
+            clang::SourceRange replaceRange = TL.getSourceRange();
+
+            if (flag == 1) {
+
+                rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+
+                return;
+            }
+
+            else if (flag == 2) {
+
+                rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+
+                return;
+            }
+
+            else {
+
+                if (bkend_target[0].empty()) {
+
+                    rewriter.ReplaceText(replaceRange, "threadpool");
+                    return;
+                }
+
+                else {
+
+                    for (std::string each_bkend_target : bkend_target) {
+
+                        if (each_bkend_target == "cuda") {
+
+                            rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+
+                            return;
+                        }
+
+                        else if (each_bkend_target == "hip") {
+
+                            rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+
+                            return;
+                        }
+                    }
+                }
+            }
         }
 
         else {
 
-          for (std::string each_bkend_target : bkend_target) {
+            clang::TypeLoc TL = FD->getTypeSourceInfo()->getTypeLoc();
+
+            if (auto RTL = TL.getAs<clang::ReferenceTypeLoc>()) {
+                TL = RTL.getPointeeLoc();
+            }
+
+            clang::SourceRange replaceRange = TL.getSourceRange();
+
+            if (flag == 1) {
+
+                rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+
+                return;
+            }
+
+            else if (flag == 2) {
+
+                rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+
+                return;
+            }
+
+            else {
+
+                if (bkend_target[0].empty()) {
+
+                    rewriter.ReplaceText(replaceRange, "threadpool");
+                    return;
+                }
+
+                else {
+
+                    for (std::string each_bkend_target : bkend_target) {
+
+                        if (each_bkend_target == "cuda") {
+
+                            rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+
+                            return;
+                        }
+
+                        else if (each_bkend_target == "hip") {
+
+                            rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (const clang::FieldDecl* FD = result.Nodes.getNodeAs<clang::FieldDecl>("fielddecl-3")) {
+
+        clang::TypeSourceInfo* TSI = FD->getTypeSourceInfo();
+
+        if (!TSI)
+            return;
+
+        clang::TypeLoc TL = TSI->getTypeLoc();
+
+        if (auto PTL = TL.getAs<clang::PointerTypeLoc>()) {
+
+            TL = PTL.getPointeeLoc();
+        }
+
+        clang::SourceRange replaceRange = TL.getSourceRange();
+
+        if (!replaceRange.isValid())
+            return;
+
+        for (std::string each_bkend_target : bkend_target) {
 
             if (each_bkend_target == "cuda") {
 
-              rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+                rewriter.ReplaceText(replaceRange, "cuda_threadpool");
 
-              return;
+                return;
             }
 
             else if (each_bkend_target == "hip") {
 
-              rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+                rewriter.ReplaceText(replaceRange, "rocm_threadpool");
 
-              return;
+                return;
             }
-          }
         }
-      }
-    }
-
-    else {
-
-      clang::TypeLoc TL = FD->getTypeSourceInfo()->getTypeLoc();
-
-      if (auto RTL = TL.getAs<clang::ReferenceTypeLoc>()) {
-        TL = RTL.getPointeeLoc();
-      }
-
-      clang::SourceRange replaceRange = TL.getSourceRange();
-
-      if (flag == 1) {
-
-        rewriter.ReplaceText(replaceRange, "cuda_threadpool");
-
-        return;
-      }
-
-      else if (flag == 2) {
-
-        rewriter.ReplaceText(replaceRange, "rocm_threadpool");
-
-        return;
-      }
-
-      else {
 
         if (bkend_target[0].empty()) {
 
-          rewriter.ReplaceText(replaceRange, "threadpool");
-          return;
+            rewriter.ReplaceText(replaceRange, "threadpool");
+
+            return;
+        }
+    }
+
+    if (const clang::FunctionDecl* FD = result.Nodes.getNodeAs<clang::FunctionDecl>("vardecl-5")) {
+
+        clang::TypeSourceInfo* TSI = FD->getTypeSourceInfo();
+
+        if (!TSI)
+            return;
+
+        clang::TypeLoc TL = TSI->getTypeLoc();
+
+        auto FTL = TL.getAs<clang::FunctionTypeLoc>();
+
+        if (!FTL)
+            return;
+
+        clang::TypeLoc ReturnTL = FTL.getReturnLoc();
+
+        if (auto RTL = ReturnTL.getAs<clang::ReferenceTypeLoc>()) {
+
+            ReturnTL = RTL.getPointeeLoc();
         }
 
-        else {
+        clang::SourceRange replaceRange = ReturnTL.getSourceRange();
 
-          for (std::string each_bkend_target : bkend_target) {
+        if (!replaceRange.isValid())
+            return;
+
+        for (std::string each_bkend_target : bkend_target) {
 
             if (each_bkend_target == "cuda") {
 
-              rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+                rewriter.ReplaceText(replaceRange, "cuda_threadpool");
 
-              return;
+                return;
             }
 
             else if (each_bkend_target == "hip") {
 
-              rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+                rewriter.ReplaceText(replaceRange, "rocm_threadpool");
 
-              return;
+                return;
             }
-          }
         }
-      }
-    }
-  }
 
-  if (const clang::FieldDecl *FD =
-          result.Nodes.getNodeAs<clang::FieldDecl>("fielddecl-3")) {
+        if (bkend_target[0].empty()) {
 
-    clang::TypeSourceInfo *TSI = FD->getTypeSourceInfo();
+            rewriter.ReplaceText(replaceRange, "threadpool");
 
-    if (!TSI)
-      return;
-
-    clang::TypeLoc TL = TSI->getTypeLoc();
-
-    if (auto PTL = TL.getAs<clang::PointerTypeLoc>()) {
-
-      TL = PTL.getPointeeLoc();
+            return;
+        }
     }
 
-    clang::SourceRange replaceRange = TL.getSourceRange();
+    if (const clang::VarDecl* VD = result.Nodes.getNodeAs<clang::VarDecl>("vardecl-6")) {
 
-    if (!replaceRange.isValid())
-      return;
+        if (hasAutoTypeSpelling(VD) && isInitializedWithNewQueue(VD))
+            return;
 
-    for (std::string each_bkend_target : bkend_target) {
+        clang::TypeSourceInfo* TSI = VD->getTypeSourceInfo();
 
-      if (each_bkend_target == "cuda") {
+        if (!TSI)
+            return;
 
-        rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+        clang::TypeLoc TL = TSI->getTypeLoc();
 
-        return;
-      }
+        if (auto PTL = TL.getAs<clang::PointerTypeLoc>()) {
 
-      else if (each_bkend_target == "hip") {
+            TL = PTL.getPointeeLoc();
+        }
 
-        rewriter.ReplaceText(replaceRange, "roc_threadpool");
+        clang::SourceRange replaceRange = TL.getSourceRange();
 
-        return;
-      }
+        if (!replaceRange.isValid())
+            return;
+
+        for (std::string each_bkend_target : bkend_target) {
+
+            if (each_bkend_target == "cuda") {
+
+                rewriter.ReplaceText(replaceRange, "cuda_threadpool");
+
+                return;
+            }
+
+            else if (each_bkend_target == "hip") {
+
+                rewriter.ReplaceText(replaceRange, "rocm_threadpool");
+
+                return;
+            }
+        }
+
+        if (bkend_target[0].empty()) {
+
+            rewriter.ReplaceText(replaceRange, "threadpool");
+
+            return;
+        }
     }
-
-    if (bkend_target[0].empty()) {
-
-      rewriter.ReplaceText(replaceRange, "threadpool");
-
-      return;
-    }
-  }
-
-  if (const clang::FunctionDecl *FD =
-          result.Nodes.getNodeAs<clang::FunctionDecl>("vardecl-5")) {
-
-    clang::TypeSourceInfo *TSI = FD->getTypeSourceInfo();
-
-    if (!TSI)
-      return;
-
-    clang::TypeLoc TL = TSI->getTypeLoc();
-
-    auto FTL = TL.getAs<clang::FunctionTypeLoc>();
-
-    if (!FTL)
-      return;
-
-    clang::TypeLoc ReturnTL = FTL.getReturnLoc();
-
-    if (auto RTL = ReturnTL.getAs<clang::ReferenceTypeLoc>()) {
-
-      ReturnTL = RTL.getPointeeLoc();
-    }
-
-    clang::SourceRange replaceRange = ReturnTL.getSourceRange();
-
-    if (!replaceRange.isValid())
-      return;
-
-    for (std::string each_bkend_target : bkend_target) {
-
-      if (each_bkend_target == "cuda") {
-
-        rewriter.ReplaceText(replaceRange, "cuda_threadpool");
-
-        return;
-      }
-
-      else if (each_bkend_target == "hip") {
-
-        rewriter.ReplaceText(replaceRange, "roc_threadpool");
-
-        return;
-      }
-    }
-
-    if (bkend_target[0].empty()) {
-
-      rewriter.ReplaceText(replaceRange, "threadpool");
-
-      return;
-    }
-  }
-
-  if (const clang::VarDecl *VD =
-          result.Nodes.getNodeAs<clang::VarDecl>("vardecl-6")) {
-
-    if (hasAutoTypeSpelling(VD))
-      return;
-
-    clang::TypeSourceInfo *TSI = VD->getTypeSourceInfo();
-
-    if (!TSI)
-      return;
-
-    clang::TypeLoc TL = TSI->getTypeLoc();
-
-    if (auto PTL = TL.getAs<clang::PointerTypeLoc>()) {
-
-      TL = PTL.getPointeeLoc();
-    }
-
-    clang::SourceRange replaceRange = TL.getSourceRange();
-
-    if (!replaceRange.isValid())
-      return;
-
-    for (std::string each_bkend_target : bkend_target) {
-
-      if (each_bkend_target == "cuda") {
-
-        rewriter.ReplaceText(replaceRange, "cuda_threadpool");
-
-        return;
-      }
-
-      else if (each_bkend_target == "hip") {
-
-        rewriter.ReplaceText(replaceRange, "roc_threadpool");
-
-        return;
-      }
-    }
-
-    if (bkend_target[0].empty()) {
-
-      rewriter.ReplaceText(replaceRange, "threadpool");
-
-      return;
-    }
-  }
 }
