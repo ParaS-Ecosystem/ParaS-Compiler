@@ -843,11 +843,11 @@ inline void handler::memcpy(void *dest, const void *src, size_t num_bytes) {
 
 inline void paras_prepare_shared_allocation(void *ptr, size_t bytes, int device) {
 #if PARAS_HIP_BACKEND
-  static const bool keep_fine = [] {
-    const char *e = std::getenv("PARAS_HIP_FINE_GRAIN_SHARED");
+  static const bool coarse = [] {
+    const char *e = std::getenv("PARAS_HIP_COARSE_GRAIN_SHARED");
     return e != nullptr && e[0] == '1';
   }();
-  if (ptr != nullptr && bytes != 0 && !keep_fine) {
+  if (ptr != nullptr && bytes != 0 && coarse) {
     if (device < 0)
       (void)hipGetDevice(&device);
     (void)hipMemAdvise(ptr, bytes, hipMemAdviseSetCoarseGrain, device);
