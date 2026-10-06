@@ -38,6 +38,34 @@ class cuda_threadpool;
 
 namespace sycl {
 
+namespace detail {
+
+struct queue_gpu_state {
+  std::mutex mtx;
+  void *stream = nullptr;
+  int native_device = -1;
+  bool arch_checked = false;
+  void (*destroy)(queue_gpu_state &) noexcept = nullptr;
+
+  queue_gpu_state() = default;
+  queue_gpu_state(const queue_gpu_state &) = delete;
+  queue_gpu_state &operator=(const queue_gpu_state &) = delete;
+  ~queue_gpu_state() {
+    if (stream != nullptr && destroy != nullptr)
+      destroy(*this);
+  }
+};
+
+template <typename Pool>
+auto adopt_gpu_state(std::shared_ptr<queue_gpu_state> &state, const Pool &pool,
+                     int) -> decltype(pool.paras_gpu_state(), void()) {
+  state = pool.paras_gpu_state();
+}
+template <typename Pool>
+void adopt_gpu_state(std::shared_ptr<queue_gpu_state> &, const Pool &, long) {}
+
+}
+
 class queue {
 public:
   queue() : dev_(::paras_extension::select_device_no_selector()) {}
@@ -104,6 +132,7 @@ public:
   template <typename Pool, typename = typename Pool::paras_pool_tag>
   queue(const Pool &pool) : queue(pool.get_context(), pool.get_device()) {
     identity_ = pool.paras_identity_ptr();
+    detail::adopt_gpu_state(gpu_state_, pool, 0);
   }
 
   template <typename CGF> event submit(CGF cgf) {
@@ -250,6 +279,11 @@ public:
   friend bool operator!=(const queue &a, const queue &b) { return !(a == b); }
   const void *paras_identity() const { return identity_.get(); }
 
+  std::shared_ptr<const void> paras_identity_ptr() const { return identity_; }
+  std::shared_ptr<detail::queue_gpu_state> paras_gpu_state() const {
+    return gpu_state_;
+  }
+
   template <typename AccT> event update_host(AccT) { return event{}; }
 
   void paras_set_async_handler(const async_handler &h) {
@@ -316,6 +350,9 @@ public:
 private:
 
   std::shared_ptr<const void> identity_ = std::make_shared<int>(0);
+
+  std::shared_ptr<detail::queue_gpu_state> gpu_state_ =
+      std::make_shared<detail::queue_gpu_state>();
   std::shared_ptr<async_handler> async_;
   std::shared_ptr<detail::pending_events> pending_ =
       std::make_shared<detail::pending_events>();

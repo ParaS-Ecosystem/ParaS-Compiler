@@ -70,6 +70,10 @@ public:
 
   const void *paras_identity() const { return identity_.get(); }
   std::shared_ptr<const void> paras_identity_ptr() const { return identity_; }
+
+  std::shared_ptr<sycl::detail::queue_gpu_state> paras_gpu_state() const {
+    return st_;
+  }
   friend bool operator==(const cuda_threadpool &a, const cuda_threadpool &b) {
     return a.paras_identity() == b.paras_identity();
   }
@@ -140,7 +144,6 @@ public:
   sycl::context get_context() const { return ctx_; }
 
   cudaStream_t stream = nullptr;
-  bool ownsStream = false;
 
   explicit cuda_threadpool(const sycl::property_list &props)
       : cuda_threadpool(sycl::default_selector_v, props) {}
@@ -167,7 +170,9 @@ public:
       : cuda_threadpool(sel, props) { paras_set_async_handler(paras_ah); }
 
   cuda_threadpool(const sycl::queue &q)
-      : dev_(q.get_device()), ctx_(q.get_context()), queue_(q) {
+      : dev_(q.get_device()), ctx_(q.get_context()),
+        identity_(q.paras_identity_ptr()), queue_(q),
+        st_(q.paras_gpu_state()) {
     initialize_stream_for_device();
   }
 
@@ -209,33 +214,35 @@ public:
   }
 
   cuda_threadpool(const cuda_threadpool &other)
-      : dev_(other.dev_), ctx_(other.ctx_), props_(other.props_),
-        queue_(other.queue_) {
-    initialize_stream_for_device();
-  }
+      : stream(other.stream), dev_(other.dev_), ctx_(other.ctx_),
+        props_(other.props_), identity_(other.identity_),
+        async_(other.async_), pending_(other.pending_), queue_(other.queue_),
+        st_(other.st_) {}
 
   cuda_threadpool &operator=(const cuda_threadpool &other) {
     if (this == &other) {
       return *this;
     }
 
-    release_stream_noexcept();
-
+    stream = other.stream;
     dev_ = other.dev_;
     ctx_ = other.ctx_;
     props_ = other.props_;
+    identity_ = other.identity_;
+    async_ = other.async_;
+    pending_ = other.pending_;
     queue_ = other.queue_;
-
-    initialize_stream_for_device();
+    st_ = other.st_;
     return *this;
   }
 
   cuda_threadpool(cuda_threadpool &&other) noexcept
-      : stream(other.stream), ownsStream(other.ownsStream),
-        dev_(std::move(other.dev_)), ctx_(std::move(other.ctx_)),
-        props_(std::move(other.props_)), queue_(std::move(other.queue_)) {
+      : stream(other.stream), dev_(std::move(other.dev_)),
+        ctx_(std::move(other.ctx_)), props_(std::move(other.props_)),
+        identity_(std::move(other.identity_)), async_(std::move(other.async_)),
+        pending_(std::move(other.pending_)), queue_(std::move(other.queue_)),
+        st_(std::move(other.st_)) {
     other.stream = nullptr;
-    other.ownsStream = false;
   }
 
   cuda_threadpool &operator=(cuda_threadpool &&other) noexcept {
@@ -243,17 +250,17 @@ public:
       return *this;
     }
 
-    release_stream_noexcept();
-
     stream = other.stream;
-    ownsStream = other.ownsStream;
     dev_ = std::move(other.dev_);
     ctx_ = std::move(other.ctx_);
     props_ = std::move(other.props_);
+    identity_ = std::move(other.identity_);
+    async_ = std::move(other.async_);
+    pending_ = std::move(other.pending_);
     queue_ = std::move(other.queue_);
+    st_ = std::move(other.st_);
 
     other.stream = nullptr;
-    other.ownsStream = false;
 
     return *this;
   }
@@ -495,30 +502,47 @@ public:
     return sycl::event{};
   }
 
-  ~cuda_threadpool() noexcept { release_stream_noexcept(); }
+  ~cuda_threadpool() noexcept = default;
 
 private:
   sycl::device dev_;
   sycl::context ctx_{};
   sycl::property_list props_;
-  std::shared_ptr<int> identity_ = std::make_shared<int>(0);
+  std::shared_ptr<const void> identity_ = std::make_shared<int>(0);
   std::shared_ptr<sycl::async_handler> async_;
   std::shared_ptr<sycl::detail::pending_events> pending_ =
       std::make_shared<sycl::detail::pending_events>();
   sycl::queue queue_;
   std::mutex submit_mutex_;
+  std::shared_ptr<sycl::detail::queue_gpu_state> st_ =
+      std::make_shared<sycl::detail::queue_gpu_state>();
 
   void initialize_stream_for_device() {
     stream = nullptr;
-    ownsStream = false;
 
     if (!dev_.is_gpu()) {
       return;
     }
 
-    init_cuda_for(dev_);
-    create_stream();
-    ownsStream = true;
+    if (!st_) {
+      st_ = std::make_shared<sycl::detail::queue_gpu_state>();
+    }
+
+    std::lock_guard<std::mutex> lock(st_->mtx);
+    if (st_->stream == nullptr) {
+      init_cuda_for(dev_);
+
+      cudaStream_t created = nullptr;
+      cudaError_t err =
+          cudaStreamCreateWithFlags(&created, cudaStreamNonBlocking);
+      if (err != cudaSuccess) {
+        throw sycl::exception(cudaGetErrorString(err));
+      }
+      st_->stream = created;
+      st_->native_device = dev_.get_native_id();
+      st_->destroy = &destroy_shared_stream;
+    }
+    stream = static_cast<cudaStream_t>(st_->stream);
   }
 
   void ensure_stream() {
@@ -531,52 +555,36 @@ private:
           "CUDA operation requested without a valid CUDA stream");
     }
 
-    if (!arch_checked_) {
+    if (!st_->arch_checked) {
       paras_detail::check_offload_arch(dev_.get_native_id());
-      arch_checked_ = true;
-    }
-  }
-  bool arch_checked_ = false;
-
-  void create_stream() {
-    cudaError_t err = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
-
-    if (err != cudaSuccess) {
-      stream = nullptr;
-      ownsStream = false;
-      throw sycl::exception(cudaGetErrorString(err));
+      st_->arch_checked = true;
     }
   }
 
-  void release_stream_noexcept() noexcept {
-    if (!ownsStream || stream == nullptr) {
-      stream = nullptr;
-      ownsStream = false;
-      return;
-    }
+  static void
+  destroy_shared_stream(sycl::detail::queue_gpu_state &st) noexcept {
+    cudaStream_t s = static_cast<cudaStream_t>(st.stream);
+    st.stream = nullptr;
 
-    if (dev_.is_gpu()) {
-      cudaError_t setErr = cudaSetDevice(dev_.get_native_id());
+    if (st.native_device >= 0) {
+      cudaError_t setErr = cudaSetDevice(st.native_device);
       if (setErr != cudaSuccess) {
         std::cerr << "cudaSetDevice before cudaStreamDestroy failed: "
                   << cudaGetErrorString(setErr) << '\n';
       }
     }
 
-    cudaError_t syncErr = cudaStreamSynchronize(stream);
+    cudaError_t syncErr = cudaStreamSynchronize(s);
     if (syncErr != cudaSuccess) {
       std::cerr << "cudaStreamSynchronize before destroy failed: "
                 << cudaGetErrorString(syncErr) << '\n';
     }
 
-    cudaError_t err = cudaStreamDestroy(stream);
+    cudaError_t err = cudaStreamDestroy(s);
     if (err != cudaSuccess) {
       std::cerr << "cudaStreamDestroy failed: " << cudaGetErrorString(err)
                 << '\n';
     }
-
-    stream = nullptr;
-    ownsStream = false;
   }
 
   static void init_cuda_for(const sycl::device &d) {
