@@ -263,6 +263,20 @@ public:
     return sycl::event{};
   }
 
+  template <typename KernelName = void, int dim, typename First, typename... Rest,
+            typename = std::enable_if_t<sycl::detail::is_reduction_v<First>>>
+  sycl::event parallel_for(sycl::range<dim> r, First &&first, Rest &&...rest) {
+    return submit([&](sycl::handler &cgh) {
+      cgh.template parallel_for<KernelName>(r, first, rest...);
+    });
+  }
+  template <typename KernelName = void, int dim, typename First, typename... Rest,
+            typename = std::enable_if_t<sycl::detail::is_reduction_v<First>>>
+  sycl::event parallel_for(const sycl::nd_range<dim> &r, First &&first, Rest &&...rest) {
+    return submit([&](sycl::handler &cgh) {
+      cgh.template parallel_for<KernelName>(r, first, rest...);
+    });
+  }
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(sycl::range<dim> r, sycl::event dep, Func f) {
     dep.wait();
@@ -442,5 +456,13 @@ template <> struct hash<threadpool> {
 }
 
 #include "kem/usm_queue_impl.hpp"
+#include "kem/reduction_impl.hpp"
+#if !PARAS_GPU_BACKEND
+
+inline sycl::device sycl::handler::paras_reduction_device() const {
+  return pool_ ? pool_->get_device() : sycl::device{};
+}
+inline void sycl::handler::paras_reduction_wait() {}
+#endif
 
 #endif

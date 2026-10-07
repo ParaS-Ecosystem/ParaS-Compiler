@@ -160,6 +160,20 @@ public:
         [&](handler &cgh) { cgh.template parallel_for<KernelName>(r, f); });
   }
 
+  template <typename KernelName = void, int dim, typename First, typename... Rest,
+            typename = std::enable_if_t<detail::is_reduction_v<First>>>
+  event parallel_for(range<dim> r, First &&first, Rest &&...rest) {
+    return submit([&](handler &cgh) {
+      cgh.template parallel_for<KernelName>(r, first, rest...);
+    });
+  }
+  template <typename KernelName = void, int dim, typename First, typename... Rest,
+            typename = std::enable_if_t<detail::is_reduction_v<First>>>
+  event parallel_for(const nd_range<dim> &r, First &&first, Rest &&...rest) {
+    return submit([&](handler &cgh) {
+      cgh.template parallel_for<KernelName>(r, first, rest...);
+    });
+  }
   template <typename KernelName = void, typename Func, int dim>
   event parallel_for(range<dim> r, event dep, Func f) {
     return submit([&](handler &cgh) {

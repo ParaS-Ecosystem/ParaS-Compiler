@@ -23,93 +23,72 @@
 
 #include <limits>
 #include <type_traits>
-#include "math.hpp"
+
+#include "functional.hpp"
+#include "half.hpp"
 
 namespace sycl {
 
-namespace paras_identity_detail {
-
-template <template <typename> class Op, typename BinaryOperation, typename T>
-inline constexpr bool is_op_v =
-    std::is_same_v<BinaryOperation, Op<T>> || std::is_same_v<BinaryOperation, Op<void>>;
-
-template <typename BinaryOperation, typename T, typename = void>
-struct identity {
-    static constexpr bool known = false;
-};
-
-template <typename BinaryOperation, typename T>
-struct identity<
-    BinaryOperation, T,
-    std::enable_if_t<is_op_v<plus, BinaryOperation, T> || is_op_v<bit_or, BinaryOperation, T> ||
-                     is_op_v<bit_xor, BinaryOperation, T>>> {
-    static constexpr bool known = std::is_arithmetic_v<T>;
-    static constexpr T value = T{};
-};
-
-template <typename BinaryOperation, typename T>
-struct identity<BinaryOperation, T, std::enable_if_t<is_op_v<multiplies, BinaryOperation, T>>> {
-    static constexpr bool known = std::is_arithmetic_v<T>;
-    static constexpr T value = T{1};
-};
-
-template <typename BinaryOperation, typename T>
-struct identity<BinaryOperation, T, std::enable_if_t<is_op_v<bit_and, BinaryOperation, T>>> {
-    static constexpr bool known = std::is_integral_v<T>;
-    static constexpr T value = static_cast<T>(~T{});
-};
-
-template <typename BinaryOperation, typename T>
-struct identity<BinaryOperation, T, std::enable_if_t<is_op_v<logical_and, BinaryOperation, T>>> {
-    static constexpr bool known = std::is_arithmetic_v<T>;
-    static constexpr T value = T{true};
-};
-
-template <typename BinaryOperation, typename T>
-struct identity<BinaryOperation, T, std::enable_if_t<is_op_v<logical_or, BinaryOperation, T>>> {
-    static constexpr bool known = std::is_arithmetic_v<T>;
-    static constexpr T value = T{false};
-};
-
-template <typename BinaryOperation, typename T>
-struct identity<BinaryOperation, T, std::enable_if_t<is_op_v<minimum, BinaryOperation, T>>> {
-    static constexpr bool known = std::is_arithmetic_v<T>;
-    static constexpr T value = std::numeric_limits<T>::has_infinity
-                                   ? std::numeric_limits<T>::infinity()
-                                   : (std::numeric_limits<T>::max)();
-};
-
-template <typename BinaryOperation, typename T>
-struct identity<BinaryOperation, T, std::enable_if_t<is_op_v<maximum, BinaryOperation, T>>> {
-    static constexpr bool known = std::is_arithmetic_v<T>;
-    static constexpr T value = std::numeric_limits<T>::has_infinity
-                                   ? -std::numeric_limits<T>::infinity()
-                                   : std::numeric_limits<T>::lowest();
-};
-
+namespace detail {
+template <typename Op, template <typename> class F, typename T>
+inline constexpr bool is_functor_v =
+    std::is_same_v<Op, F<T>> || std::is_same_v<Op, F<void>>;
+template <typename T>
+inline constexpr bool is_arith_or_half_v =
+    std::is_arithmetic_v<T> || std::is_same_v<std::remove_cv_t<T>, half>;
+template <typename T>
+inline constexpr bool is_int_v =
+    std::is_integral_v<T> && !std::is_same_v<std::remove_cv_t<T>, bool>;
+template <typename T> constexpr T paras_min_identity() {
+  if constexpr (std::numeric_limits<T>::has_infinity)
+    return std::numeric_limits<T>::infinity();
+  else
+    return (std::numeric_limits<T>::max)();
+}
+template <typename T> constexpr T paras_max_identity() {
+  if constexpr (std::numeric_limits<T>::has_infinity)
+    return -std::numeric_limits<T>::infinity();
+  else
+    return std::numeric_limits<T>::lowest();
+}
 }
 
-template <typename BinaryOperation, typename AccumulatorT>
-struct has_known_identity
-    : std::bool_constant<paras_identity_detail::identity<std::decay_t<BinaryOperation>,
-                                                         std::decay_t<AccumulatorT>>::known> {};
+template <typename BinaryOperation, typename AccumulatorT, typename = void>
+struct known_identity {};
 
-template <typename BinaryOperation, typename AccumulatorT>
-inline constexpr bool has_known_identity_v =
-    has_known_identity<BinaryOperation, AccumulatorT>::value;
-
-template <typename BinaryOperation, typename AccumulatorT>
-struct known_identity {
-    static_assert(has_known_identity_v<BinaryOperation, AccumulatorT>,
-                  "known_identity: no known identity for this operation/type");
-    static constexpr AccumulatorT value =
-        paras_identity_detail::identity<std::decay_t<BinaryOperation>,
-                                        std::decay_t<AccumulatorT>>::value;
-};
+#define PARAS_KNOWN_IDENTITY(FUNCTOR, COND, VALUE)                           \
+  template <typename Op, typename T>                                          \
+  struct known_identity<                                                      \
+      Op, T,                                                                  \
+      std::enable_if_t<detail::is_functor_v<Op, FUNCTOR, std::remove_cv_t<T>> && \
+                       (COND)>> {                                             \
+    static constexpr std::remove_cv_t<T> value = VALUE;                       \
+  };
+PARAS_KNOWN_IDENTITY(plus, detail::is_arith_or_half_v<T>, std::remove_cv_t<T>(0))
+PARAS_KNOWN_IDENTITY(multiplies, detail::is_arith_or_half_v<T>, std::remove_cv_t<T>(1))
+PARAS_KNOWN_IDENTITY(bit_and, detail::is_int_v<T>, static_cast<std::remove_cv_t<T>>(~std::remove_cv_t<T>(0)))
+PARAS_KNOWN_IDENTITY(bit_or, detail::is_int_v<T>, std::remove_cv_t<T>(0))
+PARAS_KNOWN_IDENTITY(bit_xor, detail::is_int_v<T>, std::remove_cv_t<T>(0))
+PARAS_KNOWN_IDENTITY(logical_and, (std::is_same_v<std::remove_cv_t<T>, bool>), true)
+PARAS_KNOWN_IDENTITY(logical_or, (std::is_same_v<std::remove_cv_t<T>, bool>), false)
+PARAS_KNOWN_IDENTITY(minimum, detail::is_arith_or_half_v<T>, detail::paras_min_identity<std::remove_cv_t<T>>())
+PARAS_KNOWN_IDENTITY(maximum, detail::is_arith_or_half_v<T>, detail::paras_max_identity<std::remove_cv_t<T>>())
+#undef PARAS_KNOWN_IDENTITY
 
 template <typename BinaryOperation, typename AccumulatorT>
 inline constexpr AccumulatorT known_identity_v =
     known_identity<BinaryOperation, AccumulatorT>::value;
+
+template <typename BinaryOperation, typename AccumulatorT, typename = void>
+struct has_known_identity : std::false_type {};
+template <typename BinaryOperation, typename AccumulatorT>
+struct has_known_identity<
+    BinaryOperation, AccumulatorT,
+    std::void_t<decltype(known_identity<BinaryOperation, AccumulatorT>::value)>>
+    : std::true_type {};
+template <typename BinaryOperation, typename AccumulatorT>
+inline constexpr bool has_known_identity_v =
+    has_known_identity<BinaryOperation, AccumulatorT>::value;
 
 }
 

@@ -38,6 +38,7 @@
 #include "nd_item.hpp"
 #include "nd_range.hpp"
 #include "range.hpp"
+#include "reduction.hpp"
 
 class threadpool;
 class cuda_threadpool;
@@ -85,6 +86,16 @@ public:
   void parallel_for(range<dim> r, Func f);
   template <typename KernelName = void, typename Func, int dim>
   void parallel_for(const nd_range<dim> &r, Func f);
+
+  template <typename KernelName = void, int dim, typename First, typename... Rest,
+            typename = std::enable_if_t<detail::is_reduction_v<First>>>
+  void parallel_for(range<dim> r, First &&first, Rest &&...rest);
+  template <typename KernelName = void, int dim, typename First, typename... Rest,
+            typename = std::enable_if_t<detail::is_reduction_v<First>>>
+  void parallel_for(const nd_range<dim> &r, First &&first, Rest &&...rest);
+
+  device paras_reduction_device() const;
+  void paras_reduction_wait();
 
   template <typename KernelName = void, typename Func>
   void single_task(Func f) {

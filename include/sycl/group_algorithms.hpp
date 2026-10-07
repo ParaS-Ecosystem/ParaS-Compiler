@@ -25,6 +25,7 @@
 #include "kem_gpu/gpu_utilities.hpp"
 #include <type_traits>
 #include "work_group_algorithms_detail.hpp"
+#include "known_identity.hpp"
 
 namespace sycl {
 
@@ -301,7 +302,104 @@ template <typename Group, typename T, typename BinaryOperation>
 PARAS_KERNEL_HD
 inline T exclusive_scan_over_group(Group g, T x, BinaryOperation binary_op)
 {
-    return exclusive_scan_over_group(g, x, T{}, binary_op);
+
+    if constexpr (has_known_identity_v<BinaryOperation, T>)
+        return exclusive_scan_over_group(g, x, known_identity_v<BinaryOperation, T>, binary_op);
+    else
+        return exclusive_scan_over_group(g, x, T{}, binary_op);
+}
+
+template <typename Group, typename Ptr, typename BinaryOperation>
+PARAS_KERNEL_HD inline auto joint_reduce(Group, Ptr first, Ptr last,
+                                         BinaryOperation binary_op)
+{
+    using T = std::remove_cv_t<std::remove_reference_t<decltype(*first)>>;
+    T acc = *first;
+    for (Ptr it = first + 1; it < last; ++it)
+        acc = binary_op(acc, *it);
+    return acc;
+}
+
+template <typename Group, typename Ptr, typename T, typename BinaryOperation>
+PARAS_KERNEL_HD inline T joint_reduce(Group, Ptr first, Ptr last, T init,
+                                      BinaryOperation binary_op)
+{
+    T acc = init;
+    for (Ptr it = first; it < last; ++it)
+        acc = binary_op(acc, *it);
+    return acc;
+}
+
+template <typename Group, typename Ptr, typename Predicate>
+PARAS_KERNEL_HD inline bool joint_any_of(Group, Ptr first, Ptr last, Predicate pred)
+{
+    for (Ptr it = first; it < last; ++it)
+        if (pred(*it)) return true;
+    return false;
+}
+template <typename Group, typename Ptr, typename Predicate>
+PARAS_KERNEL_HD inline bool joint_all_of(Group, Ptr first, Ptr last, Predicate pred)
+{
+    for (Ptr it = first; it < last; ++it)
+        if (!pred(*it)) return false;
+    return true;
+}
+template <typename Group, typename Ptr, typename Predicate>
+PARAS_KERNEL_HD inline bool joint_none_of(Group g, Ptr first, Ptr last, Predicate pred)
+{
+    return !joint_any_of(g, first, last, pred);
+}
+
+template <typename Group, typename InPtr, typename OutPtr, typename T,
+          typename BinaryOperation>
+PARAS_KERNEL_HD inline OutPtr joint_inclusive_scan(Group, InPtr first, InPtr last,
+                                                   OutPtr result,
+                                                   BinaryOperation binary_op, T init)
+{
+    T acc = init;
+    for (InPtr it = first; it < last; ++it, ++result) {
+        acc = binary_op(acc, *it);
+        *result = acc;
+    }
+    return result;
+}
+
+template <typename Group, typename InPtr, typename OutPtr, typename BinaryOperation>
+PARAS_KERNEL_HD inline OutPtr joint_inclusive_scan(Group, InPtr first, InPtr last,
+                                                   OutPtr result,
+                                                   BinaryOperation binary_op)
+{
+    using T = std::remove_cv_t<std::remove_reference_t<decltype(*first)>>;
+    if (!(first < last)) return result;
+    T acc = *first;
+    *result = acc;
+    ++result;
+    for (InPtr it = first + 1; it < last; ++it, ++result) {
+        acc = binary_op(acc, *it);
+        *result = acc;
+    }
+    return result;
+}
+
+template <typename Group, typename InPtr, typename OutPtr, typename BinaryOperation,
+          typename = std::enable_if_t<!std::is_pointer_v<BinaryOperation> &&
+                                      std::is_invocable_v<BinaryOperation,
+                                                          decltype(*std::declval<InPtr>()),
+                                                          decltype(*std::declval<InPtr>())>>>
+PARAS_KERNEL_HD inline OutPtr joint_exclusive_scan(Group g, InPtr first, InPtr last,
+                                                   OutPtr result,
+                                                   BinaryOperation binary_op)
+{
+    using T = std::remove_cv_t<std::remove_reference_t<decltype(*first)>>;
+    return joint_exclusive_scan(g, first, last, result,
+                                known_identity_v<BinaryOperation, T>, binary_op);
+}
+
+template <typename Group, typename V, typename T, typename BinaryOperation>
+PARAS_KERNEL_HD inline T inclusive_scan_over_group(Group g, V x, BinaryOperation binary_op,
+                                                   T init)
+{
+    return binary_op(init, static_cast<T>(inclusive_scan_over_group(g, static_cast<T>(x), binary_op)));
 }
 
 template <typename Group, typename T>

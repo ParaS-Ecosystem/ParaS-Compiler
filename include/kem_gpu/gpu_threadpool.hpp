@@ -597,6 +597,20 @@ public:
     return paras_last_command_event();
   }
 
+  template <typename KernelName = void, int dim, typename First, typename... Rest,
+            typename = std::enable_if_t<sycl::detail::is_reduction_v<First>>>
+  sycl::event parallel_for(sycl::range<dim> r, First &&first, Rest &&...rest) {
+    return submit([&](sycl::handler &cgh) {
+      cgh.template parallel_for<KernelName>(r, first, rest...);
+    });
+  }
+  template <typename KernelName = void, int dim, typename First, typename... Rest,
+            typename = std::enable_if_t<sycl::detail::is_reduction_v<First>>>
+  sycl::event parallel_for(const sycl::nd_range<dim> &r, First &&first, Rest &&...rest) {
+    return submit([&](sycl::handler &cgh) {
+      cgh.template parallel_for<KernelName>(r, first, rest...);
+    });
+  }
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(sycl::range<dim> r, sycl::event dep, Func f) {
     paras_enqueue_dependency(dep);
@@ -1013,5 +1027,16 @@ template <> struct hash<cuda_threadpool> {
 }
 
 #include "kem/usm_queue_impl.hpp"
+#include "kem/reduction_impl.hpp"
+
+inline sycl::device sycl::handler::paras_reduction_device() const {
+  if (gpu_pool_)
+    return gpu_pool_->get_device();
+  return pool_ ? pool_->get_device() : sycl::device{};
+}
+inline void sycl::handler::paras_reduction_wait() {
+  if (gpu_pool_)
+    gpu_pool_->wait();
+}
 
 #endif
