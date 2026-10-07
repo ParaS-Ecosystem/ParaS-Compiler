@@ -618,7 +618,9 @@ PARAS_KERNEL_HD inline T1 clamp(T1 x_arg, T2 minval_arg, T3 maxval_arg) {
 
 PARAS_KERNEL_HD inline float mix(float x, float y, float a) { return x + (y - x) * a; }
 PARAS_KERNEL_HD inline double mix(double x, double y, double a) { return x + (y - x) * a; }
-PARAS_KERNEL_HD inline half mix(half x, half y, half a) {
+
+template <typename H, std::enable_if_t<std::is_same_v<H, half>, int> = 0>
+PARAS_KERNEL_HD inline half mix(H x, H y, H a) {
   float xf = x, yf = y, af = a;
   return static_cast<half>(xf + (yf - xf) * af);
 }
@@ -632,7 +634,9 @@ PARAS_KERNEL_HD inline double smoothstep(double edge0, double edge1, double x) {
   t = (t < 0.0) ? 0.0 : ((t > 1.0) ? 1.0 : t);
   return t * t * (3.0 - 2.0 * t);
 }
-PARAS_KERNEL_HD inline half smoothstep(half edge0, half edge1, half x) {
+
+template <typename H, std::enable_if_t<std::is_same_v<H, half>, int> = 0>
+PARAS_KERNEL_HD inline half smoothstep(H edge0, H edge1, H x) {
   float e0 = edge0, e1 = edge1, xf = x;
   float t = (xf - e0) / (e1 - e0);
   t = (t < 0.0f) ? 0.0f : ((t > 1.0f) ? 1.0f : t);
@@ -640,7 +644,8 @@ PARAS_KERNEL_HD inline half smoothstep(half edge0, half edge1, half x) {
 }
 PARAS_KERNEL_HD inline float step(float edge, float x) { return (x < edge) ? 0.0f : 1.0f; }
 PARAS_KERNEL_HD inline double step(double edge, double x) { return (x < edge) ? 0.0 : 1.0; }
-PARAS_KERNEL_HD inline half step(half edge, half x) { return (static_cast<float>(x) < static_cast<float>(edge)) ? half(0.0f) : half(1.0f); }
+template <typename H, std::enable_if_t<std::is_same_v<H, half>, int> = 0>
+PARAS_KERNEL_HD inline half step(H edge, H x) { return (static_cast<float>(x) < static_cast<float>(edge)) ? half(0.0f) : half(1.0f); }
 
 template <typename T1, typename T2, typename T3,
           typename = std::enable_if_t<detail::is_valid_math_arg_v<T1>>>
@@ -1637,7 +1642,54 @@ PARAS_SWZ_FORWARD(rotate)
 PARAS_SWZ_FORWARD(sub_sat)
 PARAS_SWZ_FORWARD(mul24)
 PARAS_SWZ_FORWARD(mad24)
+
+#define PARAS_SWZ_FORWARD_Q(NS, NAME)                                          \
+  template <typename A, std::enable_if_t<detail::paras_any_swz_v<A>, int> = 0> \
+  PARAS_KERNEL_HD inline auto NAME(const A &a)                                 \
+      ->decltype(::sycl::NS::NAME(detail::paras_unswz(a))) {                   \
+    return ::sycl::NS::NAME(detail::paras_unswz(a));                           \
+  }                                                                            \
+  template <typename A, typename B,                                            \
+            std::enable_if_t<detail::paras_any_swz_v<A, B>, int> = 0>          \
+  PARAS_KERNEL_HD inline auto NAME(const A &a, const B &b)                     \
+      ->decltype(::sycl::NS::NAME(detail::paras_unswz(a),                      \
+                                  detail::paras_unswz(b))) {                   \
+    return ::sycl::NS::NAME(detail::paras_unswz(a), detail::paras_unswz(b));   \
+  }
+namespace native {
+PARAS_SWZ_FORWARD_Q(native, rsqrt)
+PARAS_SWZ_FORWARD_Q(native, cos)
+PARAS_SWZ_FORWARD_Q(native, divide)
+PARAS_SWZ_FORWARD_Q(native, exp)
+PARAS_SWZ_FORWARD_Q(native, exp10)
+PARAS_SWZ_FORWARD_Q(native, exp2)
+PARAS_SWZ_FORWARD_Q(native, log)
+PARAS_SWZ_FORWARD_Q(native, log10)
+PARAS_SWZ_FORWARD_Q(native, log2)
+PARAS_SWZ_FORWARD_Q(native, powr)
+PARAS_SWZ_FORWARD_Q(native, recip)
+PARAS_SWZ_FORWARD_Q(native, sin)
+PARAS_SWZ_FORWARD_Q(native, sqrt)
+PARAS_SWZ_FORWARD_Q(native, tan)
+}
+namespace half_precision {
+PARAS_SWZ_FORWARD_Q(half_precision, cos)
+PARAS_SWZ_FORWARD_Q(half_precision, divide)
+PARAS_SWZ_FORWARD_Q(half_precision, exp)
+PARAS_SWZ_FORWARD_Q(half_precision, exp10)
+PARAS_SWZ_FORWARD_Q(half_precision, exp2)
+PARAS_SWZ_FORWARD_Q(half_precision, log)
+PARAS_SWZ_FORWARD_Q(half_precision, log10)
+PARAS_SWZ_FORWARD_Q(half_precision, log2)
+PARAS_SWZ_FORWARD_Q(half_precision, powr)
+PARAS_SWZ_FORWARD_Q(half_precision, recip)
+PARAS_SWZ_FORWARD_Q(half_precision, rsqrt)
+PARAS_SWZ_FORWARD_Q(half_precision, sin)
+PARAS_SWZ_FORWARD_Q(half_precision, sqrt)
+PARAS_SWZ_FORWARD_Q(half_precision, tan)
+}
 #undef PARAS_SWZ_FORWARD
+#undef PARAS_SWZ_FORWARD_Q
 
 }
 
