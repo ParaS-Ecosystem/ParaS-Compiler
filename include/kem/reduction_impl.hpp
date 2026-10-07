@@ -39,16 +39,19 @@ PARAS_KERNEL_HD inline std::size_t red_linear(const id<D> &i, const range<D> &r)
   return lin;
 }
 
-template <typename Func, typename Item, typename Alt, typename Descs, std::size_t... I>
-PARAS_KERNEL_HD inline void red_invoke(const Func &f, const Item &it, const Alt &alt,
-                                       const Descs &ds, std::size_t lin,
-                                       std::index_sequence<I...>) {
-  auto reds = std::make_tuple(std::get<I>(ds).make_reducer(lin)...);
-  if constexpr (std::is_invocable_v<const Func &, Item,
-                                    decltype(std::get<I>(reds)) &...>)
-    f(it, std::get<I>(reds)...);
-  else
-    f(alt, std::get<I>(reds)...);
+template <std::size_t I, typename Func, typename Item, typename Alt, typename Descs,
+          typename... Rs>
+PARAS_KERNEL_HD inline void red_call(const Func &f, const Item &it, const Alt &alt,
+                                     const Descs &ds, std::size_t lin, Rs &...rs) {
+  if constexpr (I == std::tuple_size_v<Descs>) {
+    if constexpr (std::is_invocable_v<const Func &, Item, Rs &...>)
+      f(it, rs...);
+    else
+      f(alt, rs...);
+  } else {
+    auto r = std::get<I>(ds).make_reducer(lin);
+    red_call<I + 1>(f, it, alt, ds, lin, rs..., r);
+  }
 }
 
 template <int D, typename Func, typename... Descs> struct red_range_kernel {
@@ -56,8 +59,7 @@ template <int D, typename Func, typename... Descs> struct red_range_kernel {
   range<D> r;
   std::tuple<Descs...> ds;
   PARAS_KERNEL_HD void operator()(item<D> it) const {
-    red_invoke(f, it, it.get_id(), ds, red_linear(it.get_id(), r),
-               std::index_sequence_for<Descs...>{});
+    red_call<0>(f, it, it.get_id(), ds, red_linear(it.get_id(), r));
   }
 };
 
@@ -71,7 +73,7 @@ template <int D, typename Func, typename... Descs> struct red_nd_kernel {
       g[d] = it.get_global_id(d);
       gr[d] = it.get_global_range(d);
     }
-    red_invoke(f, it, it, ds, red_linear(g, gr), std::index_sequence_for<Descs...>{});
+    red_call<0>(f, it, it, ds, red_linear(g, gr));
   }
 };
 

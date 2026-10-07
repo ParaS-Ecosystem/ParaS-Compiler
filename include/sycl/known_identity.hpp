@@ -37,8 +37,14 @@ template <typename T>
 inline constexpr bool is_arith_or_half_v =
     std::is_arithmetic_v<T> || std::is_same_v<std::remove_cv_t<T>, half>;
 template <typename T>
-inline constexpr bool is_int_v =
-    std::is_integral_v<T> && !std::is_same_v<std::remove_cv_t<T>, bool>;
+inline constexpr bool is_int_v = std::is_integral_v<T>;
+
+template <typename T> constexpr T paras_all_ones() {
+  if constexpr (std::is_same_v<T, bool>)
+    return true;
+  else
+    return static_cast<T>(~T(0));
+}
 template <typename T> constexpr T paras_min_identity() {
   if constexpr (std::numeric_limits<T>::has_infinity)
     return std::numeric_limits<T>::infinity();
@@ -66,7 +72,7 @@ struct known_identity {};
   };
 PARAS_KNOWN_IDENTITY(plus, detail::is_arith_or_half_v<T>, std::remove_cv_t<T>(0))
 PARAS_KNOWN_IDENTITY(multiplies, detail::is_arith_or_half_v<T>, std::remove_cv_t<T>(1))
-PARAS_KNOWN_IDENTITY(bit_and, detail::is_int_v<T>, static_cast<std::remove_cv_t<T>>(~std::remove_cv_t<T>(0)))
+PARAS_KNOWN_IDENTITY(bit_and, detail::is_int_v<T>, detail::paras_all_ones<std::remove_cv_t<T>>())
 PARAS_KNOWN_IDENTITY(bit_or, detail::is_int_v<T>, std::remove_cv_t<T>(0))
 PARAS_KNOWN_IDENTITY(bit_xor, detail::is_int_v<T>, std::remove_cv_t<T>(0))
 PARAS_KNOWN_IDENTITY(logical_and, (std::is_same_v<std::remove_cv_t<T>, bool>), true)

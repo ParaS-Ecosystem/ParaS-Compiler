@@ -113,6 +113,11 @@ public:
   PARAS_KERNEL_HD reducer(T *val, bool *touched, BinaryOperation op, T identity)
       : val_(val), touched_(touched), op_(op), identity_(identity) {}
 
+  reducer(const reducer &) = delete;
+  reducer(reducer &&) = delete;
+  reducer &operator=(const reducer &) = delete;
+  reducer &operator=(reducer &&) = delete;
+
   PARAS_KERNEL_HD reducer &combine(const T &partial) {
     if (*touched_) {
       *val_ = op_(*val_, partial);
@@ -169,6 +174,10 @@ public:
 
   PARAS_KERNEL_HD reducer(T *row, bool *touched, BinaryOperation op, T identity)
       : row_(row), touched_(touched), op_(op), identity_(identity) {}
+  reducer(const reducer &) = delete;
+  reducer(reducer &&) = delete;
+  reducer &operator=(const reducer &) = delete;
+  reducer &operator=(reducer &&) = delete;
 
   PARAS_KERNEL_HD reducer<T, BinaryOperation, 0> operator[](std::size_t i) const {
     return reducer<T, BinaryOperation, 0>(row_ + i, touched_ + i, op_, identity_);
