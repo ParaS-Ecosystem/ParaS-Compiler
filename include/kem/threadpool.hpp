@@ -414,40 +414,23 @@ inline void handler::memset(void *ptr, int value, size_t num_bytes) {
   std::memset(ptr, value, num_bytes);
 }
 
-template <typename T> T *malloc_shared(size_t n, const threadpool &) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
 }
+#include "kem/usm_core.hpp"
+namespace sycl {
 
-template <typename T>
-T *malloc_shared(size_t n, const device &dev, const context &ctx,
-                 const property_list &propList = {}) {
-
-  (void)dev;
-  (void)ctx;
-  (void)propList;
-
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
+template <typename T> T *malloc_shared(size_t n, const threadpool &q) {
+  return static_cast<T *>(detail::usm_raw_alloc(usm::alloc::shared, n * sizeof(T), alignof(T), q.get_device()));
 }
-
-template <typename T> T *malloc_host(size_t n, const threadpool &) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
+template <typename T> T *malloc_host(size_t n, const threadpool &q) {
+  return static_cast<T *>(detail::usm_raw_alloc(usm::alloc::host, n * sizeof(T), alignof(T), q.get_device()));
 }
-
-template <typename T> T *malloc_device(size_t n, const threadpool &) {
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
+template <typename T> T *malloc_device(size_t n, const threadpool &q) {
+  return static_cast<T *>(detail::usm_raw_alloc(usm::alloc::device, n * sizeof(T), alignof(T), q.get_device()));
 }
-
-template <typename T>
-T *malloc_device(size_t n, const device &dev, const context &ctx,
-                 const property_list &propList = {}) {
-  (void)dev;
-  (void)ctx;
-  (void)propList;
-
-  return static_cast<T *>(std::malloc(sizeof(T) * n));
+inline void free(void *ptr, const threadpool &) {
+  if (!detail::usm_raw_free(ptr))
+    std::free(ptr);
 }
-
-inline void free(void *ptr, const threadpool &) { std::free(ptr); }
 
 }
 namespace std {

@@ -859,91 +859,18 @@ inline void paras_prepare_shared_allocation(void *ptr, size_t bytes, int device)
 #endif
 }
 
-template <typename T> T *malloc_shared(size_t n, const cuda_threadpool &) {
-  T *ptr = nullptr;
-  cudaError_t err = cudaMallocManaged(&ptr, n * sizeof(T));
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMallocManaged failed: " << cudaGetErrorString(err)
-              << "\n";
-    return nullptr;
-  }
-  paras_prepare_shared_allocation(ptr, n * sizeof(T), -1);
-  return ptr;
 }
+#include "kem/usm_core.hpp"
+namespace sycl {
 
-template <typename T> T *malloc_shared(size_t n, const context &) {
-  T *ptr = nullptr;
-  cudaError_t err = cudaMallocManaged(&ptr, n * sizeof(T));
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMallocManaged failed: " << cudaGetErrorString(err)
-              << "\n";
-    return nullptr;
-  }
-  paras_prepare_shared_allocation(ptr, n * sizeof(T), -1);
-  return ptr;
+template <typename T> T *malloc_shared(size_t n, const cuda_threadpool &q) {
+  return static_cast<T *>(detail::usm_raw_alloc(usm::alloc::shared, n * sizeof(T), alignof(T), q.get_device()));
 }
-
-template <typename T> T *malloc_host(size_t n, const cuda_threadpool &) {
-  T *ptr = nullptr;
-  cudaError_t err = cudaMallocHost(&ptr, n * sizeof(T));
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMallocHost failed: " << cudaGetErrorString(err) << "\n";
-    return nullptr;
-  }
-  return ptr;
+template <typename T> T *malloc_host(size_t n, const cuda_threadpool &q) {
+  return static_cast<T *>(detail::usm_raw_alloc(usm::alloc::host, n * sizeof(T), alignof(T), q.get_device()));
 }
-
-template <typename T> T *malloc_host(size_t n, const context &) {
-  T *ptr = nullptr;
-  cudaError_t err = cudaMallocHost(&ptr, n * sizeof(T));
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMallocHost failed: " << cudaGetErrorString(err) << "\n";
-    return nullptr;
-  }
-  return ptr;
-}
-
-template <typename T> T *malloc_device(size_t n, const cuda_threadpool &) {
-  T *ptr = nullptr;
-  cudaError_t err = cudaMalloc(&ptr, n * sizeof(T));
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << "\n";
-    return nullptr;
-  }
-  return ptr;
-}
-
-template <typename T>
-T *malloc_device(size_t n, const sycl::device &dev, const sycl::context &) {
-  if (dev.is_gpu()) {
-    const cudaError_t setErr =
-        paras_cuda_detail::select_device(dev.get_native_id());
-    if (setErr != cudaSuccess) {
-      std::cerr << "cudaSetDevice failed before cudaMalloc: "
-                << cudaGetErrorString(setErr) << "\n";
-      return nullptr;
-    }
-  }
-
-  T *ptr = nullptr;
-  cudaError_t err = cudaMalloc(&ptr, n * sizeof(T));
-
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << "\n";
-    return nullptr;
-  }
-
-  return ptr;
-}
-
-template <typename T> T *malloc_device(size_t n, const context &) {
-  T *ptr = nullptr;
-  cudaError_t err = cudaMalloc(&ptr, n * sizeof(T));
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << "\n";
-    return nullptr;
-  }
-  return ptr;
+template <typename T> T *malloc_device(size_t n, const cuda_threadpool &q) {
+  return static_cast<T *>(detail::usm_raw_alloc(usm::alloc::device, n * sizeof(T), alignof(T), q.get_device()));
 }
 
 inline void freeCudaUsmPointer(void *ptr) {
@@ -989,11 +916,8 @@ inline void freeCudaUsmPointer(void *ptr) {
 }
 
 inline void free(void *ptr, const cuda_threadpool &) {
-  freeCudaUsmPointer(ptr);
-}
-
-template <typename T> void free(T *ptr, const sycl::context &) {
-  freeCudaUsmPointer(static_cast<void *>(ptr));
+  if (!detail::usm_raw_free(ptr))
+    freeCudaUsmPointer(ptr);
 }
 
 inline void *sycl::interop_handle::get_native_queue() { return backend_ptr_; }
