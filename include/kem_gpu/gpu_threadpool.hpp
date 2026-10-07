@@ -1030,9 +1030,8 @@ template <> struct hash<cuda_threadpool> {
 #include "kem/reduction_impl.hpp"
 
 inline sycl::device sycl::handler::paras_reduction_device() const {
-  if (gpu_pool_)
-    return gpu_pool_->get_device();
-  return pool_ ? pool_->get_device() : sycl::device{};
+
+  return gpu_pool_ ? gpu_pool_->get_device() : sycl::device{};
 }
 inline void sycl::handler::paras_reduction_wait() {
   if (gpu_pool_)

@@ -24,9 +24,6 @@
 #include <cstddef>
 #include <type_traits>
 #include <utility>
-#if __cplusplus >= 202002L
-#include <span>
-#endif
 
 #include "known_identity.hpp"
 #include "property_list.hpp"
@@ -36,12 +33,60 @@ namespace sycl {
 
 class handler;
 
-#if __cplusplus >= 202002L
+inline constexpr std::size_t dynamic_extent = static_cast<std::size_t>(-1);
+template <typename T, std::size_t Extent = dynamic_extent> class span {
+  T *data_ = nullptr;
+  std::size_t size_ = (Extent == dynamic_extent) ? 0 : Extent;
 
-inline constexpr std::size_t dynamic_extent = std::dynamic_extent;
-template <typename T, std::size_t Extent = dynamic_extent>
-using span = std::span<T, Extent>;
-#endif
+public:
+  using element_type = T;
+  using value_type = std::remove_cv_t<T>;
+  using size_type = std::size_t;
+  using difference_type = std::ptrdiff_t;
+  using pointer = T *;
+  using const_pointer = const T *;
+  using reference = T &;
+  using const_reference = const T &;
+  using iterator = T *;
+  static constexpr std::size_t extent = Extent;
+
+  constexpr span() noexcept = default;
+  PARAS_KERNEL_HD constexpr span(T *ptr, std::size_t count) noexcept
+      : data_(ptr), size_(count) {}
+  PARAS_KERNEL_HD constexpr span(T *first, T *last) noexcept
+      : data_(first), size_(static_cast<std::size_t>(last - first)) {}
+  template <std::size_t N,
+            typename = std::enable_if_t<Extent == dynamic_extent || Extent == N>>
+  PARAS_KERNEL_HD constexpr span(T (&arr)[N]) noexcept : data_(arr), size_(N) {}
+  template <typename Container,
+            typename = std::enable_if_t<
+                !std::is_array_v<std::remove_reference_t<Container>> &&
+                std::is_convertible_v<decltype(std::declval<Container &>().data()), T *>>,
+            typename = decltype(std::declval<Container &>().size())>
+  constexpr span(Container &c) : data_(c.data()), size_(c.size()) {}
+
+  PARAS_KERNEL_HD constexpr T *data() const noexcept { return data_; }
+  PARAS_KERNEL_HD constexpr std::size_t size() const noexcept { return size_; }
+  PARAS_KERNEL_HD constexpr std::size_t size_bytes() const noexcept {
+    return size_ * sizeof(T);
+  }
+  PARAS_KERNEL_HD constexpr bool empty() const noexcept { return size_ == 0; }
+  PARAS_KERNEL_HD constexpr T &operator[](std::size_t i) const { return data_[i]; }
+  PARAS_KERNEL_HD constexpr T &front() const { return data_[0]; }
+  PARAS_KERNEL_HD constexpr T &back() const { return data_[size_ - 1]; }
+  PARAS_KERNEL_HD constexpr T *begin() const noexcept { return data_; }
+  PARAS_KERNEL_HD constexpr T *end() const noexcept { return data_ + size_; }
+  PARAS_KERNEL_HD constexpr span<T> first(std::size_t n) const { return {data_, n}; }
+  PARAS_KERNEL_HD constexpr span<T> last(std::size_t n) const {
+    return {data_ + (size_ - n), n};
+  }
+  PARAS_KERNEL_HD constexpr span<T> subspan(std::size_t off,
+                                            std::size_t n = dynamic_extent) const {
+    return {data_ + off, n == dynamic_extent ? size_ - off : n};
+  }
+};
+template <typename T, std::size_t N> span(T (&)[N]) -> span<T, N>;
+template <typename T> span(T *, std::size_t) -> span<T>;
 
 namespace detail {
 template <typename Op, template <typename> class F>
@@ -211,7 +256,6 @@ auto reduction(BufferT &vars, handler &, const T &identity, BinaryOperation comb
   return detail::make_reduction<T, BinaryOperation, false>(vars.data(), 1, combiner,
                                                            &identity, props);
 }
-#if __cplusplus >= 202002L
 template <typename T, std::size_t Extent, typename BinaryOperation>
 auto reduction(span<T, Extent> vars, BinaryOperation combiner,
                const property_list &props = {}) {
@@ -224,7 +268,6 @@ auto reduction(span<T, Extent> vars, const T &identity, BinaryOperation combiner
   return detail::make_reduction<T, BinaryOperation, true>(vars.data(), vars.size(),
                                                           combiner, &identity, props);
 }
-#endif
 
 }
 
