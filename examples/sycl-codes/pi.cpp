@@ -56,7 +56,7 @@ int main() {
   free(results, q);
 
   // Print result
-  cout << fixed << setprecision(10);
+  cout << std::fixed << setprecision(10);
   cout << "Intervals used      :  " << n << "\n";
   cout << "Approximation of π  :  " << pi << "\n";
 
