@@ -90,6 +90,19 @@ template <typename BinaryOperation, typename AccumulatorT>
 inline constexpr bool has_known_identity_v =
     has_known_identity<BinaryOperation, AccumulatorT>::value;
 
+namespace detail {
+
+template <typename Op, typename Fallback> struct op_value {
+  using type = Fallback;
+};
+template <template <typename> class F, typename U, typename Fallback>
+struct op_value<F<U>, Fallback> {
+  using type = std::conditional_t<std::is_void_v<U>, Fallback, U>;
+};
+template <typename Op, typename Fallback>
+using op_value_t = typename op_value<Op, Fallback>::type;
+}
+
 }
 
 #endif

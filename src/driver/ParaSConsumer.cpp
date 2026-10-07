@@ -22,6 +22,7 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTTypeTraits.h"
+#include <cstdlib>
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
@@ -46,6 +47,9 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
       fph_callback(r), vdr_callback(r, backend_target),
       lambda_callback(r, backend_target) {
 
+  const char *noQueueRewrite = std::getenv("PARAS_NO_QUEUE_REWRITE");
+  const bool rewriteQueues = !(noQueueRewrite && noQueueRewrite[0] == '1');
+  if (rewriteQueues) {
   matchers.addMatcher(
       clang::ast_matchers::traverse(
           clang::TK_IgnoreUnlessSpelledInSource,
@@ -189,6 +193,8 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
           clang::TK_IgnoreUnlessSpelledInSource,
           clang::ast_matchers::cxxNewExpr().bind("new-queue")),
       &vdr_callback);
+
+  }
 
   matchers.addMatcher(
       callExpr(callee(functionDecl(hasName("sycl::handler::parallel_for"))),

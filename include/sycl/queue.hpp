@@ -129,7 +129,12 @@ public:
     } else
 #endif
     {
+#if PARAS_GPU_BACKEND
       handler h;
+#else
+
+      handler h(get_or_create_host_pool());
+#endif
       cgf(h);
       e = h.paras_take_event();
     }
@@ -384,6 +389,9 @@ private:
   mutable std::shared_ptr<cuda_threadpool> gpu_pool_{};
 
   cuda_threadpool &get_or_create_gpu_pool() const;
+
+  mutable std::shared_ptr<threadpool> host_pool_{};
+  threadpool &get_or_create_host_pool() const;
 
   context ctx_{};
   device dev_{};

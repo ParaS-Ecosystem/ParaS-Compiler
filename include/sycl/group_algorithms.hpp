@@ -390,7 +390,8 @@ PARAS_KERNEL_HD inline OutPtr joint_exclusive_scan(Group g, InPtr first, InPtr l
                                                    OutPtr result,
                                                    BinaryOperation binary_op)
 {
-    using T = std::remove_cv_t<std::remove_reference_t<decltype(*first)>>;
+    using In = std::remove_cv_t<std::remove_reference_t<decltype(*first)>>;
+    using T = detail::op_value_t<BinaryOperation, In>;
     return joint_exclusive_scan(g, first, last, result,
                                 known_identity_v<BinaryOperation, T>, binary_op);
 }

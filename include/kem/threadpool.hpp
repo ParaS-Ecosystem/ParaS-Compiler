@@ -462,6 +462,11 @@ template <> struct hash<threadpool> {
 inline sycl::device sycl::handler::paras_reduction_device() const {
   return pool_ ? pool_->get_device() : sycl::device{};
 }
+inline threadpool &sycl::queue::get_or_create_host_pool() const {
+  if (!host_pool_)
+    host_pool_ = std::make_shared<threadpool>(ctx_, dev_, props_);
+  return *host_pool_;
+}
 inline void sycl::handler::paras_reduction_wait() {}
 #endif
 
