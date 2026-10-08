@@ -70,7 +70,8 @@ template <auto &SpecName> auto spec_const_value_host() {
   auto it = spec_const_store().find(&SpecName);
   if (it == spec_const_store().end())
     return SpecName.paras_default();
-  T value;
+
+  T value = SpecName.paras_default();
   std::memcpy(static_cast<void *>(&value), it->second.data(), sizeof(T));
   return value;
 }

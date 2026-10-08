@@ -32,10 +32,59 @@
 
 namespace sycl {
 
+template <typename T, std::size_t N> class marray;
+
+namespace detail {
+template <typename A> struct marray_arg_count {
+  static constexpr std::size_t value = 1;
+};
+template <typename U, std::size_t M> struct marray_arg_count<marray<U, M>> {
+  static constexpr std::size_t value = M;
+};
+template <typename A> struct is_marray_arg : std::false_type {};
+template <typename U, std::size_t M>
+struct is_marray_arg<marray<U, M>> : std::true_type {};
+}
+
 template <typename T, std::size_t N>
 class marray {
+    struct fill_tag {};
+    struct flat_tag {};
+
+    template <typename A, typename... R>
+    PARAS_KERNEL_HD static constexpr T flat_elem(std::size_t i, const A &a,
+                                                 const R &...r) {
+        constexpr std::size_t c = detail::marray_arg_count<A>::value;
+        if (i < c) {
+            if constexpr (detail::is_marray_arg<A>::value)
+                return static_cast<T>(a.data[i]);
+            else
+                return static_cast<T>(a);
+        }
+        if constexpr (sizeof...(R) > 0)
+            return flat_elem(i - c, r...);
+        else
+            return T{};
+    }
+
+    template <std::size_t... I>
+    PARAS_KERNEL_HD constexpr marray(fill_tag, std::index_sequence<I...>,
+                                     const T &v)
+        : data{((void)I, v)...} {}
+
+    template <std::size_t... I, typename... Args>
+    PARAS_KERNEL_HD constexpr marray(flat_tag, std::index_sequence<I...>,
+                                     const Args &...args)
+        : data{flat_elem(I, args...)...} {}
+
+    template <typename A>
+    static constexpr bool valid_arg =
+        detail::is_marray_arg<A>::value || std::is_constructible_v<T, A>;
+
 public:
     using value_type = T;
+    using reference = T &;
+    using const_reference = const T &;
 
     T data[N];
 
@@ -43,16 +92,33 @@ public:
     constexpr marray() noexcept : data{} {}
 
     PARAS_KERNEL_HD
-    explicit constexpr marray(const T& v) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] = v;
-    }
+    explicit constexpr marray(const T& v) noexcept
+        : marray(fill_tag{}, std::make_index_sequence<N>{}, v) {}
 
     template <typename... Args,
-              typename = std::enable_if_t<sizeof...(Args) == N>>
+              typename = std::enable_if_t<
+                  (detail::marray_arg_count<Args>::value + ... + 0) == N &&
+                  (valid_arg<Args> && ...) &&
+                  !(sizeof...(Args) == 1 &&
+                    (std::is_same_v<Args, marray> && ...))>>
     PARAS_KERNEL_HD
-    constexpr marray(Args... args) noexcept
-        : data{static_cast<T>(args)...} {}
+    constexpr marray(const Args &...args) noexcept
+        : marray(flat_tag{}, std::make_index_sequence<N>{}, args...) {}
+
+    PARAS_KERNEL_HD constexpr marray(const marray &) = default;
+    PARAS_KERNEL_HD constexpr marray(marray &&) = default;
+    PARAS_KERNEL_HD marray &operator=(const marray &) = default;
+    PARAS_KERNEL_HD marray &operator=(marray &&) = default;
+
+    PARAS_KERNEL_HD
+    marray &operator=(const T &v) noexcept {
+        for (std::size_t i = 0; i < N; ++i)
+            data[i] = v;
+        return *this;
+    }
+
+    template <std::size_t M = N, typename = std::enable_if_t<M == 1>>
+    PARAS_KERNEL_HD constexpr operator T() const noexcept { return data[0]; }
 
     PARAS_KERNEL_HD
     static constexpr std::size_t size() noexcept { return N; }

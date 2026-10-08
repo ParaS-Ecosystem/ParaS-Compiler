@@ -55,6 +55,7 @@
 #include "math_builtins_extra.hpp"
 #include "multi_ptr.hpp"
 #include "decorated_ptr_and_device_event.hpp"
+#include "atomic.hpp"
 #include "constant_ptr.hpp"
 #include "host_ptr.hpp"
 #include "native.hpp"

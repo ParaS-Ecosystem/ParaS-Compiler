@@ -27,6 +27,7 @@
 #include "kem_gpu/gpu_utilities.hpp"
 #include "work_group_algorithms_detail.hpp"
 #include "h_item.hpp"
+#include "decorated_ptr_and_device_event.hpp"
 
 namespace sycl {
 
@@ -49,6 +50,14 @@ public:
   PARAS_KERNEL_HD
   group(id_type gid, range_type gr, range_type lr)
       : group_id_(gid), group_range_(gr), local_range_(lr) {}
+
+  PARAS_KERNEL_HD friend bool operator==(const group &a, const group &b) {
+    return a.group_id_ == b.group_id_ && a.group_range_ == b.group_range_ &&
+           a.local_range_ == b.local_range_;
+  }
+  PARAS_KERNEL_HD friend bool operator!=(const group &a, const group &b) {
+    return !(a == b);
+  }
 
   PARAS_KERNEL_HD
   id_type get_group_id() const { return group_id_; }
@@ -116,8 +125,39 @@ public:
     return r;
   }
 
+  PARAS_KERNEL_HD id_type get_id() const { return group_id_; }
+  PARAS_KERNEL_HD size_t get_id(int dim) const { return group_id_[dim]; }
+  PARAS_KERNEL_HD size_t get_linear_id() const {
+    return get_group_linear_id();
+  }
+  PARAS_KERNEL_HD range_type get_global_range() const {
+    range_type r = group_range_;
+    for (int d = 0; d < Dimensions; d++)
+      r[d] = group_range_[d] * local_range_[d];
+    return r;
+  }
+  PARAS_KERNEL_HD size_t get_global_range(int dim) const {
+    return group_range_[dim] * local_range_[dim];
+  }
+
   PARAS_KERNEL_HD
   bool leader() const { return get_local_linear_id() == 0; }
+
+  template <typename DPtr, typename SPtr>
+  PARAS_KERNEL_HD device_event async_work_group_copy(DPtr dest, SPtr src,
+                                                     size_t n) const {
+    return detail::wg_async_copy(dest, src, n, 1);
+  }
+  template <typename DPtr, typename SPtr>
+  PARAS_KERNEL_HD device_event async_work_group_copy(DPtr dest, SPtr src,
+                                                     size_t n,
+                                                     size_t stride) const {
+    return detail::wg_async_copy(dest, src, n, stride);
+  }
+  template <typename... Events>
+  PARAS_KERNEL_HD void wait_for(Events... events) const {
+    (events.wait(), ...);
+  }
 
   template <typename Fn>
   PARAS_KERNEL_HD void parallel_for_work_item(const Fn &fn) const {

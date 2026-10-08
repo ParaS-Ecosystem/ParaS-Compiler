@@ -33,6 +33,21 @@ namespace sycl {
 
 using byte = unsigned char;
 
+namespace opencl {
+using cl_bool = bool;
+using cl_char = std::int8_t;
+using cl_uchar = std::uint8_t;
+using cl_short = std::int16_t;
+using cl_ushort = std::uint16_t;
+using cl_int = std::int32_t;
+using cl_uint = std::uint32_t;
+using cl_long = std::int64_t;
+using cl_ulong = std::uint64_t;
+using cl_half = sycl::half;
+using cl_float = float;
+using cl_double = double;
+}
+
 enum class elem : int {
     x = 0, y = 1, z = 2, w = 3,
     r = 0, g = 1, b = 2, a = 3,

@@ -37,8 +37,28 @@ using decorated_generic_ptr = multi_ptr<T, access::address_space::generic_space,
 class device_event {
  public:
   constexpr device_event() noexcept = default;
-  void wait() const {}
+  PARAS_KERNEL_HD void wait() const noexcept {}
 };
+
+namespace detail {
+
+template <typename DPtr, typename SPtr>
+PARAS_KERNEL_HD device_event wg_async_copy(DPtr dest, SPtr src,
+                                           std::size_t n,
+                                           std::size_t stride) {
+  auto *d = dest.get();
+  auto *s = src.get();
+  constexpr bool src_is_global =
+      SPtr::address_space == access::address_space::global_space;
+  for (std::size_t i = 0; i < n; ++i) {
+    if constexpr (src_is_global)
+      d[i] = s[i * stride];
+    else
+      d[i * stride] = s[i];
+  }
+  return device_event{};
+}
+}
 
 }
 
