@@ -418,6 +418,19 @@ inline T permute_group_by_xor(Group g, T x, typename Group::linear_id_type mask_
 #endif
 }
 
+template <typename Group, typename T, typename Predicate,
+          typename = std::enable_if_t<std::is_invocable_r_v<bool, Predicate, T>>>
+PARAS_KERNEL_HD
+inline bool any_of_group(Group g, T x, Predicate pred)
+{
+    return any_of_group(g, static_cast<bool>(pred(x)));
+}
+
+template <typename T> struct is_group : std::false_type {};
+template <int Dimensions> struct is_group<group<Dimensions>> : std::true_type {};
+template <> struct is_group<sub_group> : std::true_type {};
+template <typename T> inline constexpr bool is_group_v = is_group<T>::value;
+
 }
 
 #endif

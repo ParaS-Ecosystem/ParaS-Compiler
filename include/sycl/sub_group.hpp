@@ -93,6 +93,12 @@ public:
   linear_id_type get_group_linear_range() const { return 1; }
 #endif
 
+  PARAS_KERNEL_HD id_type get_group_id() const {
+    return id_type(get_group_linear_id());
+  }
+  PARAS_KERNEL_HD range_type get_group_range() const {
+    return range_type(get_group_linear_range());
+  }
   PARAS_KERNEL_HD
   id_type get_local_id() const {
     return id_type(get_local_linear_id());
