@@ -36,6 +36,7 @@
 #include "../utilities/internal_utils.hpp"
 
 #include <cstddef>
+#include <cstring>
 #include <type_traits>
 #include <utility>
 #include <limits>
@@ -134,9 +135,16 @@ inline void check_accessor_range(const range<D> &bufRange,
 
         accessor(range<Dimensions> allocationSize, handler &,
                  const property_list &propList = {})
-            : ptr_(nullptr), r_(allocationSize)
+            : ptr_(paras_raw_zeroed(allocationSize.size())), r_(allocationSize)
         {
-            (void)propList;
+            no_init_ = propList.has_no_init();
+        }
+
+        static DataT *paras_raw_zeroed(size_t n)
+        {
+            void *p = ::operator new[]((n ? n : 1) * sizeof(DataT));
+            std::memset(p, 0, (n ? n : 1) * sizeof(DataT));
+            return static_cast<DataT *>(p);
         }
 
         template <access::decorated DecorateAddress>

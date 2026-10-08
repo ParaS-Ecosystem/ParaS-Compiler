@@ -52,6 +52,19 @@ template <int D, typename Func> struct hierarchical_kernel {
   range<D> groups;
   range<D> local;
   PARAS_KERNEL_HD void operator()(id<D> g) const {
+#if !PARAS_DEVICE_PASS
+
+    if (!paras_host_detail::tl_local_mem) {
+      thread_local std::unique_ptr<unsigned char[]> mem(
+          new unsigned char[paras_host_detail::kHostLocalMemBytes]);
+      paras_host_detail::tl_local_mem = mem.get();
+      struct reset {
+        ~reset() { paras_host_detail::tl_local_mem = nullptr; }
+      } r;
+      invoke_with_kh(f, group<D>(g, groups, local));
+      return;
+    }
+#endif
     invoke_with_kh(f, group<D>(g, groups, local));
   }
 };

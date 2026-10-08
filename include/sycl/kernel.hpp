@@ -26,6 +26,7 @@
 #include <type_traits>
 
 #include "context.hpp"
+#include "kernel_handler.hpp"
 
 namespace sycl
 {
@@ -164,7 +165,7 @@ namespace sycl
         get_specialization_constant() const
         {
 
-            return SpecName.get_value();
+            return detail::spec_const_value_host<SpecName>();
         }
 
         bool contains_specialization_constants() const noexcept { return false; }
@@ -181,7 +182,7 @@ namespace sycl
         void set_specialization_constant(
             typename std::remove_reference_t<decltype(SpecName)>::value_type value)
         {
-            SpecName.set_value(value);
+            detail::spec_const_set_host<SpecName>(value);
         }
 
         std::vector<device> get_devices() const { return {}; }
