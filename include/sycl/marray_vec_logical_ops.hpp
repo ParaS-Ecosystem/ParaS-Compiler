@@ -48,6 +48,9 @@ struct vec_rel_t {
           std::conditional_t<sizeof(T) == 4, std::int32_t, std::int64_t>>>;
 };
 
+template <typename T> struct paras_nodeduce { using type = T; };
+template <typename T> using paras_nodeduce_t = typename paras_nodeduce<T>::type;
+
 #define PARAS_SYCL_DEFINE_MARRAY_ELEMENTWISE_OP(OP)                     \
   template <typename T, std::size_t N>                                  \
   constexpr marray<T, N> operator OP(const marray<T, N>& lhs,           \
@@ -60,7 +63,7 @@ struct vec_rel_t {
 #define PARAS_SYCL_DEFINE_MARRAY_SCALAR_OP(OP)                          \
   template <typename T, std::size_t N>                                  \
   constexpr marray<T, N> operator OP(const marray<T, N>& lhs,           \
-                                      const T& rhs) {                    \
+                                      const paras_nodeduce_t<T>& rhs) {  \
     marray<T, N> result{};                                              \
     for (std::size_t i = 0; i < N; ++i) result[i] = lhs[i] OP rhs;      \
     return result;                                                      \
@@ -68,7 +71,7 @@ struct vec_rel_t {
 
 #define PARAS_SYCL_DEFINE_MARRAY_SCALAR_OP_REVERSED(OP)                 \
   template <typename T, std::size_t N>                                  \
-  constexpr marray<T, N> operator OP(const T& lhs,                      \
+  constexpr marray<T, N> operator OP(const paras_nodeduce_t<T>& lhs,    \
                                       const marray<T, N>& rhs) {         \
     marray<T, N> result{};                                              \
     for (std::size_t i = 0; i < N; ++i) result[i] = lhs OP rhs[i];      \
