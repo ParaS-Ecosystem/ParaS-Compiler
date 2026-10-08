@@ -112,10 +112,8 @@ void ParaSDeviceCallGraph::annotate(const clang::FunctionDecl* FD, clang::ASTCon
         if (loc.isInvalid() || loc.isMacroID())
             continue;
 
-        if (SM.isInMainFile(loc))
-            continue;
-
-        if (headerRewriter.InsertTextBefore(loc, "__host__ __device__ ")) {
+        clang::Rewriter& targetRewriter = rewriterFor(loc, SM);
+        if (targetRewriter.InsertTextBefore(loc, "__host__ __device__ ")) {
             llvm::errs() << "[ParaS] failed to mark device-callable redeclaration: "
                          << redecl->getQualifiedNameAsString() << "\n";
             continue;
