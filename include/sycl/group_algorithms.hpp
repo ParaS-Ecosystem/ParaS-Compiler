@@ -274,6 +274,14 @@ inline V inclusive_scan_over_group(Group g, V x, BinaryOperation binary_op)
 #endif
 }
 
+template <typename Group, typename V, typename T, typename BinaryOperation,
+          typename = std::enable_if_t<!std::is_same_v<V, T>>>
+PARAS_KERNEL_HD
+inline T exclusive_scan_over_group(Group g, V x, T init, BinaryOperation binary_op)
+{
+    return exclusive_scan_over_group(g, static_cast<T>(x), init, binary_op);
+}
+
 template <typename Group, typename T, typename BinaryOperation>
 PARAS_KERNEL_HD
 inline T exclusive_scan_over_group(Group g, T x, T init, BinaryOperation binary_op)
