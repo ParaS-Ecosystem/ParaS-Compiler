@@ -24,6 +24,7 @@
 #include <utility>
 #include <type_traits>
 #include <mutex>
+#include "exception.hpp"
 
 namespace sycl {
 
@@ -183,6 +184,10 @@ class property_list {
 
         template <typename PropT>
         PropT get_property() const {
+
+            if (!has_property<PropT>())
+                throw sycl::exception(make_error_code(errc::invalid),
+                                      "get_property: property not present");
             if constexpr (std::is_same_v<PropT, property::buffer::use_mutex>) {
                 return property::buffer::use_mutex(*mutex_ptr_);
             } else if constexpr (detail::has_get_context_member<PropT>::value) {

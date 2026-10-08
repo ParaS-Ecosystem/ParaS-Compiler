@@ -560,7 +560,14 @@ template <>
 inline auto device::get_info<info::device::max_clock_frequency>() const { return max_clock_frequency_; }
 
 template <>
-inline auto device::get_info<info::device::max_mem_alloc_size>() const { return max_mem_alloc_size_; }
+inline auto device::get_info<info::device::max_mem_alloc_size>() const {
+
+  if (max_mem_alloc_size_)
+    return max_mem_alloc_size_;
+  const std::uint64_t min_alloc = std::uint64_t(128) << 20;
+  const std::uint64_t quarter = global_mem_size_bytes_ / 4;
+  return quarter > min_alloc ? quarter : min_alloc;
+}
 
 template <>
 inline auto device::get_info<info::device::image_support>() const { return image_support_; }
@@ -653,7 +660,12 @@ template <>
 inline auto device::get_info<info::device::max_constant_args>() const { return max_constant_args_; }
 
 template <>
-inline auto device::get_info<info::device::local_mem_size>() const { return local_mem_size_; }
+inline auto device::get_info<info::device::local_mem_size>() const {
+
+  if (local_mem_size_)
+    return local_mem_size_;
+  return std::uint64_t(is_gpu_ ? 49152 : 65536);
+}
 
 template <>
 inline auto device::get_info<info::device::error_correction_support>() const { return error_correction_support_; }

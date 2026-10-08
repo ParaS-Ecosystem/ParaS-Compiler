@@ -100,6 +100,15 @@ public:
   template <typename KernelName = void, typename Func, int dim>
   void parallel_for(const nd_range<dim> &r, Func f);
 
+  template <typename KernelName = void, typename Func>
+  void parallel_for(range<2> r, Func f) {
+    parallel_for<KernelName, Func, 2>(r, f);
+  }
+  template <typename KernelName = void, typename Func>
+  void parallel_for(range<3> r, Func f) {
+    parallel_for<KernelName, Func, 3>(r, f);
+  }
+
   template <typename KernelName = void, int dim, typename First, typename... Rest,
             typename = std::enable_if_t<detail::is_reduction_v<First>>>
   void parallel_for(range<dim> r, First &&first, Rest &&...rest);

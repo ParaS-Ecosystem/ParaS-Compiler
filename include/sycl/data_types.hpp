@@ -21,6 +21,7 @@
 #ifndef __PARAS_DATA_TYPES_HPP__
 #define __PARAS_DATA_TYPES_HPP__
 
+#include <cmath>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
@@ -114,9 +115,22 @@ private:
         }
     }
 
+    template <typename U, typename = void>
+    struct paras_arg_count : std::integral_constant<int, 0> {};
+    template <typename U>
+    struct paras_arg_count<U, std::enable_if_t<std::is_convertible_v<U, T>>>
+        : std::integral_constant<int, 1> {};
+    template <typename U>
+    struct paras_arg_count<U, std::enable_if_t<!std::is_convertible_v<U, T> &&
+                                               (U::size() > 0)>>
+        : std::integral_constant<int, static_cast<int>(U::size())> {};
+
 public:
+
     template <typename... Args,
-              typename = std::enable_if_t<(sizeof...(Args) >= 1)>>
+              typename = std::enable_if_t<(sizeof...(Args) >= 1) &&
+                  ((paras_arg_count<Args>::value + ...) == N) &&
+                  ((paras_arg_count<Args>::value > 0) && ...)>>
     PARAS_KERNEL_HD
     explicit constexpr vec(Args... args) noexcept : data{} {
         int idx = 0;
@@ -2359,9 +2373,29 @@ return (*this) *= static_cast<vec>(rhs);
     template <typename ConvertT, rounding_mode Mode = rounding_mode::automatic>
     PARAS_KERNEL_HD
     vec<ConvertT, N> convert() const noexcept {
+
+        constexpr bool fp_src = std::is_floating_point_v<T> ||
+                                std::is_same_v<T, half>;
+        constexpr bool int_dst = std::is_integral_v<ConvertT>;
         vec<ConvertT, N> result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = static_cast<ConvertT>(data[i]);
+        for (int i = 0; i < N; ++i) {
+            if constexpr (fp_src && int_dst) {
+                using F = std::conditional_t<std::is_same_v<T, double>, double, float>;
+                const F x = static_cast<F>(data[i]);
+                F r;
+                if constexpr (Mode == rounding_mode::rtz)
+                    r = trunc(x);
+                else if constexpr (Mode == rounding_mode::rtp)
+                    r = ceil(x);
+                else if constexpr (Mode == rounding_mode::rtn)
+                    r = floor(x);
+                else
+                    r = rint(x);
+                result.data[i] = static_cast<ConvertT>(r);
+            } else {
+                result.data[i] = static_cast<ConvertT>(data[i]);
+            }
+        }
         return result;
     }
 

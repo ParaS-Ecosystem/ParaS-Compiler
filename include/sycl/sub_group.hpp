@@ -101,6 +101,23 @@ public:
   }
 #endif
 
+#if PARAS_GPU_BACKEND
+  PARAS_KERNEL_D
+#else
+  PARAS_KERNEL_HD
+#endif
+  friend bool operator==(const sub_group &a, const sub_group &b) {
+    return a.get_group_linear_id() == b.get_group_linear_id();
+  }
+#if PARAS_GPU_BACKEND
+  PARAS_KERNEL_D
+#else
+  PARAS_KERNEL_HD
+#endif
+  friend bool operator!=(const sub_group &a, const sub_group &b) {
+    return !(a == b);
+  }
+
   PARAS_KERNEL_HD id_type get_group_id() const {
     return id_type(get_group_linear_id());
   }

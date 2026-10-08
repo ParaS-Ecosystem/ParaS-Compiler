@@ -634,6 +634,29 @@ public:
     paras_enqueue_dependencies(deps);
     return parallel_for<KernelName>(r, f);
   }
+
+  template <typename KernelName = void, typename Func>
+  sycl::event parallel_for(sycl::range<2> r, Func f) {
+    return parallel_for<KernelName, Func, 2>(r, f);
+  }
+  template <typename KernelName = void, typename Func>
+  sycl::event parallel_for(sycl::range<3> r, Func f) {
+    return parallel_for<KernelName, Func, 3>(r, f);
+  }
+
+  template <typename KernelName = void, typename Func>
+  sycl::event parallel_for(std::size_t n, Func f) {
+    return parallel_for<KernelName>(sycl::range<1>(n), f);
+  }
+  template <typename KernelName = void, typename Func>
+  sycl::event parallel_for(std::size_t n, sycl::event dep, Func f) {
+    return parallel_for<KernelName>(sycl::range<1>(n), dep, f);
+  }
+  template <typename KernelName = void, typename Func>
+  sycl::event parallel_for(std::size_t n, const std::vector<sycl::event> &deps,
+                           Func f) {
+    return parallel_for<KernelName>(sycl::range<1>(n), deps, f);
+  }
   sycl::event memcpy(void *dest, const void *src, size_t numBytes,
                      sycl::event dep) {
     paras_enqueue_dependency(dep);

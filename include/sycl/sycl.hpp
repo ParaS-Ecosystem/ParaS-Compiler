@@ -61,6 +61,7 @@
 #include "native.hpp"
 #include "nd_item.hpp"
 #include "nd_range.hpp"
+#include "stream.hpp"
 #include "private_ptr.hpp"
 #include "property_list.hpp"
 #include "queue.hpp"

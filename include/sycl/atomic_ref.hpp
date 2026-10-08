@@ -98,6 +98,29 @@ PARAS_KERNEL_HD To reinterpret_bits(const From &src) noexcept {
 }
 #endif
 
+PARAS_KERNEL_HD inline void atomic_fence(memory_order order, memory_scope) {
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+  (void)order;
+  __threadfence();
+#else
+  switch (order) {
+  case memory_order::relaxed:
+    break;
+  case memory_order::acquire:
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    break;
+  case memory_order::release:
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    break;
+  case memory_order::acq_rel:
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    break;
+  default:
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+  }
+#endif
+}
+
 template <typename T, memory_order DefaultOrder = memory_order::relaxed,
           memory_scope DefaultScope = memory_scope::device,
           access::address_space AddressSpace =

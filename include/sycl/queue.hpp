@@ -219,6 +219,28 @@ public:
   }
 
   template <typename KernelName = void, typename Func>
+  event parallel_for(range<2> r, Func f) {
+    return parallel_for<KernelName, Func, 2>(r, f);
+  }
+  template <typename KernelName = void, typename Func>
+  event parallel_for(range<3> r, Func f) {
+    return parallel_for<KernelName, Func, 3>(r, f);
+  }
+
+  template <typename KernelName = void, typename Func>
+  event parallel_for(std::size_t n, Func f) {
+    return parallel_for<KernelName>(range<1>(n), f);
+  }
+  template <typename KernelName = void, typename Func>
+  event parallel_for(std::size_t n, event dep, Func f) {
+    return parallel_for<KernelName>(range<1>(n), dep, f);
+  }
+  template <typename KernelName = void, typename Func>
+  event parallel_for(std::size_t n, const std::vector<event> &deps, Func f) {
+    return parallel_for<KernelName>(range<1>(n), deps, f);
+  }
+
+  template <typename KernelName = void, typename Func>
   event single_task(Func f) {
     return submit([&](handler &cgh) { cgh.template single_task<KernelName>(f); });
   }

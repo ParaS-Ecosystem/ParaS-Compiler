@@ -1372,6 +1372,16 @@ namespace std
         }
     };
 
+    template <typename DataT, int Dimensions, sycl::access_mode AccessMode>
+    struct hash<sycl::host_accessor<DataT, Dimensions, AccessMode>>
+    {
+        size_t operator()(
+            const sycl::host_accessor<DataT, Dimensions, AccessMode> &a) const noexcept
+        {
+            return std::hash<const void *>{}(static_cast<const void *>(a.get_pointer()));
+        }
+    };
+
     template <typename DataT, int Dimensions>
     struct hash<sycl::local_accessor<DataT, Dimensions>>
     {
