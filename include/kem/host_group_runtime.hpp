@@ -39,6 +39,7 @@ namespace paras_host_detail {
 class group_barrier_t {
 public:
     explicit group_barrier_t(std::size_t count) : count_(count) {}
+    std::size_t size() const noexcept { return count_; }
 
     void arrive_and_wait() {
         std::unique_lock<std::mutex> lk(m_);

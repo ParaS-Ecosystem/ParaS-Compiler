@@ -87,10 +87,18 @@ public:
   linear_id_type get_local_linear_range() const { return 1; }
 
   PARAS_KERNEL_HD
-  linear_id_type get_group_linear_id() const { return 0; }
+  linear_id_type get_group_linear_id() const {
+    return static_cast<linear_id_type>(detail::wg_local_linear_id());
+  }
 
   PARAS_KERNEL_HD
-  linear_id_type get_group_linear_range() const { return 1; }
+  linear_id_type get_group_linear_range() const {
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
+    if (paras_host_detail::tl_barrier)
+      return static_cast<linear_id_type>(paras_host_detail::tl_barrier->size());
+#endif
+    return 1;
+  }
 #endif
 
   PARAS_KERNEL_HD id_type get_group_id() const {
