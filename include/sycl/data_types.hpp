@@ -122,7 +122,7 @@ private:
 
 public:
     template <typename... Args, typename = std::enable_if_t<(sizeof...(Args) >= 1)>>
-    PARAS_KERNEL_HD explicit constexpr vec(Args... args) noexcept : data{} {
+    PARAS_KERNEL_HD constexpr vec(Args... args) noexcept : data{} {
         int idx = 0;
         ((idx = paras_fill_component(data, idx, args)), ...);
     }
