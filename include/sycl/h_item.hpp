@@ -34,6 +34,8 @@ class h_item {
   range<Dimensions> global_range_;
   id<Dimensions> local_id_;
   range<Dimensions> local_range_;
+  id<Dimensions> phys_id_;
+  range<Dimensions> phys_range_;
 
  public:
   h_item() = delete;
@@ -42,7 +44,16 @@ class h_item {
   h_item(id<Dimensions> globalId, range<Dimensions> globalRange,
          id<Dimensions> localId, range<Dimensions> localRange)
       : global_id_(globalId), global_range_(globalRange),
-        local_id_(localId), local_range_(localRange) {}
+        local_id_(localId), local_range_(localRange), phys_id_(localId),
+        phys_range_(localRange) {}
+
+  PARAS_KERNEL_HD
+  h_item(id<Dimensions> globalId, range<Dimensions> globalRange,
+         id<Dimensions> logicalId, range<Dimensions> logicalRange,
+         id<Dimensions> physicalId, range<Dimensions> physicalRange)
+      : global_id_(globalId), global_range_(globalRange),
+        local_id_(logicalId), local_range_(logicalRange), phys_id_(physicalId),
+        phys_range_(physicalRange) {}
 
   static constexpr int dimensions = Dimensions;
 
@@ -56,12 +67,13 @@ class h_item {
     return get_local();
   }
   PARAS_KERNEL_HD item<Dimensions, false> get_physical_local() const {
-    return get_local();
+    return item<Dimensions, false>(phys_id_, phys_range_);
   }
 
   PARAS_KERNEL_HD friend bool operator==(const h_item &a, const h_item &b) {
     return a.global_id_ == b.global_id_ && a.global_range_ == b.global_range_ &&
-           a.local_id_ == b.local_id_ && a.local_range_ == b.local_range_;
+           a.local_id_ == b.local_id_ && a.local_range_ == b.local_range_ &&
+           a.phys_id_ == b.phys_id_ && a.phys_range_ == b.phys_range_;
   }
   PARAS_KERNEL_HD friend bool operator!=(const h_item &a, const h_item &b) {
     return !(a == b);
@@ -88,19 +100,19 @@ class h_item {
   PARAS_KERNEL_HD
   id<Dimensions> get_logical_local_id() const { return local_id_; }
   PARAS_KERNEL_HD
-  id<Dimensions> get_physical_local_id() const { return local_id_; }
+  id<Dimensions> get_physical_local_id() const { return phys_id_; }
   PARAS_KERNEL_HD
   range<Dimensions> get_logical_local_range() const { return local_range_; }
   PARAS_KERNEL_HD
-  range<Dimensions> get_physical_local_range() const { return local_range_; }
+  range<Dimensions> get_physical_local_range() const { return phys_range_; }
   PARAS_KERNEL_HD
   std::size_t get_logical_local_id(int d) const { return local_id_[d]; }
   PARAS_KERNEL_HD
-  std::size_t get_physical_local_id(int d) const { return local_id_[d]; }
+  std::size_t get_physical_local_id(int d) const { return phys_id_[d]; }
   PARAS_KERNEL_HD
   std::size_t get_logical_local_range(int d) const { return local_range_[d]; }
   PARAS_KERNEL_HD
-  std::size_t get_physical_local_range(int d) const { return local_range_[d]; }
+  std::size_t get_physical_local_range(int d) const { return phys_range_[d]; }
 };
 
 }

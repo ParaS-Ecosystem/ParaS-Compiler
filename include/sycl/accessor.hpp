@@ -415,7 +415,20 @@ inline void check_accessor_range(const range<D> &bufRange,
             paras_check_no_init();
         }
 
-        value_type *get_pointer() const { return ptr_; }
+        DataT *paras_raw() const noexcept { return ptr_; }
+
+        auto get_pointer() const
+        {
+            using elem_t = std::remove_const_t<DataT>;
+            if constexpr (AccessTarget == target::constant_buffer)
+                return multi_ptr<elem_t, access::address_space::constant_space,
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else if constexpr (AccessTarget == target::local)
+                return multi_ptr<elem_t, access::address_space::local_space,
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else
+                return static_cast<value_type *>(ptr_);
+        }
 
         iterator begin() const { return iterator(ptr_, mem_r_, r_, offset_, 0); }
         iterator end() const
@@ -819,7 +832,20 @@ inline void check_accessor_range(const range<D> &bufRange,
             paras_check_no_init();
         }
 
-        value_type *get_pointer() const { return ptr_; }
+        DataT *paras_raw() const noexcept { return ptr_; }
+
+        auto get_pointer() const
+        {
+            using elem_t = std::remove_const_t<DataT>;
+            if constexpr (AccessTarget == target::constant_buffer)
+                return multi_ptr<elem_t, access::address_space::constant_space,
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else if constexpr (AccessTarget == target::local)
+                return multi_ptr<elem_t, access::address_space::local_space,
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else
+                return static_cast<value_type *>(ptr_);
+        }
 
         template <access::decorated DecorateAddress>
         auto get_multi_ptr() const
@@ -1045,7 +1071,20 @@ inline void check_accessor_range(const range<D> &bufRange,
             paras_check_no_init();
         }
 
-        value_type *get_pointer() const { return ptr_; }
+        DataT *paras_raw() const noexcept { return ptr_; }
+
+        auto get_pointer() const
+        {
+            using elem_t = std::remove_const_t<DataT>;
+            if constexpr (AccessTarget == target::constant_buffer)
+                return multi_ptr<elem_t, access::address_space::constant_space,
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else if constexpr (AccessTarget == target::local)
+                return multi_ptr<elem_t, access::address_space::local_space,
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else
+                return static_cast<value_type *>(ptr_);
+        }
 
         template <access::decorated DecorateAddress>
         auto get_multi_ptr() const
@@ -1533,7 +1572,7 @@ namespace std
         size_t operator()(
             const sycl::accessor<DataT, Dimensions, AccessMode, AccessTarget, IsPlaceholder> &a) const noexcept
         {
-            return std::hash<const void *>{}(static_cast<const void *>(a.get_pointer()));
+            return std::hash<const void *>{}(static_cast<const void *>(a.paras_raw()));
         }
     };
 
@@ -1543,7 +1582,7 @@ namespace std
         size_t operator()(
             const sycl::host_accessor<DataT, Dimensions, AccessMode> &a) const noexcept
         {
-            return std::hash<const void *>{}(static_cast<const void *>(a.get_pointer()));
+            return std::hash<const void *>{}(static_cast<const void *>(a.paras_raw()));
         }
     };
 

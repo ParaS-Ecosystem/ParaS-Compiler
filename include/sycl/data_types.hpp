@@ -2537,6 +2537,22 @@ using half2 = vec<half, 2>;   using half3 = vec<half, 3>;
 using half4 = vec<half, 4>;   using half8 = vec<half, 8>;
 using half16 = vec<half, 16>;
 
+using cl_char2 = vec<opencl::cl_char, 2>; using cl_char3 = vec<opencl::cl_char, 3>; using cl_char4 = vec<opencl::cl_char, 4>; using cl_char8 = vec<opencl::cl_char, 8>; using cl_char16 = vec<opencl::cl_char, 16>;
+using cl_uchar2 = vec<opencl::cl_uchar, 2>; using cl_uchar3 = vec<opencl::cl_uchar, 3>; using cl_uchar4 = vec<opencl::cl_uchar, 4>; using cl_uchar8 = vec<opencl::cl_uchar, 8>; using cl_uchar16 = vec<opencl::cl_uchar, 16>;
+using cl_short2 = vec<opencl::cl_short, 2>; using cl_short3 = vec<opencl::cl_short, 3>; using cl_short4 = vec<opencl::cl_short, 4>; using cl_short8 = vec<opencl::cl_short, 8>; using cl_short16 = vec<opencl::cl_short, 16>;
+using cl_ushort2 = vec<opencl::cl_ushort, 2>; using cl_ushort3 = vec<opencl::cl_ushort, 3>; using cl_ushort4 = vec<opencl::cl_ushort, 4>; using cl_ushort8 = vec<opencl::cl_ushort, 8>; using cl_ushort16 = vec<opencl::cl_ushort, 16>;
+using cl_int2 = vec<opencl::cl_int, 2>; using cl_int3 = vec<opencl::cl_int, 3>; using cl_int4 = vec<opencl::cl_int, 4>; using cl_int8 = vec<opencl::cl_int, 8>; using cl_int16 = vec<opencl::cl_int, 16>;
+using cl_uint2 = vec<opencl::cl_uint, 2>; using cl_uint3 = vec<opencl::cl_uint, 3>; using cl_uint4 = vec<opencl::cl_uint, 4>; using cl_uint8 = vec<opencl::cl_uint, 8>; using cl_uint16 = vec<opencl::cl_uint, 16>;
+using cl_long2 = vec<opencl::cl_long, 2>; using cl_long3 = vec<opencl::cl_long, 3>; using cl_long4 = vec<opencl::cl_long, 4>; using cl_long8 = vec<opencl::cl_long, 8>; using cl_long16 = vec<opencl::cl_long, 16>;
+using cl_ulong2 = vec<opencl::cl_ulong, 2>; using cl_ulong3 = vec<opencl::cl_ulong, 3>; using cl_ulong4 = vec<opencl::cl_ulong, 4>; using cl_ulong8 = vec<opencl::cl_ulong, 8>; using cl_ulong16 = vec<opencl::cl_ulong, 16>;
+using cl_half2 = vec<opencl::cl_half, 2>; using cl_half3 = vec<opencl::cl_half, 3>; using cl_half4 = vec<opencl::cl_half, 4>; using cl_half8 = vec<opencl::cl_half, 8>; using cl_half16 = vec<opencl::cl_half, 16>;
+using cl_float2 = vec<opencl::cl_float, 2>; using cl_float3 = vec<opencl::cl_float, 3>; using cl_float4 = vec<opencl::cl_float, 4>; using cl_float8 = vec<opencl::cl_float, 8>; using cl_float16 = vec<opencl::cl_float, 16>;
+using cl_double2 = vec<opencl::cl_double, 2>; using cl_double3 = vec<opencl::cl_double, 3>; using cl_double4 = vec<opencl::cl_double, 4>; using cl_double8 = vec<opencl::cl_double, 8>; using cl_double16 = vec<opencl::cl_double, 16>;
+using opencl::cl_bool; using opencl::cl_char; using opencl::cl_uchar;
+using opencl::cl_short; using opencl::cl_ushort; using opencl::cl_int;
+using opencl::cl_uint; using opencl::cl_long; using opencl::cl_ulong;
+using opencl::cl_half; using opencl::cl_float; using opencl::cl_double;
+
 template <typename To, typename From>
 PARAS_KERNEL_HD
 To bit_cast(const From& from) noexcept {

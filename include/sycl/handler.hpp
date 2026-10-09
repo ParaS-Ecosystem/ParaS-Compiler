@@ -214,14 +214,14 @@ public:
   void copy(const AccessorT &src, T *dest) {
     const auto n = src.size();
     for (std::size_t i = 0; i < n; ++i)
-      dest[i] = src.get_pointer()[i];
+      dest[i] = src.begin()[i];
   }
   template <typename T, typename AccessorT,
             typename = decltype(std::declval<AccessorT &>().get_pointer())>
   void copy(const T *src, const AccessorT &dest) {
     const auto n = dest.size();
     for (std::size_t i = 0; i < n; ++i)
-      dest.get_pointer()[i] = src[i];
+      dest.begin()[i] = src[i];
   }
 
   template <typename AccessorT, typename T,
@@ -246,7 +246,7 @@ public:
                       "the source accessor");
     const auto n = src.size();
     for (std::size_t i = 0; i < n; ++i)
-      dest.get_pointer()[i] = src.get_pointer()[i];
+      dest.begin()[i] = src.begin()[i];
   }
 
   template <typename AccessorT, typename T,
@@ -254,7 +254,7 @@ public:
   void fill(const AccessorT &dest, const T &pattern) {
     const auto n = dest.size();
     for (std::size_t i = 0; i < n; ++i)
-      dest.get_pointer()[i] = pattern;
+      dest.begin()[i] = pattern;
   }
 
   template <typename Func> void interop_task(Func f) {

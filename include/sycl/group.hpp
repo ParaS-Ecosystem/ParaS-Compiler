@@ -167,22 +167,26 @@ public:
   template <typename Fn>
   PARAS_KERNEL_HD void parallel_for_work_item(range<Dimensions> logicalRange,
                                               const Fn &fn) const {
+
     range<Dimensions> globalRange;
     size_t n = 1;
     for (int d = 0; d < Dimensions; ++d) {
-      globalRange[d] = group_range_[d] * logicalRange[d];
+      globalRange[d] = group_range_[d] * local_range_[d];
       n *= logicalRange[d];
     }
     for (size_t lin = 0; lin < n; ++lin) {
-      id<Dimensions> lid, gid;
+      id<Dimensions> lid, pid, gid;
       size_t rest = lin;
       for (int d = Dimensions - 1; d >= 0; --d) {
         lid[d] = rest % logicalRange[d];
         rest /= logicalRange[d];
       }
-      for (int d = 0; d < Dimensions; ++d)
-        gid[d] = group_id_[d] * logicalRange[d] + lid[d];
-      fn(h_item<Dimensions>(gid, globalRange, lid, logicalRange));
+      for (int d = 0; d < Dimensions; ++d) {
+        pid[d] = local_range_[d] ? lid[d] % local_range_[d] : 0;
+        gid[d] = group_id_[d] * local_range_[d] + pid[d];
+      }
+      fn(h_item<Dimensions>(gid, globalRange, lid, logicalRange, pid,
+                            local_range_));
     }
   }
 };
