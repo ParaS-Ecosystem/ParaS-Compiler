@@ -624,10 +624,16 @@ template <>
 inline auto device::get_info<info::device::max_samplers>() const { return max_samplers_; }
 
 template <>
-inline auto device::get_info<info::device::max_parameter_size>() const { return max_parameter_size_; }
+inline auto device::get_info<info::device::max_parameter_size>() const {
+
+  return max_parameter_size_ ? max_parameter_size_ : decltype(max_parameter_size_)(1024);
+}
 
 template <>
-inline auto device::get_info<info::device::mem_base_addr_align>() const { return mem_base_addr_align_; }
+inline auto device::get_info<info::device::mem_base_addr_align>() const {
+
+  return mem_base_addr_align_ ? mem_base_addr_align_ : decltype(mem_base_addr_align_)(1024);
+}
 
 template <>
 inline auto device::get_info<info::device::half_fp_config>() const { return std::vector<sycl::info::fp_config>{}; }
@@ -648,16 +654,25 @@ template <>
 inline auto device::get_info<info::device::global_mem_cache_type>() const { return sycl::info::global_mem_cache_type::read_write; }
 
 template <>
-inline auto device::get_info<info::device::global_mem_cache_line_size>() const { return global_mem_cache_line_size_; }
+inline auto device::get_info<info::device::global_mem_cache_line_size>() const {
+
+  return global_mem_cache_line_size_ ? global_mem_cache_line_size_ : decltype(global_mem_cache_line_size_)(64);
+}
 
 template <>
 inline auto device::get_info<info::device::global_mem_cache_size>() const { return global_mem_cache_size_; }
 
 template <>
-inline auto device::get_info<info::device::max_constant_buffer_size>() const { return max_constant_buffer_size_; }
+inline auto device::get_info<info::device::max_constant_buffer_size>() const {
+
+  return max_constant_buffer_size_ ? max_constant_buffer_size_ : decltype(max_constant_buffer_size_)(65536);
+}
 
 template <>
-inline auto device::get_info<info::device::max_constant_args>() const { return max_constant_args_; }
+inline auto device::get_info<info::device::max_constant_args>() const {
+
+  return max_constant_args_ ? max_constant_args_ : decltype(max_constant_args_)(8);
+}
 
 template <>
 inline auto device::get_info<info::device::local_mem_size>() const {

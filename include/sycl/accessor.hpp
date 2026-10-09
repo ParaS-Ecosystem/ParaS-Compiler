@@ -84,6 +84,77 @@ inline void check_accessor_range(const range<D> &bufRange,
         using target = ::sycl::target;
     }
 
+    namespace detail
+    {
+
+        template <typename T, int D>
+        class accessor_iterator
+        {
+            template <typename, int> friend class accessor_iterator;
+            T *base_ = nullptr;
+            range<D> mem_{};
+            range<D> acc_{};
+            id<D> off_{};
+            std::ptrdiff_t lin_ = 0;
+
+            PARAS_KERNEL_HD T *addr(std::ptrdiff_t lin) const
+            {
+                size_t rem = static_cast<size_t>(lin);
+                size_t idx[D];
+                for (int d = D - 1; d >= 1; --d)
+                {
+                    const size_t a = acc_[d] ? acc_[d] : 1;
+                    idx[d] = rem % a + off_[d];
+                    rem /= a;
+                }
+                idx[0] = rem + off_[0];
+                size_t flat = 0;
+                for (int d = 0; d < D; ++d)
+                    flat = flat * mem_[d] + idx[d];
+                return base_ + flat;
+            }
+
+        public:
+            using iterator_category = std::random_access_iterator_tag;
+            using value_type = std::remove_const_t<T>;
+            using difference_type = std::ptrdiff_t;
+            using pointer = T *;
+            using reference = T &;
+
+            accessor_iterator() = default;
+            PARAS_KERNEL_HD accessor_iterator(T *base, range<D> mem, range<D> acc,
+                                              id<D> off, std::ptrdiff_t lin)
+                : base_(base), mem_(mem), acc_(acc), off_(off), lin_(lin) {}
+
+            template <typename U, typename = std::enable_if_t<
+                                      !std::is_same_v<U, T> &&
+                                      std::is_same_v<const U, T>>>
+            PARAS_KERNEL_HD accessor_iterator(const accessor_iterator<U, D> &o)
+                : base_(o.base_), mem_(o.mem_), acc_(o.acc_), off_(o.off_), lin_(o.lin_) {}
+
+            PARAS_KERNEL_HD reference operator*() const { return *addr(lin_); }
+            PARAS_KERNEL_HD pointer operator->() const { return addr(lin_); }
+            PARAS_KERNEL_HD reference operator[](difference_type n) const { return *addr(lin_ + n); }
+
+            PARAS_KERNEL_HD accessor_iterator &operator++() { ++lin_; return *this; }
+            PARAS_KERNEL_HD accessor_iterator operator++(int) { auto t = *this; ++lin_; return t; }
+            PARAS_KERNEL_HD accessor_iterator &operator--() { --lin_; return *this; }
+            PARAS_KERNEL_HD accessor_iterator operator--(int) { auto t = *this; --lin_; return t; }
+            PARAS_KERNEL_HD accessor_iterator &operator+=(difference_type n) { lin_ += n; return *this; }
+            PARAS_KERNEL_HD accessor_iterator &operator-=(difference_type n) { lin_ -= n; return *this; }
+            PARAS_KERNEL_HD friend accessor_iterator operator+(accessor_iterator it, difference_type n) { it.lin_ += n; return it; }
+            PARAS_KERNEL_HD friend accessor_iterator operator+(difference_type n, accessor_iterator it) { it.lin_ += n; return it; }
+            PARAS_KERNEL_HD friend accessor_iterator operator-(accessor_iterator it, difference_type n) { it.lin_ -= n; return it; }
+            PARAS_KERNEL_HD friend difference_type operator-(const accessor_iterator &a, const accessor_iterator &b) { return a.lin_ - b.lin_; }
+            PARAS_KERNEL_HD friend bool operator==(const accessor_iterator &a, const accessor_iterator &b) { return a.base_ == b.base_ && a.lin_ == b.lin_; }
+            PARAS_KERNEL_HD friend bool operator!=(const accessor_iterator &a, const accessor_iterator &b) { return !(a == b); }
+            PARAS_KERNEL_HD friend bool operator<(const accessor_iterator &a, const accessor_iterator &b) { return a.lin_ < b.lin_; }
+            PARAS_KERNEL_HD friend bool operator>(const accessor_iterator &a, const accessor_iterator &b) { return a.lin_ > b.lin_; }
+            PARAS_KERNEL_HD friend bool operator<=(const accessor_iterator &a, const accessor_iterator &b) { return a.lin_ <= b.lin_; }
+            PARAS_KERNEL_HD friend bool operator>=(const accessor_iterator &a, const accessor_iterator &b) { return a.lin_ >= b.lin_; }
+        };
+    }
+
     template <
     typename DataT,
     int Dimensions = 1,
@@ -94,8 +165,16 @@ inline void check_accessor_range(const range<D> &bufRange,
     {
         mutable DataT *ptr_;
         range<Dimensions> r_;
+        range<Dimensions> mem_r_{};
         id<Dimensions> offset_{};
         bool no_init_ = false;
+
+        void paras_check_no_init() const
+        {
+            if (no_init_ && AccessMode == access::mode::read)
+                throw sycl::exception(make_error_code(errc::invalid),
+                                      "accessor: no_init with access_mode::read");
+        }
 
     public:
 
@@ -109,7 +188,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                       (SrcMode == access::mode::read ||
                        (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
         accessor(const accessor<SrcT, Dimensions, SrcMode, AccessTarget, IsPlaceholder> &o)
-            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), offset_(o.offset_), no_init_(o.no_init_) {}
+            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_) {}
     private:
 
     public:
@@ -123,19 +202,19 @@ inline void check_accessor_range(const range<D> &bufRange,
         template <access::decorated IsDecorated2>
         using accessor_ptr = multi_ptr<value_type, access::address_space::global_space, IsDecorated2>;
 
-        using iterator = DataT *;
-        using const_iterator = const value_type *;
+        using iterator = detail::accessor_iterator<value_type, Dimensions>;
+        using const_iterator = detail::accessor_iterator<const DataT, Dimensions>;
         using reverse_iterator = std::reverse_iterator<iterator>;
         using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
         accessor(DataT *p, range<Dimensions> rr, access::mode)
-            : ptr_(p), r_(rr) {}
+            : ptr_(p), r_(rr), mem_r_(rr) {}
 
         accessor() : ptr_(nullptr), r_() {}
 
         accessor(range<Dimensions> allocationSize, handler &,
                  const property_list &propList = {})
-            : ptr_(paras_raw_zeroed(allocationSize.size())), r_(allocationSize)
+            : ptr_(paras_raw_zeroed(allocationSize.size())), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = propList.has_no_init();
         }
@@ -162,176 +241,193 @@ inline void check_accessor_range(const range<D> &bufRange,
 
         template <typename AllocatorT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
-                 const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range())
+                 const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
-                 handler &, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range())
+                 handler &, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <target T2 = AccessTarget, typename = std::enable_if_t<T2 == target::local>>
         accessor(range<Dimensions> allocationSize, handler &,
                  const property_list &props = {})
-            : ptr_(new DataT[allocationSize.size()]()), r_(allocationSize)
+            : ptr_(new DataT[allocationSize.size()]()), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
-                 TagT, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range())
+                 TagT, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
-                 handler &, TagT, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range())
+                 handler &, TagT, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  range<Dimensions> accessRange, id<Dimensions> accessOffset,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  handler &, range<Dimensions> accessRange, id<Dimensions> accessOffset,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  handler &, range<Dimensions> accessRange, id<Dimensions> accessOffset, TagT,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  range<Dimensions> accessRange, TagT, const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  range<Dimensions> accessRange, id<Dimensions> accessOffset, TagT,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  handler &, range<Dimensions> accessRange,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  range<Dimensions> accessRange,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  handler &, range<Dimensions> accessRange, TagT,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         value_type *get_pointer() const { return ptr_; }
 
-        DataT *begin() const { return ptr_; }
-        DataT *end() const { return ptr_ + r_.size(); }
-
-        const DataT *cbegin() const { return ptr_; }
-        const DataT *cend() const { return ptr_ + r_.size(); }
-
-        std::reverse_iterator<DataT *> rbegin() const
+        iterator begin() const { return iterator(ptr_, mem_r_, r_, offset_, 0); }
+        iterator end() const
         {
-            return std::reverse_iterator<DataT *>(end());
+            return iterator(ptr_, mem_r_, r_, offset_, static_cast<std::ptrdiff_t>(r_.size()));
         }
-
-        std::reverse_iterator<DataT *> rend() const
-        {
-            return std::reverse_iterator<DataT *>(begin());
-        }
-
-        std::reverse_iterator<const DataT *> crbegin() const
-        {
-            return std::reverse_iterator<const DataT *>(cend());
-        }
-
-        std::reverse_iterator<const DataT *> crend() const
-        {
-            return std::reverse_iterator<const DataT *>(cbegin());
-        }
+        const_iterator cbegin() const { return begin(); }
+        const_iterator cend() const { return end(); }
+        reverse_iterator rbegin() const { return reverse_iterator(end()); }
+        reverse_iterator rend() const { return reverse_iterator(begin()); }
+        const_reverse_iterator crbegin() const { return const_reverse_iterator(cend()); }
+        const_reverse_iterator crend() const { return const_reverse_iterator(cbegin()); }
 
         template <typename PropT>
         bool has_property() const noexcept
@@ -363,6 +459,9 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             static_assert(std::is_same_v<PropT, property::no_init>,
                           "accessor::get_property: unsupported property type");
+            if (!has_property<PropT>())
+                throw sycl::exception(make_error_code(errc::invalid),
+                                      "accessor::get_property: property not present");
             return property::no_init{};
         }
 
@@ -371,6 +470,7 @@ inline void check_accessor_range(const range<D> &bufRange,
             using std::swap;
             swap(ptr_, other.ptr_);
             swap(r_, other.r_);
+            swap(mem_r_, other.mem_r_);
             swap(offset_, other.offset_);
             swap(no_init_, other.no_init_);
         }
@@ -427,9 +527,9 @@ inline void check_accessor_range(const range<D> &bufRange,
             if constexpr (Dimensions == 1) {
                 return static_cast<reference>(ptr_[offset_[0] + i]);
             } else if constexpr (Dimensions == 2) {
-                return row(ptr_ + (offset_[0] + i) * r_[1] + offset_[1]);
+                return row(ptr_ + (offset_[0] + i) * mem_r_[1] + offset_[1]);
             } else {
-                return plane(ptr_ + (offset_[0] + i) * r_[1] * r_[2] + offset_[1] * r_[2] + offset_[2], r_[2]);
+                return plane(ptr_ + (offset_[0] + i) * mem_r_[1] * mem_r_[2] + offset_[1] * mem_r_[2] + offset_[2], mem_r_[2]);
             }
         }
 
@@ -438,9 +538,9 @@ inline void check_accessor_range(const range<D> &bufRange,
             if constexpr (Dimensions == 1)
                 return ptr_[offset_[0] + idx[0]];
             else if constexpr (Dimensions == 2)
-                return ptr_[(offset_[0] + idx[0]) * r_[1] + (offset_[1] + idx[1])];
+                return ptr_[(offset_[0] + idx[0]) * mem_r_[1] + (offset_[1] + idx[1])];
             else
-                return ptr_[((offset_[0] + idx[0]) * r_[1] + (offset_[1] + idx[1])) * r_[2] + (offset_[2] + idx[2])];
+                return ptr_[((offset_[0] + idx[0]) * mem_r_[1] + (offset_[1] + idx[1])) * mem_r_[2] + (offset_[2] + idx[2])];
         }
 
         template <bool WithOffset>
@@ -492,8 +592,16 @@ inline void check_accessor_range(const range<D> &bufRange,
     {
         mutable DataT *ptr_;
         range<2> r_;
+        range<2> mem_r_{};
         id<2> offset_{};
         bool no_init_ = false;
+
+        void paras_check_no_init() const
+        {
+            if (no_init_ && AccessMode == access::mode::read)
+                throw sycl::exception(make_error_code(errc::invalid),
+                                      "accessor: no_init with access_mode::read");
+        }
 
     public:
 
@@ -507,7 +615,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                       (SrcMode == access::mode::read ||
                        (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
         accessor(const accessor<SrcT, 2, SrcMode, AccessTarget, access::placeholder::false_t> &o)
-            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), offset_(o.offset_), no_init_(o.no_init_) {}
+            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_) {}
     private:
 
     public:
@@ -521,163 +629,194 @@ inline void check_accessor_range(const range<D> &bufRange,
         template <access::decorated IsDecorated2>
         using accessor_ptr = multi_ptr<value_type, access::address_space::global_space, IsDecorated2>;
 
-        using iterator = DataT *;
-        using const_iterator = const value_type *;
+        using iterator = detail::accessor_iterator<value_type, 2>;
+        using const_iterator = detail::accessor_iterator<const DataT, 2>;
         using reverse_iterator = std::reverse_iterator<iterator>;
         using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
         accessor() : ptr_(nullptr), r_(range<2>(0, 0)) {}
 
         accessor(DataT *p, range<2> rr, access::mode)
-            : ptr_(p), r_(rr) {}
+            : ptr_(p), r_(rr), mem_r_(rr) {}
 
         template <typename AllocatorT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(paras_buf.get_range())
+            : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  handler &, const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(paras_buf.get_range())
+            : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <target T2 = AccessTarget, typename = std::enable_if_t<T2 == target::local>>
         accessor(range<2> allocationSize, handler &,
                  const property_list &props = {})
-            : ptr_(new DataT[allocationSize.size()]()), r_(allocationSize)
+            : ptr_(new DataT[allocationSize.size()]()), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  TagT, const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(paras_buf.get_range())
+            : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  handler &, TagT, const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(paras_buf.get_range())
+            : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  range<2> accessRange, id<2> accessOffset,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  handler &, range<2> accessRange, id<2> accessOffset,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  handler &, range<2> accessRange, id<2> accessOffset, TagT,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  range<2> accessRange, TagT, const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  range<2> accessRange, id<2> accessOffset, TagT,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange), offset_(accessOffset)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  handler &, range<2> accessRange,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  range<2> accessRange,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, 2, AllocatorT> &paras_buf,
                  handler &, range<2> accessRange, TagT,
                  const property_list &props = {})
-            : ptr_(paras_buf.data()), r_(accessRange)
+            : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         value_type *get_pointer() const { return ptr_; }
@@ -688,31 +827,17 @@ inline void check_accessor_range(const range<D> &bufRange,
             return address_space_cast<access::address_space::global_space, DecorateAddress>(ptr_);
         }
 
-        DataT *begin() const { return ptr_; }
-        DataT *end() const { return ptr_ + r_.size(); }
-
-        const DataT *cbegin() const { return ptr_; }
-        const DataT *cend() const { return ptr_ + r_.size(); }
-
-        std::reverse_iterator<DataT *> rbegin() const
+        iterator begin() const { return iterator(ptr_, mem_r_, r_, offset_, 0); }
+        iterator end() const
         {
-            return std::reverse_iterator<DataT *>(end());
+            return iterator(ptr_, mem_r_, r_, offset_, static_cast<std::ptrdiff_t>(r_.size()));
         }
-
-        std::reverse_iterator<DataT *> rend() const
-        {
-            return std::reverse_iterator<DataT *>(begin());
-        }
-
-        std::reverse_iterator<const DataT *> crbegin() const
-        {
-            return std::reverse_iterator<const DataT *>(cend());
-        }
-
-        std::reverse_iterator<const DataT *> crend() const
-        {
-            return std::reverse_iterator<const DataT *>(cbegin());
-        }
+        const_iterator cbegin() const { return begin(); }
+        const_iterator cend() const { return end(); }
+        reverse_iterator rbegin() const { return reverse_iterator(end()); }
+        reverse_iterator rend() const { return reverse_iterator(begin()); }
+        const_reverse_iterator crbegin() const { return const_reverse_iterator(cend()); }
+        const_reverse_iterator crend() const { return const_reverse_iterator(cbegin()); }
 
         template <typename PropT>
         bool has_property() const noexcept
@@ -741,6 +866,9 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             static_assert(std::is_same_v<PropT, property::no_init>,
                           "accessor::get_property: unsupported property type");
+            if (!has_property<PropT>())
+                throw sycl::exception(make_error_code(errc::invalid),
+                                      "accessor::get_property: property not present");
             return property::no_init{};
         }
 
@@ -749,6 +877,7 @@ inline void check_accessor_range(const range<D> &bufRange,
             using std::swap;
             swap(ptr_, other.ptr_);
             swap(r_, other.r_);
+            swap(mem_r_, other.mem_r_);
             swap(offset_, other.offset_);
             swap(no_init_, other.no_init_);
         }
@@ -786,12 +915,12 @@ inline void check_accessor_range(const range<D> &bufRange,
 
         row operator[](size_t j) const
         {
-            return row(ptr_ + (offset_[0] + j) * r_[1] + offset_[1]);
+            return row(ptr_ + (offset_[0] + j) * mem_r_[1] + offset_[1]);
         }
 
         reference operator[](id<2> idx) const
         {
-            return ptr_[(offset_[0] + idx[0]) * r_[1] + (offset_[1] + idx[1])];
+            return ptr_[(offset_[0] + idx[0]) * mem_r_[1] + (offset_[1] + idx[1])];
         }
 
         template <typename CoordT>
@@ -815,6 +944,13 @@ inline void check_accessor_range(const range<D> &bufRange,
     {
         mutable DataT *ptr_;
         bool no_init_ = false;
+
+        void paras_check_no_init() const
+        {
+            if (no_init_ && AccessMode == access::mode::read)
+                throw sycl::exception(make_error_code(errc::invalid),
+                                      "accessor: no_init with access_mode::read");
+        }
 
     public:
 
@@ -852,19 +988,21 @@ inline void check_accessor_range(const range<D> &bufRange,
         template <typename AllocatorT>
         accessor(buffer<DataT, 1, AllocatorT> &paras_buf,
                  const property_list &props = {})
-            : ptr_(paras_buf.data())
+            : ptr_(paras_buf.size() ? paras_buf.data() : nullptr)
         {
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT>
         accessor(buffer<DataT, 1, AllocatorT> &paras_buf,
                  handler &, const property_list &props = {})
-            : ptr_(paras_buf.data())
+            : ptr_(paras_buf.size() ? paras_buf.data() : nullptr)
         {
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <target T2 = AccessTarget, typename = std::enable_if_t<T2 == target::local>>
@@ -872,30 +1010,39 @@ inline void check_accessor_range(const range<D> &bufRange,
             : ptr_(new DataT[1]())
         {
             no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, 1, AllocatorT> &paras_buf,
                  TagT, const property_list &props = {})
-            : ptr_(paras_buf.data())
+            : ptr_(paras_buf.size() ? paras_buf.data() : nullptr)
         {
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         template <typename AllocatorT, typename TagT>
         accessor(buffer<DataT, 1, AllocatorT> &paras_buf,
                  handler &, TagT, const property_list &props = {})
-            : ptr_(paras_buf.data())
+            : ptr_(paras_buf.size() ? paras_buf.data() : nullptr)
         {
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
+            {
                 no_init_ = true;
+                paras_check_no_init();
+            }
             else
                 no_init_ = props.has_no_init();
+            paras_check_no_init();
         }
 
         value_type *get_pointer() const { return ptr_; }
@@ -942,19 +1089,19 @@ inline void check_accessor_range(const range<D> &bufRange,
             return IsPlaceholder == access::placeholder::true_t;
         }
 
-        size_t size() const noexcept { return 1; }
+        size_t size() const noexcept { return ptr_ ? 1 : 0; }
 
-        bool empty() const noexcept { return false; }
+        bool empty() const noexcept { return ptr_ == nullptr; }
 
-        size_t byte_size() const noexcept { return sizeof(DataT); }
+        size_t byte_size() const noexcept { return size() * sizeof(DataT); }
 
         size_t max_size() const noexcept { return 1; }
 
         DataT *begin() const { return ptr_; }
-        DataT *end() const { return ptr_ + 1; }
+        DataT *end() const { return ptr_ + size(); }
 
         const DataT *cbegin() const { return ptr_; }
-        const DataT *cend() const { return ptr_ + 1; }
+        const DataT *cend() const { return ptr_ + size(); }
 
         std::reverse_iterator<DataT *> rbegin() const
         {
@@ -981,6 +1128,9 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             static_assert(std::is_same_v<PropT, property::no_init>,
                           "accessor::get_property: unsupported property type");
+            if (!has_property<PropT>())
+                throw sycl::exception(make_error_code(errc::invalid),
+                                      "accessor::get_property: property not present");
             return property::no_init{};
         }
 
@@ -1001,7 +1151,7 @@ inline void check_accessor_range(const range<D> &bufRange,
             return !(lhs == rhs);
         }
 
-        size_t get_count() const noexcept { return 1; }
+        size_t get_count() const noexcept { return size(); }
 
         size_t get_size() const noexcept { return byte_size(); }
     };
@@ -1015,6 +1165,21 @@ inline void check_accessor_range(const range<D> &bufRange,
         using base_t::base_t;
         host_accessor() = default;
         host_accessor(const base_t &other) : base_t(other) {}
+
+        template <access::mode M = AccessMode, int D = Dimensions,
+                  typename = std::enable_if_t<M != access::mode::read && D == 0>>
+        const host_accessor &operator=(const DataT &value) const
+        {
+            base_t::operator=(value);
+            return *this;
+        }
+        template <access::mode M = AccessMode, int D = Dimensions,
+                  typename = std::enable_if_t<M != access::mode::read && D == 0>>
+        const host_accessor &operator=(DataT &&value) const
+        {
+            base_t::operator=(std::move(value));
+            return *this;
+        }
     };
 
     template <typename T, int D, typename A>
