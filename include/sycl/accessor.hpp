@@ -168,6 +168,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         range<Dimensions> mem_r_{};
         id<Dimensions> offset_{};
         bool no_init_ = false;
+        bool placeholder_ = false;
 
         void paras_check_no_init() const
         {
@@ -188,7 +189,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                       (SrcMode == access::mode::read ||
                        (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
         accessor(const accessor<SrcT, Dimensions, SrcMode, AccessTarget, IsPlaceholder> &o)
-            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_) {}
+            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
     private:
 
     public:
@@ -231,11 +232,11 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             if constexpr (AccessTarget == target::local)
             {
-                return address_space_cast<access::address_space::local_space, DecorateAddress>(ptr_);
+                return address_space_cast<access::address_space::local_space, DecorateAddress>(static_cast<value_type *>(ptr_));
             }
             else
             {
-                return address_space_cast<access::address_space::global_space, DecorateAddress>(ptr_);
+                return address_space_cast<access::address_space::global_space, DecorateAddress>(static_cast<value_type *>(ptr_));
             }
         }
 
@@ -243,6 +244,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
             paras_check_no_init();
@@ -270,6 +272,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         accessor(buffer<DataT, Dimensions, AllocatorT> &paras_buf,
                  TagT, const property_list &props = {}) : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
@@ -302,6 +305,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
@@ -343,6 +347,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  range<Dimensions> accessRange, TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
@@ -361,6 +366,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
@@ -391,6 +397,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
@@ -426,6 +433,9 @@ inline void check_accessor_range(const range<D> &bufRange,
             else if constexpr (AccessTarget == target::local)
                 return multi_ptr<elem_t, access::address_space::local_space,
                                  access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else if constexpr (AccessTarget == target::device)
+                return multi_ptr<value_type, access::address_space::global_space,
+                                 access::decorated::legacy>(static_cast<value_type *>(ptr_));
             else
                 return static_cast<value_type *>(ptr_);
         }
@@ -451,10 +461,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                 return false;
         }
 
-        static constexpr bool is_placeholder() noexcept
-        {
-            return IsPlaceholder == access::placeholder::true_t;
-        }
+        bool is_placeholder() const noexcept { return placeholder_; }
 
         size_t size() const noexcept { return r_.size(); }
 
@@ -608,6 +615,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         range<2> mem_r_{};
         id<2> offset_{};
         bool no_init_ = false;
+        bool placeholder_ = false;
 
         void paras_check_no_init() const
         {
@@ -628,7 +636,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                       (SrcMode == access::mode::read ||
                        (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
         accessor(const accessor<SrcT, 2, SrcMode, AccessTarget, access::placeholder::false_t> &o)
-            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_) {}
+            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
     private:
 
     public:
@@ -657,6 +665,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
             paras_check_no_init();
@@ -686,6 +695,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(paras_buf.get_range()), mem_r_(paras_buf.get_range())
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
@@ -719,6 +729,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
@@ -760,6 +771,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  range<2> accessRange, TagT, const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
@@ -778,6 +790,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range()), offset_(accessOffset)
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
@@ -808,6 +821,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.data()), r_(accessRange), mem_r_(paras_buf.get_range())
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
@@ -843,6 +857,9 @@ inline void check_accessor_range(const range<D> &bufRange,
             else if constexpr (AccessTarget == target::local)
                 return multi_ptr<elem_t, access::address_space::local_space,
                                  access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else if constexpr (AccessTarget == target::device)
+                return multi_ptr<value_type, access::address_space::global_space,
+                                 access::decorated::legacy>(static_cast<value_type *>(ptr_));
             else
                 return static_cast<value_type *>(ptr_);
         }
@@ -850,7 +867,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         template <access::decorated DecorateAddress>
         auto get_multi_ptr() const
         {
-            return address_space_cast<access::address_space::global_space, DecorateAddress>(ptr_);
+            return address_space_cast<access::address_space::global_space, DecorateAddress>(static_cast<value_type *>(ptr_));
         }
 
         iterator begin() const { return iterator(ptr_, mem_r_, r_, offset_, 0); }
@@ -874,7 +891,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                 return false;
         }
 
-        static constexpr bool is_placeholder() noexcept { return false; }
+        bool is_placeholder() const noexcept { return placeholder_; }
 
         size_t size() const noexcept { return r_.size(); }
 
@@ -970,6 +987,7 @@ inline void check_accessor_range(const range<D> &bufRange,
     {
         mutable DataT *ptr_;
         bool no_init_ = false;
+        bool placeholder_ = false;
 
         void paras_check_no_init() const
         {
@@ -990,7 +1008,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                       (SrcMode == access::mode::read ||
                        (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
         accessor(const accessor<SrcT, 0, SrcMode, AccessTarget, IsPlaceholder> &o)
-            : ptr_(const_cast<DataT *>(o.ptr_)), no_init_(o.no_init_) {}
+            : ptr_(const_cast<DataT *>(o.ptr_)), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
     private:
 
     public:
@@ -1016,6 +1034,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  const property_list &props = {})
             : ptr_(paras_buf.size() ? paras_buf.data() : nullptr)
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             no_init_ = props.has_no_init();
             paras_check_no_init();
@@ -1044,6 +1063,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                  TagT, const property_list &props = {})
             : ptr_(paras_buf.size() ? paras_buf.data() : nullptr)
         {
+            placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
@@ -1082,6 +1102,9 @@ inline void check_accessor_range(const range<D> &bufRange,
             else if constexpr (AccessTarget == target::local)
                 return multi_ptr<elem_t, access::address_space::local_space,
                                  access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+            else if constexpr (AccessTarget == target::device)
+                return multi_ptr<value_type, access::address_space::global_space,
+                                 access::decorated::legacy>(static_cast<value_type *>(ptr_));
             else
                 return static_cast<value_type *>(ptr_);
         }
@@ -1089,7 +1112,7 @@ inline void check_accessor_range(const range<D> &bufRange,
         template <access::decorated DecorateAddress>
         auto get_multi_ptr() const
         {
-            return address_space_cast<access::address_space::global_space, DecorateAddress>(ptr_);
+            return address_space_cast<access::address_space::global_space, DecorateAddress>(static_cast<value_type *>(ptr_));
         }
 
         operator reference() const { return *ptr_; }
@@ -1124,9 +1147,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                 return false;
         }
 
-        static constexpr bool is_placeholder() noexcept {
-            return IsPlaceholder == access::placeholder::true_t;
-        }
+        bool is_placeholder() const noexcept { return placeholder_; }
 
         size_t size() const noexcept { return ptr_ ? 1 : 0; }
 

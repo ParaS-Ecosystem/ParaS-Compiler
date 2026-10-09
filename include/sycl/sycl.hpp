@@ -62,6 +62,7 @@
 #include "nd_item.hpp"
 #include "nd_range.hpp"
 #include "stream.hpp"
+#include "image.hpp"
 #include "private_ptr.hpp"
 #include "property_list.hpp"
 #include "queue.hpp"
