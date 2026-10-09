@@ -91,11 +91,13 @@ inline alloc get_pointer_type(const void* ptr, const sycl::context& syclContext)
 
 } // namespace usm
 
-inline usm::alloc get_pointer_type(const void* ptr, const sycl::context& syclContext) {
+PARAS_KERNEL_HD inline usm::alloc get_pointer_type(const void* ptr,
+                                                   const sycl::context& syclContext) {
     return usm::get_pointer_type(ptr, syclContext);
 }
 
-inline device get_pointer_device(const void* ptr, const sycl::context& syclContext) {
+PARAS_KERNEL_HD inline device get_pointer_device(const void* ptr,
+                                                 const sycl::context& syclContext) {
     int native_device = -1;
     const usm::alloc kind = paras_usm_detail::query(ptr, &native_device);
     const std::vector<device> devs = syclContext.get_devices();

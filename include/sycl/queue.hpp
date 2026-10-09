@@ -56,10 +56,7 @@ public:
     explicit queue(const decltype(default_selector_v)& selector, const property_list& = {})
         : dev_(selector) {}
 
-    // Keep this overload limited to actual SYCL device selectors.  In
-    // particular, a ParaS threadpool is queue-like but is not callable; the
-    // unconstrained overload used to instantiate device(selector) and fail
-    // deep inside the selector implementation.
+  
     template <typename DeviceSelector,
               typename = std::enable_if_t<std::is_invocable_r_v<
                   int, const DeviceSelector&, const device&>>>
@@ -71,9 +68,6 @@ public:
     explicit queue(const DeviceSelector& selector, const async_handler&, const property_list& = {})
         : dev_(selector) {}
 
-    // ParaS lowers a SYCL queue variable to a backend threadpool.  Preserve
-    // the queue construction idiom when that lowered object is passed to a
-    // later queue constructor.
     template <typename QueueLike,
               typename = std::enable_if_t<
                   !std::is_invocable_r_v<int, const QueueLike&, const device&> &&
@@ -117,6 +111,12 @@ public:
         }
 
         return event{get_backend()};
+    }
+
+    template <typename CGF>
+    event submit(CGF cgf, const property_list& propList) {
+        (void)propList;
+        return submit(cgf);
     }
 
     template <typename KernelName = void, typename Func>
