@@ -92,6 +92,7 @@ class accessor {
     template <typename TagT>
     static constexpr bool is_no_init_v = std::is_same_v<std::decay_t<TagT>, property::no_init>;
 
+    PARAS_KERNEL_HD
     size_t rel(const id<Dimensions>& idx) const {
         if constexpr (Dimensions == 1)
             return idx[0];
@@ -214,44 +215,62 @@ public:
             return false;
     }
 
+    PARAS_KERNEL_HD
     reference operator[](const id<Dimensions>& idx) const { return origin_[rel(idx)]; }
 
     template <int D = Dimensions, std::enable_if_t<D == 1, int> = 0>
+    PARAS_KERNEL_HD
     reference operator[](size_t i) const {
         return origin_[i];
     }
 
     template <int D = Dimensions, std::enable_if_t<D == 2, int> = 0>
+    PARAS_KERNEL_HD
     auto operator[](size_t i) const {
         return row{origin_ + i * buf_range_[1]};
     }
     template <int D = Dimensions, std::enable_if_t<D == 3, int> = 0>
+    PARAS_KERNEL_HD
     auto operator[](size_t i) const {
         return plane{origin_ + i * buf_range_[1] * buf_range_[2], buf_range_[2]};
     }
 
     template <int D = Dimensions, std::enable_if_t<D == 0 || D == 1, int> = 0>
+    PARAS_KERNEL_HD
     operator reference() const {
         return *origin_;
     }
 
+    PARAS_KERNEL_HD
     DataT* get_pointer() const noexcept { return origin_; }
+
     template <access::decorated IsDecorated = access::decorated::no>
+    PARAS_KERNEL_HD
     auto get_multi_ptr() const noexcept {
         return multi_ptr<value_type, access::address_space::global_space, IsDecorated>(
             get_pointer());
     }
 
+    PARAS_KERNEL_HD
     value_type* begin() const noexcept { return get_pointer(); }
+
+    PARAS_KERNEL_HD
     value_type* end() const noexcept { return get_pointer() + size(); }
+
+    PARAS_KERNEL_HD
     const DataT* cbegin() const noexcept { return begin(); }
+
+    PARAS_KERNEL_HD
     const DataT* cend() const noexcept { return end(); }
 
     template <typename CoordT>
+    PARAS_KERNEL_HD
     DataT read(const CoordT& coords, const sampler&) const {
         return (*this)[coords];
     }
+
     template <typename CoordT>
+    PARAS_KERNEL_HD
     void write(const CoordT& coords, const DataT& data) const {
         (*this)[coords] = data;
     }
@@ -259,11 +278,16 @@ public:
 private:
     struct row {
         value_type* p;
+
+        PARAS_KERNEL_HD
         reference operator[](size_t k) const { return p[k]; }
     };
+
     struct plane {
         value_type* p;
         size_t stride;
+
+        PARAS_KERNEL_HD
         row operator[](size_t j) const { return row{p + j * stride}; }
     };
 };
