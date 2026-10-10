@@ -108,9 +108,6 @@ PARAS_KERNEL_HD inline detail::stream_width_manipulator setw(int width) { return
 class stream {
   std::size_t size_ = 0;
   std::size_t work_item_size_ = 0;
-#if PARAS_DEVICE_PASS
-  mutable detail::stream_format fmt_dev_;
-#endif
 
 public:
   stream(std::size_t totalBufferSize, std::size_t workItemBufferSize,
@@ -143,19 +140,38 @@ public:
     return !(a == b);
   }
 
-  PARAS_KERNEL_HD detail::stream_format &paras_fmt() const {
+  PARAS_KERNEL_HD detail::stream_format paras_fmt() const {
 #if PARAS_DEVICE_PASS
-    return fmt_dev_;
+    return detail::stream_format{};
 #else
     return detail::stream_host().fmt;
 #endif
+  }
+  template <typename F> PARAS_KERNEL_HD void paras_update_fmt(F f) const {
+#if PARAS_DEVICE_PASS
+    (void)f;
+#else
+    f(detail::stream_host().fmt);
+#endif
+  }
+
+  static PARAS_KERNEL_HD int paras_put_int(char *spec, int n, int v) {
+    char digits[12];
+    int k = 0;
+    do {
+      digits[k++] = static_cast<char>('0' + v % 10);
+      v /= 10;
+    } while (v > 0 && k < 11);
+    while (k > 0)
+      spec[n++] = digits[--k];
+    return n;
   }
 
   template <typename V>
   PARAS_KERNEL_HD void paras_put(const char *length, char conv, V v,
                                  bool numeric) const {
-    detail::stream_format &f = paras_fmt();
-    char spec[24];
+    const detail::stream_format f = paras_fmt();
+    char spec[32];
     int n = 0;
     spec[n++] = '%';
     if (numeric && f.show_pos)
@@ -163,38 +179,24 @@ public:
     if (numeric && f.show_base)
       spec[n++] = '#';
     if (f.width >= 0)
-      spec[n++] = '*';
-    if (numeric && f.precision >= 0 && conv != 'd' && conv != 'u' &&
-        conv != 'x' && conv != 'o')
-      spec[n++] = '.', spec[n++] = '*';
+      n = paras_put_int(spec, n, f.width);
+    const bool integer = conv == 'd' || conv == 'u' || conv == 'x' || conv == 'o';
+    if (numeric && !integer && f.precision >= 0) {
+      spec[n++] = '.';
+      n = paras_put_int(spec, n, f.precision);
+    }
     for (const char *l = length; *l; ++l)
       spec[n++] = *l;
     spec[n++] = conv;
     spec[n] = '\0';
-    const bool use_prec = numeric && f.precision >= 0 && conv != 'd' &&
-                          conv != 'u' && conv != 'x' && conv != 'o';
 #if PARAS_DEVICE_PASS
-    if (f.width >= 0 && use_prec)
-      printf(spec, f.width, f.precision, v);
-    else if (f.width >= 0)
-      printf(spec, f.width, v);
-    else if (use_prec)
-      printf(spec, f.precision, v);
-    else
-      printf(spec, v);
+    printf(spec, v);
 #else
     char buf[512];
-    if (f.width >= 0 && use_prec)
-      std::snprintf(buf, sizeof buf, spec, f.width, f.precision, v);
-    else if (f.width >= 0)
-      std::snprintf(buf, sizeof buf, spec, f.width, v);
-    else if (use_prec)
-      std::snprintf(buf, sizeof buf, spec, f.precision, v);
-    else
-      std::snprintf(buf, sizeof buf, spec, v);
+    std::snprintf(buf, sizeof buf, spec, v);
     paras_text(buf);
+    detail::stream_host().fmt.width = -1;
 #endif
-    f.width = -1;
   }
 
   PARAS_KERNEL_HD void paras_text(const char *s) const {
@@ -282,32 +284,42 @@ PARAS_KERNEL_HD const stream &operator<<(const stream &os, T *p) {
 
 PARAS_KERNEL_HD inline const stream &operator<<(const stream &os,
                                                 stream_manipulator m) {
-  auto &f = os.paras_fmt();
-  switch (m) {
-  case stream_manipulator::dec: f.base = 10; break;
-  case stream_manipulator::hex: f.base = 16; break;
-  case stream_manipulator::oct: f.base = 8; break;
-  case stream_manipulator::noshowbase: f.show_base = false; break;
-  case stream_manipulator::showbase: f.show_base = true; break;
-  case stream_manipulator::noshowpos: f.show_pos = false; break;
-  case stream_manipulator::showpos: f.show_pos = true; break;
-  case stream_manipulator::fixed: f.float_conv = 'f'; break;
-  case stream_manipulator::scientific: f.float_conv = 'e'; break;
-  case stream_manipulator::hexfloat: f.float_conv = 'a'; break;
-  case stream_manipulator::defaultfloat: f.float_conv = 'g'; break;
-  case stream_manipulator::endl: os.paras_flush(true); break;
-  case stream_manipulator::flush: os.paras_flush(false); break;
+  if (m == stream_manipulator::endl) {
+    os.paras_flush(true);
+    return os;
   }
+  if (m == stream_manipulator::flush) {
+    os.paras_flush(false);
+    return os;
+  }
+  os.paras_update_fmt([m](detail::stream_format &f) {
+    switch (m) {
+    case stream_manipulator::dec: f.base = 10; break;
+    case stream_manipulator::hex: f.base = 16; break;
+    case stream_manipulator::oct: f.base = 8; break;
+    case stream_manipulator::noshowbase: f.show_base = false; break;
+    case stream_manipulator::showbase: f.show_base = true; break;
+    case stream_manipulator::noshowpos: f.show_pos = false; break;
+    case stream_manipulator::showpos: f.show_pos = true; break;
+    case stream_manipulator::fixed: f.float_conv = 'f'; break;
+    case stream_manipulator::scientific: f.float_conv = 'e'; break;
+    case stream_manipulator::hexfloat: f.float_conv = 'a'; break;
+    case stream_manipulator::defaultfloat: f.float_conv = 'g'; break;
+    default: break;
+    }
+  });
   return os;
 }
 PARAS_KERNEL_HD inline const stream &
 operator<<(const stream &os, detail::stream_precision_manipulator m) {
-  os.paras_fmt().precision = m.precision;
+  const int p = m.precision;
+  os.paras_update_fmt([p](detail::stream_format &f) { f.precision = p; });
   return os;
 }
 PARAS_KERNEL_HD inline const stream &
 operator<<(const stream &os, detail::stream_width_manipulator m) {
-  os.paras_fmt().width = m.width;
+  const int w = m.width;
+  os.paras_update_fmt([w](detail::stream_format &f) { f.width = w; });
   return os;
 }
 

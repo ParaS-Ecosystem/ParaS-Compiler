@@ -100,6 +100,57 @@ struct image_storage {
   std::size_t elem_bytes() const { return 4 * image_channel_bytes(format); }
 };
 
+inline float image_half_to_float(std::uint16_t h) {
+  const std::uint32_t sign = (h & 0x8000u) << 16;
+  std::uint32_t exp = (h >> 10) & 0x1f, man = h & 0x3ffu, bits;
+  if (exp == 0) {
+    if (man == 0) {
+      bits = sign;
+    } else {
+      exp = 127 - 15 + 1;
+      while ((man & 0x400u) == 0) { man <<= 1; --exp; }
+      man &= 0x3ffu;
+      bits = sign | (exp << 23) | (man << 13);
+    }
+  } else if (exp == 31) {
+    bits = sign | 0x7f800000u | (man << 13);
+  } else {
+    bits = sign | ((exp + 127 - 15) << 23) | (man << 13);
+  }
+  float f;
+  std::memcpy(&f, &bits, 4);
+  return f;
+}
+inline std::uint16_t image_float_to_half(float f) {
+  std::uint32_t x;
+  std::memcpy(&x, &f, 4);
+  const std::uint16_t sign = static_cast<std::uint16_t>((x >> 16) & 0x8000u);
+  const std::uint32_t exp = (x >> 23) & 0xffu, man = x & 0x7fffffu;
+  if (exp == 0xff)
+    return sign | 0x7c00u | (man ? 0x200u : 0u);
+  const int e = static_cast<int>(exp) - 127 + 15;
+  if (e >= 31)
+    return sign | 0x7c00u;
+  if (e <= 0) {
+    if (e < -10)
+      return sign;
+    const std::uint32_t m = man | 0x800000u;
+    const int shift = 14 - e;
+    std::uint32_t hm = m >> shift;
+    if ((m >> (shift - 1)) & 1u)
+      ++hm;
+    return static_cast<std::uint16_t>(sign | hm);
+  }
+  std::uint32_t hm = man >> 13;
+  std::uint32_t he = static_cast<std::uint32_t>(e);
+  if (man & 0x1000u) {
+    if (++hm == 0x400u) { hm = 0; ++he; }
+  }
+  if (he >= 31)
+    return sign | 0x7c00u;
+  return static_cast<std::uint16_t>(sign | (he << 10) | hm);
+}
+
 inline double image_load_channel(const image_storage &s, std::size_t idx,
                                  int c) {
   if (s.format == image_format::b8g8r8a8_unorm && c < 3)
@@ -130,7 +181,7 @@ inline double image_load_channel(const image_storage &s, std::size_t idx,
     std::uint32_t v; std::memcpy(&v, p, 4); return v;
   }
   case image_format::r16b16g16a16_sfloat: {
-    half v; std::memcpy(&v, p, 2); return static_cast<float>(v);
+    std::uint16_t v; std::memcpy(&v, p, 2); return image_half_to_float(v);
   }
   case image_format::r32g32b32a32_sfloat: {
     float v; std::memcpy(&v, p, 4); return v;
@@ -164,7 +215,7 @@ inline void image_store_channel(image_storage &s, std::size_t idx, int c,
   case image_format::r16g16b16a16_uint: { std::uint16_t x = static_cast<std::uint16_t>(v); std::memcpy(p, &x, 2); break; }
   case image_format::r32b32g32a32_sint: { std::int32_t x = static_cast<std::int32_t>(v); std::memcpy(p, &x, 4); break; }
   case image_format::r32b32g32a32_uint: { std::uint32_t x = static_cast<std::uint32_t>(v); std::memcpy(p, &x, 4); break; }
-  case image_format::r16b16g16a16_sfloat: { half x = static_cast<half>(static_cast<float>(v)); std::memcpy(p, &x, 2); break; }
+  case image_format::r16b16g16a16_sfloat: { std::uint16_t x = image_float_to_half(static_cast<float>(v)); std::memcpy(p, &x, 2); break; }
   case image_format::r32g32b32a32_sfloat: { float x = static_cast<float>(v); std::memcpy(p, &x, 4); break; }
   }
 }
