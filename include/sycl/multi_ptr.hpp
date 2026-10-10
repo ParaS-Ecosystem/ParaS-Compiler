@@ -64,15 +64,32 @@ public:
       if constexpr (std::is_pointer_v<Ptr>) {
           return const_cast<pointer>(p);
       } else {
-          return static_cast<pointer>(p);
+
+          return const_cast<pointer>(p.get_raw());
       }
+  }
+
+  template <typename AccT, typename = void>
+  struct paras_has_raw : std::false_type {};
+  template <typename AccT>
+  struct paras_has_raw<AccT, std::void_t<decltype(std::declval<const AccT &>().paras_raw())>>
+      : std::true_type {};
+
+  template <typename AccessorT>
+  static PARAS_KERNEL_HD pointer accessor_pointer(const AccessorT &acc) noexcept
+  {
+
+      if constexpr (paras_has_raw<AccessorT>::value)
+          return const_cast<pointer>(acc.paras_raw());
+      else
+          return to_element_pointer(acc.get_pointer());
   }
 
   template <typename AccessorT,
             typename = decltype(std::declval<const AccessorT &>().get_pointer())>
   PARAS_KERNEL_HD
   multi_ptr(const AccessorT &acc) noexcept
-      : ptr_(to_element_pointer(acc.get_pointer())) {}
+      : ptr_(accessor_pointer(acc)) {}
 
   PARAS_KERNEL_HD
   multi_ptr(const multi_ptr&) noexcept = default;
@@ -118,10 +135,7 @@ public:
   }
 
   PARAS_KERNEL_HD
-  element_type& operator*() noexcept { return *ptr_; }
-
-  PARAS_KERNEL_HD
-  const element_type& operator*() const noexcept { return *ptr_; }
+  element_type& operator*() const noexcept { return *ptr_; }
 
   PARAS_KERNEL_HD
   pointer operator->() noexcept { return ptr_; }
@@ -153,10 +167,7 @@ public:
   explicit operator bool() const noexcept { return ptr_ != nullptr; }
 
   PARAS_KERNEL_HD
-  element_type& operator[](std::size_t idx) noexcept { return ptr_[idx]; }
-
-  PARAS_KERNEL_HD
-  const element_type& operator[](std::size_t idx) const noexcept { return ptr_[idx]; }
+  element_type& operator[](std::ptrdiff_t idx) const noexcept { return ptr_[idx]; }
 
    PARAS_KERNEL_HD
   multi_ptr operator+(difference_type offset) const noexcept {

@@ -422,7 +422,7 @@ inline void check_accessor_range(const range<D> &bufRange,
             paras_check_no_init();
         }
 
-        DataT *paras_raw() const noexcept { return ptr_; }
+        PARAS_KERNEL_HD DataT *paras_raw() const noexcept { return ptr_; }
 
         auto get_pointer() const
         {
@@ -846,7 +846,7 @@ inline void check_accessor_range(const range<D> &bufRange,
             paras_check_no_init();
         }
 
-        DataT *paras_raw() const noexcept { return ptr_; }
+        PARAS_KERNEL_HD DataT *paras_raw() const noexcept { return ptr_; }
 
         auto get_pointer() const
         {
@@ -1091,7 +1091,7 @@ inline void check_accessor_range(const range<D> &bufRange,
             paras_check_no_init();
         }
 
-        DataT *paras_raw() const noexcept { return ptr_; }
+        PARAS_KERNEL_HD DataT *paras_raw() const noexcept { return ptr_; }
 
         auto get_pointer() const
         {
@@ -1574,13 +1574,15 @@ inline void check_accessor_range(const range<D> &bufRange,
 namespace sycl
 {
 
-template <typename DataT, int Dimensions, access::mode AccessMode>
-multi_ptr(accessor<DataT, Dimensions, AccessMode, target::device, access::placeholder::false_t>)
-    -> multi_ptr<DataT, access::address_space::global_space, access::decorated::legacy>;
+template <typename DataT, int Dimensions, access::mode AccessMode,
+          access::placeholder IsPlaceholder>
+multi_ptr(accessor<DataT, Dimensions, AccessMode, target::device, IsPlaceholder>)
+    -> multi_ptr<std::conditional_t<AccessMode == access::mode::read, const DataT, DataT>,
+                 access::address_space::global_space, access::decorated::no>;
 
 template <typename DataT, int Dimensions>
 multi_ptr(local_accessor<DataT, Dimensions>)
-    -> multi_ptr<DataT, access::address_space::local_space, access::decorated::legacy>;
+    -> multi_ptr<DataT, access::address_space::local_space, access::decorated::no>;
 
 }
 
