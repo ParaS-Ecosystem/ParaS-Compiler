@@ -284,41 +284,48 @@ namespace sycl
         return kernel_bundle<bundle_state::executable>{};
     }
 
+    namespace detail {
+    template <bundle_state State> constexpr bool paras_has_state()
+    {
+        return State == bundle_state::executable;
+    }
+    }
+
     template <bundle_state State>
     inline bool has_kernel_bundle(const context &)
     {
-        return true;
+        return detail::paras_has_state<State>();
     }
 
     template <bundle_state State>
     inline bool has_kernel_bundle(const context &, const std::vector<kernel_id> &)
     {
-        return true;
+        return detail::paras_has_state<State>();
     }
 
     template <bundle_state State>
     inline bool has_kernel_bundle(const context &, const std::vector<device> &)
     {
-        return true;
+        return detail::paras_has_state<State>();
     }
 
     template <bundle_state State>
     inline bool has_kernel_bundle(const context &, const std::vector<device> &,
                                   const std::vector<kernel_id> &)
     {
-        return true;
+        return detail::paras_has_state<State>();
     }
 
     template <typename KernelName, bundle_state State>
     inline bool has_kernel_bundle(const context &)
     {
-        return true;
+        return detail::paras_has_state<State>();
     }
 
     template <typename KernelName, bundle_state State>
     inline bool has_kernel_bundle(const context &, const std::vector<device> &)
     {
-        return true;
+        return detail::paras_has_state<State>();
     }
 
     inline kernel_bundle<bundle_state::executable>

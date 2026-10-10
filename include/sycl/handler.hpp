@@ -182,11 +182,14 @@ public:
   template <auto &SpecName>
   void set_specialization_constant(
       typename std::remove_reference_t<decltype(SpecName)>::value_type value) {
+    paras_check_no_bundle();
+    spec_const_set_ = true;
     detail::spec_const_set_host<SpecName>(value);
   }
   template <auto &SpecName>
   typename std::remove_reference_t<decltype(SpecName)>::value_type
   get_specialization_constant() const {
+    paras_check_no_bundle();
     return detail::spec_const_value_host<SpecName>();
   }
 
@@ -196,7 +199,17 @@ public:
   template <typename AccessorT> void require(AccessorT &&) {}
   template <typename AccessorT> void update_host(AccessorT &&) {}
 
-  template <typename BundleT> void use_kernel_bundle(const BundleT &) {}
+  template <typename BundleT> void use_kernel_bundle(const BundleT &) {
+    if (spec_const_set_)
+      throw exception(make_error_code(errc::invalid),
+                      "use_kernel_bundle after set_specialization_constant");
+    kernel_bundle_used_ = true;
+  }
+  void paras_check_no_bundle() const {
+    if (kernel_bundle_used_)
+      throw exception(make_error_code(errc::invalid),
+                      "specialization constant access after use_kernel_bundle");
+  }
   template <typename T> void set_arg(int, T &&) {}
   template <typename... Ts> void set_args(Ts &&...) {}
 
@@ -339,6 +352,8 @@ private:
   std::size_t local_memory_bytes_ = 0;
   bool async_mode_ = false;
   bool want_native_event_ = false;
+  bool kernel_bundle_used_ = false;
+  bool spec_const_set_ = false;
 };
 
 }

@@ -59,7 +59,6 @@ public:
     PARAS_KERNEL_HD id<Dims> get_id() const { return idx_; }
     PARAS_KERNEL_HD size_t   get_id(int d) const { return idx_[d]; }
     PARAS_KERNEL_HD size_t   operator[](int d) const { return idx_[d]; }
-    PARAS_KERNEL_HD size_t&  operator[](int d) { return idx_[d]; }
 
     PARAS_KERNEL_HD range<Dims> get_range() const { return range_; }
     PARAS_KERNEL_HD size_t      get_range(int d) const { return range_[d]; }

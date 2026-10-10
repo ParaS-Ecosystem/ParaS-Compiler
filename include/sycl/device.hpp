@@ -278,9 +278,17 @@ public:
 
   template <typename DeviceSelector>
   explicit device(const DeviceSelector& selector) : device() {
-      if (selector(*this) < 0) {
-          throw sycl::exception(sycl::make_error_code(sycl::errc::runtime));
+      int best = -1;
+      for (const device &d : get_devices(info::device_type::all)) {
+          const int score = selector(d);
+          if (score >= 0 && score > best) {
+              best = score;
+              *this = d;
+          }
       }
+      if (best < 0)
+          throw sycl::exception(sycl::make_error_code(sycl::errc::runtime),
+                                "no device satisfies the selector");
   }
 
   backend get_backend() const noexcept ;
