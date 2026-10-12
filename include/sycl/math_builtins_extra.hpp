@@ -63,6 +63,19 @@ template <typename S>
 using wide_int_t = std::conditional_t<std::is_signed_v<S>, std::int64_t, std::uint64_t>;
 
 template <typename S>
+using wide2_t = std::conditional_t<
+    (sizeof(S) < 8),
+    std::conditional_t<std::is_signed_v<S>, std::int64_t, std::uint64_t>,
+    std::conditional_t<std::is_signed_v<S>, __int128, unsigned __int128>>;
+template <typename S>
+using swide2_t = std::conditional_t<(sizeof(S) < 8), std::int64_t, __int128>;
+template <typename S, typename W> PARAS_KERNEL_HD inline S sat_cast(W r) {
+  const W lo = static_cast<W>(std::numeric_limits<S>::min());
+  const W hi = static_cast<W>(std::numeric_limits<S>::max());
+  return static_cast<S>(r < lo ? lo : (r > hi ? hi : r));
+}
+
+template <typename S>
 using same_size_uint_t = std::conditional_t<sizeof(S) == 4, std::uint32_t, std::uint64_t>;
 }
 
@@ -138,9 +151,42 @@ PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(expm1, S, x, static_cast<S>(std::expm1(stati
 PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(rsqrt, S, x, static_cast<S>(1.0 / std::sqrt(static_cast<double>(x))))
 PARAS_SYCL_UNARY_GENFLOAT_HALF_ONLY(fabs, S, x, static_cast<S>(std::fabs(static_cast<detail::math_fp_t<S>>(x))))
 
-PARAS_SYCL_UNARY_GENFLOAT(sinpi, S, x, static_cast<S>(std::sin(static_cast<double>(x) * M_PI)))
-PARAS_SYCL_UNARY_GENFLOAT(cospi, S, x, static_cast<S>(std::cos(static_cast<double>(x) * M_PI)))
-PARAS_SYCL_UNARY_GENFLOAT(tanpi, S, x, static_cast<S>(std::tan(static_cast<double>(x) * M_PI)))
+namespace detail {
+
+PARAS_KERNEL_HD inline double sinpi_red(double f) {
+  if (f <= 0.25) return std::sin(M_PI * f);
+  if (f <= 0.75) return std::cos(M_PI * (0.5 - f));
+  return std::sin(M_PI * (1.0 - f));
+}
+PARAS_KERNEL_HD inline double cospi_red(double f) {
+  if (f <= 0.25) return std::cos(M_PI * f);
+  if (f <= 0.75) return std::sin(M_PI * (0.5 - f));
+  return -std::cos(M_PI * (1.0 - f));
+}
+PARAS_KERNEL_HD inline bool odd_integer(double n) {
+  return std::fmod(n, 2.0) != 0.0;
+}
+PARAS_KERNEL_HD inline double sinpi_d(double x) {
+  if (!std::isfinite(x)) return x - x;
+  const double a = std::fabs(x), n = std::floor(a);
+  double r = sinpi_red(a - n);
+  if (odd_integer(n)) r = -r;
+  return std::copysign(1.0, x) * (r == 0.0 ? 0.0 : r);
+}
+PARAS_KERNEL_HD inline double cospi_d(double x) {
+  if (!std::isfinite(x)) return x - x;
+  const double a = std::fabs(x), n = std::floor(a);
+  const double r = cospi_red(a - n);
+  return odd_integer(n) ? -r : r;
+}
+PARAS_KERNEL_HD inline double tanpi_d(double x) {
+  if (!std::isfinite(x)) return x - x;
+  return sinpi_d(x) / cospi_d(x);
+}
+}
+PARAS_SYCL_UNARY_GENFLOAT(sinpi, S, x, static_cast<S>(detail::sinpi_d(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(cospi, S, x, static_cast<S>(detail::cospi_d(static_cast<double>(x))))
+PARAS_SYCL_UNARY_GENFLOAT(tanpi, S, x, static_cast<S>(detail::tanpi_d(static_cast<double>(x))))
 PARAS_SYCL_UNARY_GENFLOAT(acospi, S, x, static_cast<S>(std::acos(static_cast<double>(x)) / M_PI))
 PARAS_SYCL_UNARY_GENFLOAT(asinpi, S, x, static_cast<S>(std::asin(static_cast<double>(x)) / M_PI))
 PARAS_SYCL_UNARY_GENFLOAT(atanpi, S, x, static_cast<S>(std::atan(static_cast<double>(x)) / M_PI))
@@ -460,8 +506,21 @@ PARAS_SYCL_PTR_OUTPUT_UNARY(sincos, {
 template <typename Ptr, typename T,
           typename = std::enable_if_t<(!detail::is_vector_like_v<T> && !paras_is_swizzle_ref_v<T>)>>
 PARAS_KERNEL_HD inline T remquo(T x, T y, Ptr quo) {
+  const double xd = static_cast<double>(x), yd = static_cast<double>(y);
   int q;
-  T result = static_cast<T>(std::remquo(static_cast<double>(x), static_cast<double>(y), &q));
+  T result = static_cast<T>(std::remquo(xd, yd, &q));
+
+  const double ax = std::fabs(xd), ay = std::fabs(yd);
+  if (std::isfinite(ax) && ay != 0.0 && !std::isnan(ay) && ax != 0.0) {
+    if (std::isinf(ay)) {
+      q = 0;
+    } else {
+      const double m = ay <= 1.0e300 ? std::fmod(ax, 128.0 * ay) : ax;
+      const double rr = std::remainder(m, ay);
+      const long long n = std::llround((m - rr) / ay) & 0x7f;
+      q = static_cast<int>(std::signbit(xd) != std::signbit(yd) ? -n : n);
+    }
+  }
   *quo = static_cast<typename std::remove_reference_t<decltype(*quo)>>(q);
   return result;
 }
@@ -538,35 +597,31 @@ PARAS_KERNEL_HD inline T1 fdim(T1 x_arg, T2 y_arg) {
   }
 
 PARAS_SYCL_BINARY_MATH_2T(abs_diff, S, a, b, [&]() -> S {
+
   using U = std::make_unsigned_t<S>;
-  U ua = static_cast<U>(a); U ub = static_cast<U>(b);
-  return static_cast<S>(ua > ub ? ua - ub : ub - ua);
+  return static_cast<S>(a > b ? static_cast<U>(static_cast<U>(a) - static_cast<U>(b))
+                              : static_cast<U>(static_cast<U>(b) - static_cast<U>(a)));
 }())
+
 PARAS_SYCL_BINARY_MATH_2T(add_sat, S, a, b, [&]() -> S {
-  using Wide = detail::wide_int_t<S>;
-  Wide r = static_cast<Wide>(a) + static_cast<Wide>(b);
-  Wide lo = static_cast<Wide>(std::numeric_limits<S>::min());
-  Wide hi = static_cast<Wide>(std::numeric_limits<S>::max());
-  return static_cast<S>(r < lo ? lo : (r > hi ? hi : r));
+  using W = detail::swide2_t<S>;
+  return detail::sat_cast<S>(static_cast<W>(a) + static_cast<W>(b));
 }())
 PARAS_SYCL_BINARY_MATH_2T(sub_sat, S, a, b, [&]() -> S {
-  using Wide = detail::wide_int_t<S>;
-  Wide r = static_cast<Wide>(a) - static_cast<Wide>(b);
-  Wide lo = static_cast<Wide>(std::numeric_limits<S>::min());
-  Wide hi = static_cast<Wide>(std::numeric_limits<S>::max());
-  return static_cast<S>(r < lo ? lo : (r > hi ? hi : r));
+  using W = detail::swide2_t<S>;
+  return detail::sat_cast<S>(static_cast<W>(a) - static_cast<W>(b));
 }())
 PARAS_SYCL_BINARY_MATH_2T(hadd, S, a, b, [&]() -> S {
-  using Wide = detail::wide_int_t<S>;
-  return static_cast<S>((static_cast<Wide>(a) + static_cast<Wide>(b)) >> 1);
+  using W = detail::swide2_t<S>;
+  return static_cast<S>((static_cast<W>(a) + static_cast<W>(b)) >> 1);
 }())
 PARAS_SYCL_BINARY_MATH_2T(rhadd, S, a, b, [&]() -> S {
-  using Wide = detail::wide_int_t<S>;
-  return static_cast<S>((static_cast<Wide>(a) + static_cast<Wide>(b) + 1) >> 1);
+  using W = detail::swide2_t<S>;
+  return static_cast<S>((static_cast<W>(a) + static_cast<W>(b) + 1) >> 1);
 }())
 PARAS_SYCL_BINARY_MATH_2T(mul_hi, S, a, b, [&]() -> S {
-  using Wide = detail::wide_int_t<S>;
-  Wide r = static_cast<Wide>(a) * static_cast<Wide>(b);
+  using W = detail::wide2_t<S>;
+  W r = static_cast<W>(a) * static_cast<W>(b);
   return static_cast<S>(r >> (sizeof(S) * 8));
 }())
 
@@ -755,16 +810,17 @@ PARAS_KERNEL_HD inline T2 step(T1 edge_arg, T2 x_arg) {
   }
 
 PARAS_SYCL_TERNARY_MATH_3T(mad_sat, S, a, b, c, [&]() -> S {
-  using Wide = detail::wide_int_t<S>;
-  Wide r = static_cast<Wide>(a) * static_cast<Wide>(b) + static_cast<Wide>(c);
-  Wide lo = static_cast<Wide>(std::numeric_limits<S>::min());
-  Wide hi = static_cast<Wide>(std::numeric_limits<S>::max());
-  return static_cast<S>(r < lo ? lo : (r > hi ? hi : r));
+  using W = detail::wide2_t<S>;
+  return detail::sat_cast<S>(static_cast<W>(a) * static_cast<W>(b) +
+                             static_cast<W>(c));
 }())
 PARAS_SYCL_TERNARY_MATH_3T(mad_hi, S, a, b, c, [&]() -> S {
-  using Wide = detail::wide_int_t<S>;
-  Wide r = static_cast<Wide>(a) * static_cast<Wide>(b);
-  return static_cast<S>((r >> (sizeof(S) * 8)) + static_cast<Wide>(c));
+
+  using W = detail::wide2_t<S>;
+  using U = std::make_unsigned_t<S>;
+  const S hi = static_cast<S>((static_cast<W>(a) * static_cast<W>(b)) >>
+                              (sizeof(S) * 8));
+  return static_cast<S>(static_cast<U>(static_cast<U>(hi) + static_cast<U>(c)));
 }())
 
 PARAS_SYCL_TERNARY_MATH_3T(mad24, S, a, b, c, static_cast<S>(a * b + c))

@@ -47,6 +47,10 @@ namespace sycl {
 
 namespace detail {
 
+template <int D, typename Func> struct hierarchical_kernel;
+template <typename T> struct is_hierarchical_kernel : std::false_type {};
+template <int D, typename Func>
+struct is_hierarchical_kernel<hierarchical_kernel<D, Func>> : std::true_type {};
 template <int D, typename Func> struct hierarchical_kernel {
   Func f;
   range<D> groups;
@@ -206,6 +210,14 @@ public:
                       "use_kernel_bundle after set_specialization_constant");
     kernel_bundle_used_ = true;
   }
+
+  template <typename Func> void paras_check_range_kernel() const {
+    if constexpr (!detail::is_hierarchical_kernel<Func>::value)
+      if (has_local_acc_)
+        throw exception(make_error_code(errc::kernel_argument),
+                        "local_accessor used in a single_task or a range "
+                        "parallel_for");
+  }
   void paras_check_no_bundle() const {
     if (kernel_bundle_used_)
       throw exception(make_error_code(errc::invalid),
@@ -310,6 +322,7 @@ public:
     }
 
     local_memory_bytes_ = aligned_offset + bytes;
+    has_local_acc_ = true;
     return aligned_offset;
   }
 
@@ -355,6 +368,7 @@ private:
   bool want_native_event_ = false;
   bool kernel_bundle_used_ = false;
   bool spec_const_set_ = false;
+  bool has_local_acc_ = false;
 
   detail::spec_const_restorer spec_restore_;
 };

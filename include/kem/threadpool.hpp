@@ -421,6 +421,7 @@ inline void handler::paras_gpu_command_enqueued(bool) {}
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
+  paras_check_range_kernel<Func>();
   wait_for_dependencies();
 
   if constexpr (dim == 1) {
