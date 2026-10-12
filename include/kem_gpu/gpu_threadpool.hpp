@@ -299,7 +299,11 @@ public:
   }
 
   sycl::device get_device() const { return dev_; }
-  sycl::context get_context() const { return ctx_; }
+
+  sycl::context get_context() const {
+    return own_ctx_ ? ctx_
+                    : sycl::detail::paras_default_context(dev_.get_platform());
+  }
 
   cudaStream_t stream = nullptr;
 
@@ -328,7 +332,7 @@ public:
       : cuda_threadpool(sel, props) { paras_set_async_handler(paras_ah); }
 
   cuda_threadpool(const sycl::queue &q)
-      : dev_(q.get_device()), ctx_(q.get_context()),
+      : dev_(q.get_device()), ctx_(q.get_context()), own_ctx_(true),
         identity_(q.paras_identity_ptr()), queue_(q),
         st_(q.paras_gpu_state()) {
     initialize_stream_for_device();
@@ -336,7 +340,7 @@ public:
 
   explicit cuda_threadpool(const sycl::context &ctx, const sycl::device &dev,
                            const sycl::property_list &props = {})
-      : dev_(dev), ctx_(ctx), props_(props) {
+      : dev_(dev), ctx_(ctx), own_ctx_(true), props_(props) {
     initialize_stream_for_device();
   }
 
@@ -373,7 +377,7 @@ public:
 
   cuda_threadpool(const cuda_threadpool &other)
       : stream(other.stream), dev_(other.dev_), ctx_(other.ctx_),
-        props_(other.props_), identity_(other.identity_),
+        own_ctx_(other.own_ctx_), props_(other.props_), identity_(other.identity_),
         async_(other.async_), pending_(other.pending_), queue_(other.queue_),
         st_(other.st_) {}
 
@@ -385,6 +389,7 @@ public:
     stream = other.stream;
     dev_ = other.dev_;
     ctx_ = other.ctx_;
+    own_ctx_ = other.own_ctx_;
     props_ = other.props_;
     identity_ = other.identity_;
     async_ = other.async_;
@@ -396,7 +401,7 @@ public:
 
   cuda_threadpool(cuda_threadpool &&other) noexcept
       : stream(other.stream), dev_(std::move(other.dev_)),
-        ctx_(std::move(other.ctx_)), props_(std::move(other.props_)),
+        ctx_(std::move(other.ctx_)), own_ctx_(other.own_ctx_), props_(std::move(other.props_)),
         identity_(std::move(other.identity_)), async_(std::move(other.async_)),
         pending_(std::move(other.pending_)), queue_(std::move(other.queue_)),
         st_(std::move(other.st_)) {
@@ -411,6 +416,7 @@ public:
     stream = other.stream;
     dev_ = std::move(other.dev_);
     ctx_ = std::move(other.ctx_);
+    own_ctx_ = other.own_ctx_;
     props_ = std::move(other.props_);
     identity_ = std::move(other.identity_);
     async_ = std::move(other.async_);
@@ -766,6 +772,7 @@ public:
 private:
   sycl::device dev_;
   sycl::context ctx_{};
+  bool own_ctx_ = false;
   sycl::property_list props_;
   std::shared_ptr<const void> identity_ = std::make_shared<int>(0);
   std::shared_ptr<sycl::async_handler> async_;

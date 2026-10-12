@@ -23,6 +23,8 @@
 
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <utility>
 #include "sycl/property_list.hpp"
 #include "sycl/device.hpp"
 #include <functional>
@@ -138,6 +140,20 @@ namespace sycl {
 
             std::shared_ptr<int> id_{std::make_shared<int>()};
     };
+
+    namespace detail {
+
+    inline context paras_default_context(const platform &p) {
+      static std::mutex m;
+      static std::vector<std::pair<platform, context>> known;
+      std::lock_guard<std::mutex> lock(m);
+      for (auto &e : known)
+        if (e.first == p)
+          return e.second;
+      known.emplace_back(p, context(p));
+      return known.back().second;
+    }
+    }
 
 	inline exception::exception(const context& ctx,
                             std::error_code ec,

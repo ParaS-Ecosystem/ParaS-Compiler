@@ -50,13 +50,50 @@ namespace sycl
         template <typename Param>
         typename Param::return_type get_info() const
         {
+
+            if constexpr (std::is_same_v<Param, info::kernel::num_args>)
+                throw exception(make_error_code(errc::invalid),
+                                "info::kernel::num_args needs an interop or "
+                                "built-in kernel");
             return typename Param::return_type{};
         }
 
         template <typename Param>
-        typename Param::return_type get_info(const device &) const
+        typename Param::return_type get_info(const device &dev) const
         {
-            return typename Param::return_type{};
+            namespace kds = info::kernel_device_specific;
+            if constexpr (std::is_same_v<Param, kds::global_work_size>)
+            {
+
+                throw exception(make_error_code(errc::invalid),
+                                "global_work_size needs a custom device or a "
+                                "built-in kernel");
+            }
+            else if constexpr (std::is_same_v<Param, kds::work_group_size>)
+            {
+                return dev.get_info<info::device::max_work_group_size>();
+            }
+            else if constexpr (std::is_same_v<Param, kds::preferred_work_group_size_multiple>)
+            {
+                return 1;
+            }
+            else if constexpr (std::is_same_v<Param, kds::max_num_sub_groups>)
+            {
+                const std::uint32_t n = dev.get_info<info::device::max_num_sub_groups>();
+                return n ? n : 1;
+            }
+            else if constexpr (std::is_same_v<Param, kds::max_sub_group_size>)
+            {
+                std::uint32_t m = 0;
+                for (auto s : dev.get_info<info::device::sub_group_sizes>())
+                    if (static_cast<std::uint32_t>(s) > m)
+                        m = static_cast<std::uint32_t>(s);
+                return m ? m : 1;
+            }
+            else
+            {
+                return typename Param::return_type{};
+            }
         }
 
         bool operator==(const kernel &rhs) const { return context_ == rhs.context_; }

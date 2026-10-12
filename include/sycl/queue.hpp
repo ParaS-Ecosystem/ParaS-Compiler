@@ -148,7 +148,10 @@ public:
   void wait_and_throw();
 
   device get_device() const { return dev_; }
-  context get_context() const { return ctx_; }
+
+  context get_context() const {
+    return own_ctx_ ? ctx_ : detail::paras_default_context(dev_.get_platform());
+  }
   bool is_in_order() const { return props_.has_in_order(); }
 
   backend get_backend() const {
@@ -416,6 +419,7 @@ private:
   threadpool &get_or_create_host_pool() const;
 
   context ctx_{};
+  bool own_ctx_ = false;
   device dev_{};
   property_list props_{};
 
@@ -433,7 +437,7 @@ private:
 
 inline sycl::queue::queue(const sycl::context &ctx, const sycl::device &dev,
                           const sycl::property_list &props)
-    : ctx_(ctx), dev_(dev), props_(props) {}
+    : ctx_(ctx), own_ctx_(true), dev_(dev), props_(props) {}
 
 inline sycl::queue::queue(const sycl::device &dev,
                           const sycl::property_list &props)

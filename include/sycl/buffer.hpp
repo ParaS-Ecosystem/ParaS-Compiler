@@ -249,9 +249,8 @@ public:
     accessor<T, Dimensions, Mode, AccessTarget>
     get_access(handler& cgh)
     {
-        return accessor<T, Dimensions, Mode, AccessTarget>(
-            data_, r_, Mode
-        );
+
+        return accessor<T, Dimensions, Mode, AccessTarget>(*this, cgh);
     }
 
     template <
@@ -269,9 +268,8 @@ public:
     accessor<T, Dimensions, Mode, target::host_buffer>
     get_access()
     {
-        return accessor<T, Dimensions, Mode, target::host_buffer>(
-            data_, r_, Mode
-        );
+
+        return accessor<T, Dimensions, Mode, target::host_buffer>(*this);
     }
 
     template <access::mode Mode>
@@ -293,10 +291,7 @@ public:
     accessor<T, Dimensions, TagT::value, target::device>
     get_access(handler& cgh, TagT)
     {
-        (void)cgh;
-        return accessor<T, Dimensions, TagT::value, target::device>(
-            data_, r_, TagT::value
-        );
+        return accessor<T, Dimensions, TagT::value, target::device>(*this, cgh);
     }
 
     template <typename TagT>
@@ -330,9 +325,7 @@ public:
     accessor<T, Dimensions, access::mode::read_write, target::host_buffer>
     get_host_access()
     {
-        return accessor<T, Dimensions, access::mode::read_write, target::host_buffer>(
-            data_, r_, access::mode::read_write
-        );
+        return accessor<T, Dimensions, access::mode::read_write, target::host_buffer>(*this);
     }
 
     T* data() const { return data_; }

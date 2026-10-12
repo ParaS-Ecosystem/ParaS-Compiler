@@ -50,15 +50,15 @@ struct command_execution_status {
 namespace event_profiling {
 
 struct command_submit {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
 struct command_start {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
 struct command_end {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
 }

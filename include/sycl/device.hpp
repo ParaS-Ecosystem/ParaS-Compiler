@@ -480,9 +480,8 @@ inline std::vector<sycl::device> platform::get_devices(sycl::info::device_type t
 
 template <typename DeviceSelector, typename>
 inline platform::platform(const DeviceSelector& selector) : platform() {
-    if (selector(sycl::device{}) < 0) {
-        throw sycl::exception(sycl::make_error_code(sycl::errc::runtime));
-    }
+
+    *this = sycl::device(selector).get_platform();
 }
 
 inline bool platform::has(aspect aspect_name) const {

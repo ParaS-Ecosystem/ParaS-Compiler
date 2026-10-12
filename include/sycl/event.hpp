@@ -32,6 +32,7 @@
 #include <exception>
 #include <chrono>
 #include "backend.hpp"
+#include "exception.hpp"
 #include <thread>
 #include <vector>
 
@@ -209,7 +210,9 @@ public:
   template <typename Param>
   typename Param::return_type get_profiling_info() const {
     if (!m_state->profiling)
-      throw std::runtime_error("Profiling not enabled");
+      throw exception(make_error_code(errc::invalid),
+                      "get_profiling_info: the queue was not created with "
+                      "property::queue::enable_profiling");
     wait();
     return typename Param::return_type();
   }

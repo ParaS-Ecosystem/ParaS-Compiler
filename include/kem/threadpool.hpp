@@ -123,7 +123,11 @@ public:
   explicit threadpool(const sycl::property_list &props)
       : threadpool(sycl::default_selector_v, props) {}
   sycl::device get_device() const { return dev_; }
-  sycl::context get_context() const { return ctx_; }
+
+  sycl::context get_context() const {
+    return own_ctx_ ? ctx_
+                    : sycl::detail::paras_default_context(dev_.get_platform());
+  }
 
   sycl::backend get_backend() const { return sycl::backend::host; }
 
@@ -137,7 +141,7 @@ public:
 
   explicit threadpool(const sycl::context &ctx, const sycl::device &dev,
                       const sycl::property_list &props = {})
-      : ctx_(ctx), dev_(dev) {
+      : ctx_(ctx), own_ctx_(true), dev_(dev) {
     props_ = props;
   }
 
@@ -179,7 +183,8 @@ public:
 
   template <typename Q,
             typename = std::enable_if_t<std::is_same_v<Q, sycl::queue>>>
-  threadpool(const Q &q) : ctx_(q.get_context()), dev_(q.get_device()) {}
+  threadpool(const Q &q)
+      : ctx_(q.get_context()), own_ctx_(true), dev_(q.get_device()) {}
 
   static unsigned get_num_threads();
 
@@ -390,6 +395,7 @@ public:
 
 private:
   sycl::context ctx_{};
+  bool own_ctx_ = false;
   sycl::device dev_{};
   sycl::property_list props_{};
 
@@ -487,7 +493,7 @@ inline sycl::device sycl::handler::paras_reduction_device() const {
 }
 inline threadpool &sycl::queue::get_or_create_host_pool() const {
   if (!host_pool_)
-    host_pool_ = std::make_shared<threadpool>(ctx_, dev_, props_);
+    host_pool_ = std::make_shared<threadpool>(get_context(), dev_, props_);
   return *host_pool_;
 }
 inline void sycl::handler::paras_reduction_wait() {}

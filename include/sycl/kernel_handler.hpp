@@ -76,6 +76,52 @@ template <auto &SpecName> auto spec_const_value_host() {
   return value;
 }
 
+struct spec_const_restorer {
+  struct saved {
+    const void *key;
+    bool had;
+    std::vector<unsigned char> bytes;
+  };
+  std::vector<saved> v;
+
+  spec_const_restorer() = default;
+  spec_const_restorer(const spec_const_restorer &) = default;
+  spec_const_restorer(spec_const_restorer &&o) noexcept : v(std::move(o.v)) {
+    o.v.clear();
+  }
+  spec_const_restorer &operator=(const spec_const_restorer &) = default;
+  spec_const_restorer &operator=(spec_const_restorer &&o) noexcept {
+    v = std::move(o.v);
+    o.v.clear();
+    return *this;
+  }
+  ~spec_const_restorer() { restore(); }
+
+  void remember(const void *key) {
+    for (auto &e : v)
+      if (e.key == key)
+        return;
+    std::lock_guard<std::mutex> lock(spec_const_mutex());
+    auto it = spec_const_store().find(key);
+    if (it == spec_const_store().end())
+      v.push_back({key, false, {}});
+    else
+      v.push_back({key, true, it->second});
+  }
+  void restore() {
+    if (v.empty())
+      return;
+    std::lock_guard<std::mutex> lock(spec_const_mutex());
+    for (auto it = v.rbegin(); it != v.rend(); ++it) {
+      if (it->had)
+        spec_const_store()[it->key] = it->bytes;
+      else
+        spec_const_store().erase(it->key);
+    }
+    v.clear();
+  }
+};
+
 template <auto &SpecName, typename T> void spec_const_set_host(const T &v) {
   std::vector<unsigned char> bytes(sizeof(T));
   std::memcpy(bytes.data(), static_cast<const void *>(&v), sizeof(T));

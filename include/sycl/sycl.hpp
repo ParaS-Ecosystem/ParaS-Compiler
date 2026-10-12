@@ -21,6 +21,10 @@
 #ifndef __PARAS_SYCL_HPP__
 #define __PARAS_SYCL_HPP__
 
+#ifndef SYCL_LANGUAGE_VERSION
+#define SYCL_LANGUAGE_VERSION 202012L
+#endif
+
 #include "access.hpp"
 #include "accessor.hpp"
 #include "aspect.hpp"

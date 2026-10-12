@@ -184,6 +184,7 @@ public:
       typename std::remove_reference_t<decltype(SpecName)>::value_type value) {
     paras_check_no_bundle();
     spec_const_set_ = true;
+    spec_restore_.remember(&SpecName);
     detail::spec_const_set_host<SpecName>(value);
   }
   template <auto &SpecName>
@@ -354,6 +355,8 @@ private:
   bool want_native_event_ = false;
   bool kernel_bundle_used_ = false;
   bool spec_const_set_ = false;
+
+  detail::spec_const_restorer spec_restore_;
 };
 
 }
