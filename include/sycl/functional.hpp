@@ -22,6 +22,8 @@
 #define __PARAS_FUNCTIONAL_HPP__
 
 #include <utility>
+#include <cstddef>
+#include <type_traits>
 
 #include "kem_gpu/gpu_utilities.hpp"
 
@@ -124,9 +126,21 @@ template <typename T = void> struct minimum {
   }
 };
 template <> struct minimum<void> {
+
   template <typename T, typename U>
   PARAS_KERNEL_HD constexpr auto operator()(T &&x, U &&y) const {
-    return (x < y) ? std::forward<T>(x) : std::forward<U>(y);
+    using R = std::decay_t<decltype(false ? std::forward<T>(x)
+                                          : std::forward<U>(y))>;
+    if constexpr (std::is_convertible_v<decltype(x < y), bool>) {
+      return R((x < y) ? std::forward<T>(x) : std::forward<U>(y));
+    } else {
+      R r = x;
+      const R o = y;
+      for (std::size_t i = 0; i < r.size(); ++i)
+        if (!(r[i] < o[i]))
+          r[i] = o[i];
+      return r;
+    }
   }
 };
 
@@ -136,9 +150,21 @@ template <typename T = void> struct maximum {
   }
 };
 template <> struct maximum<void> {
+
   template <typename T, typename U>
   PARAS_KERNEL_HD constexpr auto operator()(T &&x, U &&y) const {
-    return (x > y) ? std::forward<T>(x) : std::forward<U>(y);
+    using R = std::decay_t<decltype(false ? std::forward<T>(x)
+                                          : std::forward<U>(y))>;
+    if constexpr (std::is_convertible_v<decltype(x > y), bool>) {
+      return R((x > y) ? std::forward<T>(x) : std::forward<U>(y));
+    } else {
+      R r = x;
+      const R o = y;
+      for (std::size_t i = 0; i < r.size(); ++i)
+        if (!(r[i] > o[i]))
+          r[i] = o[i];
+      return r;
+    }
   }
 };
 

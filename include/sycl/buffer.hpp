@@ -260,14 +260,9 @@ public:
     accessor<T, Dimensions, Mode, AccessTarget>
     get_access(handler& cgh, range<Dimensions> accessRange, id<Dimensions> accessOffset)
     {
-        (void)cgh;
-        std::size_t flat_offset = accessOffset[0];
-        if constexpr (Dimensions >= 2) {
-            flat_offset = accessOffset[0] * r_[1] + accessOffset[1];
-        }
+
         return accessor<T, Dimensions, Mode, AccessTarget>(
-            data_ + flat_offset, accessRange, Mode
-        );
+            *this, cgh, accessRange, accessOffset);
     }
 
     template <access::mode Mode>
@@ -283,13 +278,8 @@ public:
     accessor<T, Dimensions, Mode, target::host_buffer>
     get_access(range<Dimensions> accessRange, id<Dimensions> accessOffset)
     {
-        std::size_t flat_offset = accessOffset[0];
-        if constexpr (Dimensions >= 2) {
-            flat_offset = accessOffset[0] * r_[1] + accessOffset[1];
-        }
         return accessor<T, Dimensions, Mode, target::host_buffer>(
-            data_ + flat_offset, accessRange, Mode
-        );
+            *this, accessRange, accessOffset);
     }
 
     template <access::mode Mode>
