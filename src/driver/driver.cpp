@@ -33,6 +33,7 @@
 #include <clang/Frontend/ASTConsumers.h>
 #include <clang/Frontend/FrontendActions.h>
 #include <clang/Rewrite/Core/Rewriter.h>
+#include "llvm/Support/MemoryBuffer.h"
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Tooling.h>
 #include <cstdlib>
@@ -173,6 +174,40 @@ static bool isCppSourceFile(const std::string &arg) {
            str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
   };
   return endsWith(arg, ".cpp") || endsWith(arg, ".cc") || endsWith(arg, ".cxx");
+}
+
+static void fixDependencyFile(
+    const std::vector<std::string> &command,
+    const std::vector<std::pair<std::string, std::string>> &sources) {
+  std::string depFile;
+  for (size_t i = 0; i < command.size(); ++i) {
+    if (command[i] == "-MF" && i + 1 < command.size())
+      depFile = command[i + 1];
+    else if (command[i].size() > 3 && command[i].compare(0, 3, "-MF") == 0)
+      depFile = command[i].substr(3);
+  }
+  if (depFile.empty() || sources.empty())
+    return;
+  auto buffer = llvm::MemoryBuffer::getFile(depFile);
+  if (!buffer)
+    return;
+  std::string text = (*buffer)->getBuffer().str();
+  bool changed = false;
+  for (const auto &st : sources) {
+    if (st.first.empty())
+      continue;
+    for (size_t pos = text.find(st.first); pos != std::string::npos;
+         pos = text.find(st.first, pos + st.second.size())) {
+      text.replace(pos, st.first.size(), st.second);
+      changed = true;
+    }
+  }
+  if (!changed)
+    return;
+  std::error_code EC;
+  llvm::raw_fd_ostream out(depFile, EC);
+  if (!EC)
+    out << text;
 }
 
 static llvm::cl::OptionCategory Tooling("paras-expfinder");
@@ -705,6 +740,7 @@ int main(int argc, const char **argv) {
   std::vector<std::string> finalCommand;
   finalCommand.reserve(finalCompilerArgs.size());
 
+  std::vector<std::pair<std::string, std::string>> sourceForTransformed;
   for (const auto &arg : finalCompilerArgs) {
     if (isCppSourceFile(arg)) {
       if (transformedIndex >= transformedSourceFiles.size()) {
@@ -713,6 +749,9 @@ int main(int argc, const char **argv) {
             << "\n";
         return 1;
       }
+      std::string original = absoluteNormalized(arg);
+      sourceForTransformed.emplace_back(transformedSourceFiles[transformedIndex],
+                                        original.empty() ? arg : original);
       finalCommand.push_back(transformedSourceFiles[transformedIndex++]);
     } else {
       finalCommand.push_back(arg);
@@ -734,5 +773,8 @@ int main(int argc, const char **argv) {
                    << overlayPath << "\n";
   }
 
-  return executor::executor(finalCommand, compilerFlags[3]);
+  const int rc = executor::executor(finalCommand, compilerFlags[3]);
+  if (rc == 0)
+    fixDependencyFile(finalCommand, sourceForTransformed);
+  return rc;
 }
