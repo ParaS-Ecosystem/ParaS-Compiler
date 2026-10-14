@@ -29,6 +29,7 @@ PARAS_HD_REGION_OPEN
 #endif
 
 #include "sycl/context.hpp"
+#include "sycl/kernel.hpp"
 #include "sycl/device.hpp"
 #include "sycl/device_selector.hpp"
 #include "sycl/event.hpp"
@@ -571,6 +572,8 @@ public:
 
   template <typename KernelName = void, typename Func>
   sycl::event single_task(Func f) {
+    sycl::detail::note_and_check_kernel<
+        KernelName, sycl::detail::single_task_kernel<Func>>(get_device());
     gpu_execute_1D(sycl::range<1>(1), sycl::detail::single_task_kernel<Func>{f});
     return paras_last_command_event();
   }
@@ -587,6 +590,7 @@ public:
 
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(sycl::range<dim> r, Func f) {
+    sycl::detail::note_and_check_kernel<KernelName, Func>(get_device());
     if constexpr (dim == 1) {
       gpu_execute_1D(r, f);
     } else if constexpr (dim == 2) {
@@ -601,6 +605,7 @@ public:
 
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(const sycl::nd_range<dim> &r, Func f) {
+    sycl::detail::note_and_check_kernel<KernelName, Func>(get_device());
     if constexpr (dim == 1) {
       gpu_execute_nd_range_1D(r, f);
     } else if constexpr (dim == 2) {
@@ -719,8 +724,8 @@ public:
   sycl::event fill(void *ptr, const T &pattern, size_t count) {
     T *p = static_cast<T *>(ptr);
     const T value = pattern;
-    return parallel_for(sycl::range<1>(count),
-                        [=](sycl::id<1> i) { p[i[0]] = value; });
+    return parallel_for<sycl::detail::paras_internal_kernel>(
+        sycl::range<1>(count), [=](sycl::id<1> i) { p[i[0]] = value; });
   }
 
   sycl::event memcpy(void *dest, const void *src, size_t numBytes) {

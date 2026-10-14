@@ -33,6 +33,8 @@
 
 #include "../utilities/internal_utils.hpp"
 #include "event.hpp"
+#include "kernel.hpp"
+#include "kernel_registry.hpp"
 #include "id.hpp"
 #include "interop_handle.hpp"
 #include "nd_item.hpp"
@@ -52,6 +54,7 @@ template <typename T> struct is_hierarchical_kernel : std::false_type {};
 template <int D, typename Func>
 struct is_hierarchical_kernel<hierarchical_kernel<D, Func>> : std::true_type {};
 template <int D, typename Func> struct hierarchical_kernel {
+  using paras_inner = Func;
   Func f;
   range<D> groups;
   range<D> local;
@@ -74,6 +77,7 @@ template <int D, typename Func> struct hierarchical_kernel {
 };
 
 template <typename Func> struct single_task_kernel {
+  using paras_inner = Func;
   Func f;
   PARAS_KERNEL_HD void operator()(id<1>) const {
     if constexpr (std::is_invocable_v<const Func &, kernel_handler>)
@@ -125,7 +129,7 @@ public:
 
   template <typename KernelName = void, typename Func>
   void single_task(Func f) {
-    parallel_for(range<1>(1), detail::single_task_kernel<Func>{f});
+    parallel_for<KernelName>(range<1>(1), detail::single_task_kernel<Func>{f});
   }
 
   template <typename KernelName = void, int Dim, typename Func>
@@ -204,11 +208,24 @@ public:
   template <typename AccessorT> void require(AccessorT &&) {}
   template <typename AccessorT> void update_host(AccessorT &&) {}
 
-  template <typename BundleT> void use_kernel_bundle(const BundleT &) {
+  void use_kernel_bundle(const kernel_bundle<bundle_state::executable> &kb) {
     if (spec_const_set_)
       throw exception(make_error_code(errc::invalid),
                       "use_kernel_bundle after set_specialization_constant");
     kernel_bundle_used_ = true;
+    bundle_ = kb.paras_impl();
+    for (const auto &sv : bundle_->spec) {
+      spec_restore_.remember(sv.first);
+      detail::spec_const_set_raw(sv.first, sv.second);
+    }
+  }
+
+  template <typename KernelName, typename Func> void paras_launch_kernel() {
+#if !PARAS_DEVICE_PASS
+    const detail::kernel_info *ki = detail::note_kernel<KernelName, Func>();
+    if (ki != nullptr)
+      detail::kernel_launch_check(ki, bundle_.get(), paras_reduction_device());
+#endif
   }
 
   template <typename Func> void paras_check_range_kernel() const {
@@ -232,7 +249,8 @@ public:
   template <typename T>
   void fill(T *ptr, const T &pattern, std::size_t count) {
     const T value = pattern;
-    parallel_for(range<1>(count), [=](id<1> i) { ptr[i[0]] = value; });
+    parallel_for<detail::paras_internal_kernel>(
+        range<1>(count), [=](id<1> i) { ptr[i[0]] = value; });
   }
 
   template <typename AccessorT, typename T,
@@ -367,6 +385,7 @@ private:
   bool async_mode_ = false;
   bool want_native_event_ = false;
   bool kernel_bundle_used_ = false;
+  std::shared_ptr<detail::bundle_impl> bundle_;
   bool spec_const_set_ = false;
   bool has_local_acc_ = false;
 

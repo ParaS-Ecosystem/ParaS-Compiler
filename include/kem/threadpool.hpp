@@ -22,6 +22,7 @@
 #define __PARAS_THREADPOOL_HPP__
 
 #include "sycl/context.hpp"
+#include "sycl/kernel.hpp"
 #include "sycl/device.hpp"
 #include "sycl/device_selector.hpp"
 #include "sycl/event.hpp"
@@ -231,6 +232,8 @@ public:
 
   template <typename KernelName = void, typename Func>
   sycl::event single_task(Func f) {
+    sycl::detail::note_and_check_kernel<
+        KernelName, sycl::detail::single_task_kernel<Func>>(get_device());
     execute_1D(sycl::range<1>(1), sycl::detail::single_task_kernel<Func>{f});
     return sycl::event{};
   }
@@ -245,6 +248,7 @@ public:
 
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(sycl::range<dim> r, Func f) {
+    sycl::detail::note_and_check_kernel<KernelName, Func>(get_device());
     if constexpr (dim == 1) {
       execute_1D(r, f);
     } else if constexpr (dim == 2) {
@@ -259,6 +263,7 @@ public:
 
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(const sycl::nd_range<dim> &r, Func f) {
+    sycl::detail::note_and_check_kernel<KernelName, Func>(get_device());
     if constexpr (dim == 1) {
       execute_nd_range_1D(r, f);
     } else if constexpr (dim == 2) {
@@ -424,6 +429,7 @@ inline void handler::paras_gpu_command_enqueued(bool) {}
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
+  paras_launch_kernel<KernelName, Func>();
   paras_check_range_kernel<Func>();
   wait_for_dependencies();
 
@@ -440,6 +446,7 @@ void handler::parallel_for(range<dim> r, Func f) {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(const nd_range<dim> &r, Func f) {
+  paras_launch_kernel<KernelName, Func>();
   wait_for_dependencies();
 
   if constexpr (dim == 1) {

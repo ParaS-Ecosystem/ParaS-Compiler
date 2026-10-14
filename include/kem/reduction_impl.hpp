@@ -55,6 +55,7 @@ PARAS_KERNEL_HD inline void red_call(const Func &f, const Item &it, const Alt &a
 }
 
 template <int D, typename Func, typename... Descs> struct red_range_kernel {
+  using paras_inner = Func;
   Func f;
   range<D> r;
   std::tuple<Descs...> ds;
@@ -64,6 +65,7 @@ template <int D, typename Func, typename... Descs> struct red_range_kernel {
 };
 
 template <int D, typename Func, typename... Descs> struct red_nd_kernel {
+  using paras_inner = Func;
   Func f;
   std::tuple<Descs...> ds;
   PARAS_KERNEL_HD void operator()(nd_item<D> it) const {

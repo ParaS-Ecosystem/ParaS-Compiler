@@ -46,6 +46,7 @@ inline void handler::paras_gpu_command_enqueued(bool by_interop) {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(range<dim> r, Func f) {
+  paras_launch_kernel<KernelName, Func>();
   paras_check_range_kernel<Func>();
   if (gpu_pool_ == nullptr) {
     throw std::runtime_error("GPU handler has no cuda_threadpool backend");
@@ -71,6 +72,7 @@ void handler::parallel_for(range<dim> r, Func f) {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(const nd_range<dim> &r, Func f) {
+  paras_launch_kernel<KernelName, Func>();
   if (gpu_pool_ == nullptr) {
     throw std::runtime_error("GPU handler has no cuda_threadpool backend");
   }

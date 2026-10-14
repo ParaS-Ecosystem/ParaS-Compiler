@@ -32,6 +32,7 @@
 #include <unordered_set>
 
 #include "paras/ParaSFuncParameterHandler.hpp"
+#include "paras/ParaSKernelAttrHandler.hpp"
 #include "paras/ParaSLambdaHandler.hpp"
 #include "paras/ParaSParallelforHandler.hpp"
 #include "paras/ParaSQueueHandler.hpp"
@@ -47,6 +48,7 @@ private:
   FunctionParameterHandler fph_callback;
   VarDeclReplacer vdr_callback;
   ParaSLambdaHandler lambda_callback;
+  clang::Rewriter &rewriter;
 
 public:
   ParaSConsumer(clang::Rewriter &r, std::vector<std::string> backend_target);

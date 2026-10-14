@@ -122,6 +122,12 @@ struct spec_const_restorer {
   }
 };
 
+inline void spec_const_set_raw(const void *key,
+                               const std::vector<unsigned char> &bytes) {
+  std::lock_guard<std::mutex> lock(spec_const_mutex());
+  spec_const_store()[key] = bytes;
+}
+
 template <auto &SpecName, typename T> void spec_const_set_host(const T &v) {
   std::vector<unsigned char> bytes(sizeof(T));
   std::memcpy(bytes.data(), static_cast<const void *>(&v), sizeof(T));

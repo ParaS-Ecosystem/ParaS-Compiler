@@ -532,11 +532,6 @@ inline bool platform::has(aspect aspect_name) const {
   return !devices.empty() && devices.front().has(aspect_name);
 }
 
-template <typename KernelName>
-inline bool is_compatible(const device&) {
-    return true;
-}
-
 template <>
 inline auto device::get_info<info::device::name>() const { return name_; }
 
