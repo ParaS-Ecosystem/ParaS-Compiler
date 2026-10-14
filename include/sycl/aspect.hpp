@@ -53,7 +53,9 @@ struct any_device_has
     : std::bool_constant<
           Aspect == aspect::cpu || Aspect == aspect::queue_profiling ||
           (PARASDEVICE != 0 && Aspect == aspect::gpu) || Aspect == aspect::usm_device_allocations ||
-          Aspect == aspect::usm_host_allocations || Aspect == aspect::usm_shared_allocations> {};
+          Aspect == aspect::usm_host_allocations || Aspect == aspect::usm_shared_allocations ||
+          Aspect == aspect::fp16 || Aspect == aspect::fp64 ||
+          Aspect == aspect::atomic64> {};
 
 template <aspect Aspect>
 inline constexpr bool any_device_has_v = any_device_has<Aspect>::value;

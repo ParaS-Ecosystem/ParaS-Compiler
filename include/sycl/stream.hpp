@@ -31,6 +31,12 @@
 #include "data_types.hpp"
 #include "id.hpp"
 #include "range.hpp"
+#include "item.hpp"
+#include "nd_item.hpp"
+#include "nd_range.hpp"
+#include "group.hpp"
+#include "h_item.hpp"
+#include "multi_ptr.hpp"
 
 namespace sycl {
 
@@ -159,6 +165,41 @@ public:
     template <int D>
     PARAS_KERNEL_HD const stream& operator<<(const range<D>& v) const {
         return print_index(v);
+    }
+
+    template <int D, bool WithOffset>
+    PARAS_KERNEL_HD const stream& operator<<(const item<D, WithOffset>& it) const {
+        *this << "item(range: " << it.get_range() << ", id: " << it.get_id() << ")";
+        return *this;
+    }
+    template <int D>
+    PARAS_KERNEL_HD const stream& operator<<(const nd_item<D>& it) const {
+        *this << "nd_item(global_id: " << it.get_global_id() << ", local_id: " << it.get_local_id()
+              << ")";
+        return *this;
+    }
+    template <int D>
+    PARAS_KERNEL_HD const stream& operator<<(const group<D>& g) const {
+        *this << "group(id: " << g.get_group_id() << ", range: " << g.get_group_range() << ")";
+        return *this;
+    }
+    template <int D>
+    PARAS_KERNEL_HD const stream& operator<<(const nd_range<D>& r) const {
+        *this << "nd_range(global_range: " << r.get_global_range()
+              << ", local_range: " << r.get_local_range() << ")";
+        return *this;
+    }
+    template <int D>
+    PARAS_KERNEL_HD const stream& operator<<(const h_item<D>& it) const {
+        *this << "h_item(global: " << it.get_global_id() << ", logical_local: "
+              << it.get_logical_local_id() << ", physical_local: " << it.get_physical_local_id()
+              << ")";
+        return *this;
+    }
+    template <typename ElementType, access::address_space Space, access::decorated Dec>
+    PARAS_KERNEL_HD const stream& operator<<(const multi_ptr<ElementType, Space, Dec>& p) const {
+        printf("%p", static_cast<const void*>(p.get_raw()));
+        return *this;
     }
 
     PARAS_KERNEL_HD const stream& operator<<(stream_manipulator m) const {

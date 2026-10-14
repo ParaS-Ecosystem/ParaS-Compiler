@@ -21,6 +21,7 @@ add_executable(parascc
 	driver/ParaSLambdaHandler.cpp
 	driver/ParaSDeviceFunctionMarker.cpp
 	driver/ParaSDeviceCallGraph.cpp
+	driver/ParaSKernelAttrHandler.cpp
 )
 target_link_libraries(parascc
  	PRIVATE

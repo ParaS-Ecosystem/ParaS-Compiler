@@ -54,6 +54,7 @@ public:
 
     PARAS_KERNEL_HD
     id_type get_group_id() const { return group_id_; }
+
     PARAS_KERNEL_HD
     size_t get_group_id(int dim) const { return group_id_[dim]; }
 
@@ -129,7 +130,7 @@ public:
         range_type globalRange;
         std::size_t count = 1;
         for (int d = 0; d < Dimensions; ++d) {
-            globalRange[d] = group_range_[d] * flexibleRange[d];
+            globalRange[d] = group_range_[d] * local_range_[d];
             count *= flexibleRange[d];
         }
         for (std::size_t lin = 0; lin < count; ++lin) {
@@ -139,10 +140,14 @@ public:
                 localId[d] = rem % flexibleRange[d];
                 rem /= flexibleRange[d];
             }
+            id_type physicalId;
             id_type globalId;
-            for (int d = 0; d < Dimensions; ++d)
-                globalId[d] = group_id_[d] * flexibleRange[d] + localId[d];
-            h_item<Dimensions> item(globalId, globalRange, localId, flexibleRange);
+            for (int d = 0; d < Dimensions; ++d) {
+                physicalId[d] = localId[d] % local_range_[d];
+                globalId[d] = group_id_[d] * local_range_[d] + physicalId[d];
+            }
+            h_item<Dimensions> item(globalId, globalRange, localId, flexibleRange, physicalId,
+                                    local_range_);
             fn(item);
         }
     }

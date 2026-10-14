@@ -22,6 +22,7 @@
 #define __PARAS_RANGE_HPP__
 
 #include <cstddef>
+#include <type_traits>
 #include "kem_gpu/gpu_utilities.hpp"
 #include "index_ops.hpp"
 
@@ -40,21 +41,21 @@ public:
             dims_[i] = 0;
     }
 
-    PARAS_KERNEL_HD
-    range(size_t dim0) {
+    template <int D = Dimensions, typename std::enable_if_t<D == 1, int> = 0>
+    PARAS_KERNEL_HD range(size_t dim0) {
         static_assert(Dimensions == 1, "range(size_t) only valid for range<1>");
         dims_[0] = dim0;
     }
 
-    PARAS_KERNEL_HD
-    range(size_t dim0, size_t dim1) {
+    template <int D = Dimensions, typename std::enable_if_t<D == 2, int> = 0>
+    PARAS_KERNEL_HD range(size_t dim0, size_t dim1) {
         static_assert(Dimensions == 2, "range(size_t,size_t) only valid for range<2>");
         dims_[0] = dim0;
         dims_[1] = dim1;
     }
 
-    PARAS_KERNEL_HD
-    range(size_t dim0, size_t dim1, size_t dim2) {
+    template <int D = Dimensions, typename std::enable_if_t<D == 3, int> = 0>
+    PARAS_KERNEL_HD range(size_t dim0, size_t dim1, size_t dim2) {
         static_assert(Dimensions == 3, "range(size_t,size_t,size_t) only valid for range<3>");
         dims_[0] = dim0;
         dims_[1] = dim1;

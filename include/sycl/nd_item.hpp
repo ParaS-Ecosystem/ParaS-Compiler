@@ -158,6 +158,15 @@ public:
     PARAS_KERNEL_HD void wait_for(EventTN... events) const {
         get_group().wait_for(events...);
     }
+
+    PARAS_KERNEL_HD
+    friend bool operator==(const nd_item& a, const nd_item& b) {
+        return a.gid_ == b.gid_ && a.lid_ == b.lid_ && a.grp_ == b.grp_ &&
+               a.global_range_ == b.global_range_ && a.local_range_ == b.local_range_ &&
+               a.group_range_ == b.group_range_;
+    }
+    PARAS_KERNEL_HD
+    friend bool operator!=(const nd_item& a, const nd_item& b) { return !(a == b); }
 };
 
 } // namespace sycl

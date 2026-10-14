@@ -21,6 +21,7 @@
 #ifndef __PARAS_SYCL_HPP__
 #define __PARAS_SYCL_HPP__
 #define SYCL_LANGUAGE_VERSION 202012L
+#define SYCL_DEVICE_COPYABLE 1
 
 #include "../kem_gpu/gpu_utilities.hpp"
 
@@ -30,6 +31,7 @@
 #include "accessor.hpp"
 #include "aspect.hpp"
 #include "atomic_ref.hpp"
+#include "atomic.hpp"
 #include "buffer.hpp"
 #include "context.hpp"
 #include "detail.hpp"
@@ -45,6 +47,7 @@
 #include "group_barrier.hpp"
 #include "h_item.hpp"
 #include "group.hpp"
+#include "private_memory.hpp"
 #include "handler.hpp"
 #include "id.hpp"
 #include "info.hpp"
@@ -63,6 +66,7 @@
 #include "range.hpp"
 #include "sampler.hpp"
 #include "image.hpp"
+#include "image2020.hpp"
 #include "sub_group.hpp"
 #include "usm_alloc.hpp"
 #include "usm.hpp"

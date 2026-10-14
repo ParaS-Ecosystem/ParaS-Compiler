@@ -62,6 +62,22 @@ enum class placeholder { false_t, true_t };
 
 using access_mode = access::mode;
 
+enum class target {
+    device,
+    host_task,
+    host_buffer,
+    global_buffer [[deprecated]] = device,
+    constant_buffer [[deprecated]] = host_buffer + 1,
+    local [[deprecated]],
+    image [[deprecated]],
+    host_image [[deprecated]],
+    image_array [[deprecated]]
+};
+
+namespace access {
+using target = ::sycl::target;
+}
+
 struct read_only_tag_t {
     static constexpr access::mode value = access::mode::read;
 };

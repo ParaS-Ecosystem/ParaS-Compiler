@@ -32,11 +32,14 @@ class specialization_id {
 public:
     using value_type = T;
 
-    template <typename... Args>
+    template <typename... Args,
+              typename = std::enable_if_t<std::is_constructible_v<T, Args...>>>
     explicit constexpr specialization_id(Args&&... args) : value_(std::forward<Args>(args)...) {}
 
     specialization_id(const specialization_id&) = delete;
     specialization_id& operator=(const specialization_id&) = delete;
+    specialization_id(specialization_id&&) = delete;
+    specialization_id& operator=(specialization_id&&) = delete;
 
     T value_;
 };

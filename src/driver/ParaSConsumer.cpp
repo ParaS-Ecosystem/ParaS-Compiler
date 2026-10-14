@@ -45,7 +45,7 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter& r, clang::Rewriter& headerRewriter
                              std::vector<std::string> backend_target)
     : pf_callback(r), s_callback(r, backend_target), qh_callback(r), fph_callback(r),
       vdr_callback(r, backend_target), lambda_callback(r, headerRewriter, backend_target),
-      rewriter_(r), backend_target_(backend_target) {
+      rewriter_(r), headerRewriter_(headerRewriter), backend_target_(backend_target) {
 
     matchers.addMatcher(clang::ast_matchers::traverse(
                             clang::TK_IgnoreUnlessSpelledInSource,
@@ -176,6 +176,8 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter& r, clang::Rewriter& headerRewriter
 
 void ParaSConsumer::HandleTranslationUnit(clang::ASTContext& context) {
     matchers.matchAST(context);
+
+    recordSyclKernelAttributes(context, rewriter_, headerRewriter_);
 
     if (!backend_target_.empty() && (backend_target_[0] == "cuda" || backend_target_[0] == "hip"))
         markKernelReachableFunctions(context, rewriter_);

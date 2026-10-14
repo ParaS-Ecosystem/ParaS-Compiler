@@ -42,15 +42,15 @@ struct command_execution_status {
 namespace event_profiling {
 
 struct command_submit {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
 struct command_start {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
 struct command_end {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
 } // namespace event_profiling
@@ -66,6 +66,15 @@ struct attributes {
 };
 
 } // namespace kernel
+
+namespace queue {
+struct context {
+    using return_type = sycl::context;
+};
+struct device {
+    using return_type = sycl::device;
+};
+}
 
 namespace kernel_device_specific {
 

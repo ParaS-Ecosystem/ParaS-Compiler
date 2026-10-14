@@ -137,9 +137,18 @@ public:
     const_iterator begin() const noexcept { return list_.begin(); }
     const_iterator end() const noexcept { return list_.end(); }
 
+    void paras_push_back(std::exception_ptr e) { list_.push_back(std::move(e)); }
+
 private:
     std::vector<std::exception_ptr> list_;
 };
+
+namespace detail {
+[[noreturn]] inline void paras_throw_missing_property() {
+    throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
+                          "property is not in the property_list");
+}
+}
 
 } // namespace sycl
 

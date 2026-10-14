@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <algorithm>
 #include <vector>
 #include <stdexcept>
 #include "id.hpp"
@@ -492,6 +493,9 @@ public:
     bool is_accelerator() const noexcept;
     platform get_platform() const;
 
+    [[deprecated("device::has_extension is deprecated in SYCL 2020, use device::has")]]
+    bool has_extension(const std::string& extension) const;
+
     bool has(const aspect& aspect_name) const {
         switch (aspect_name) {
         case aspect::cpu:
@@ -502,9 +506,12 @@ public:
             return is_accelerator_;
         case aspect::queue_profiling:
             return have_queue_profiling_;
+        case aspect::fp16:
+            return is_cpu_;
         case aspect::fp64:
+            return is_cpu_;
         case aspect::atomic64:
-            return false;
+            return is_cpu_;
         case aspect::usm_device_allocations:
         case aspect::usm_host_allocations:
         case aspect::usm_shared_allocations:
@@ -664,9 +671,7 @@ inline std::vector<sycl::device> platform::get_devices(sycl::info::device_type t
 
 template <typename DeviceSelector, typename>
 inline platform::platform(const DeviceSelector& selector) : platform() {
-    if (selector(sycl::device{}) < 0) {
-        throw sycl::exception(sycl::make_error_code(sycl::errc::runtime));
-    }
+    *this = sycl::device{selector}.get_platform();
 }
 
 inline bool platform::has(aspect aspect_name) const {
@@ -674,9 +679,14 @@ inline bool platform::has(aspect aspect_name) const {
     return !devices.empty() && devices.front().has(aspect_name);
 }
 
+namespace paras_kb {
 template <typename KernelName>
-inline bool is_compatible(const device&) {
-    return true;
+bool is_compatible_impl(const device& dev);
+}
+
+template <typename KernelName>
+inline bool is_compatible(const device& dev) {
+    return paras_kb::is_compatible_impl<KernelName>(dev);
 }
 
 template <>
@@ -800,6 +810,11 @@ inline auto device::get_info<info::device::max_clock_frequency>() const {
 
 template <>
 inline auto device::get_info<info::device::max_mem_alloc_size>() const {
+    if (max_mem_alloc_size_ == 0) {
+        const std::uint64_t quarter = global_mem_size_bytes_ / 4;
+        const std::uint64_t floor = std::uint64_t{128} << 20;
+        return quarter > floor ? quarter : floor;
+    }
     return max_mem_alloc_size_;
 }
 
@@ -900,11 +915,16 @@ inline auto device::get_info<info::device::max_parameter_size>() const {
 
 template <>
 inline auto device::get_info<info::device::mem_base_addr_align>() const {
+    if (mem_base_addr_align_ == 0 && is_cpu_)
+        return std::uint32_t{1024};
     return mem_base_addr_align_;
 }
 
 template <>
 inline auto device::get_info<info::device::half_fp_config>() const {
+    if (has(aspect::fp16))
+        return std::vector<sycl::info::fp_config>{sycl::info::fp_config::round_to_nearest,
+                                                  sycl::info::fp_config::inf_nan};
     return std::vector<sycl::info::fp_config>{};
 }
 
@@ -916,8 +936,12 @@ inline auto device::get_info<info::device::single_fp_config>() const {
 
 template <>
 inline auto device::get_info<info::device::double_fp_config>() const {
-    return std::vector<sycl::info::fp_config>{sycl::info::fp_config::round_to_nearest,
-                                              sycl::info::fp_config::inf_nan};
+    if (has(aspect::fp64))
+        return std::vector<sycl::info::fp_config>{
+            sycl::info::fp_config::fma,           sycl::info::fp_config::round_to_nearest,
+            sycl::info::fp_config::round_to_zero, sycl::info::fp_config::round_to_inf,
+            sycl::info::fp_config::inf_nan,       sycl::info::fp_config::denorm};
+    return std::vector<sycl::info::fp_config>{};
 }
 
 template <>
@@ -1001,7 +1025,8 @@ template <>
 inline auto device::get_info<info::device::aspects>() const {
     std::vector<sycl::aspect> result;
     for (sycl::aspect a :
-         {sycl::aspect::cpu, sycl::aspect::gpu, sycl::aspect::accelerator, sycl::aspect::fp64,
+         {sycl::aspect::cpu, sycl::aspect::gpu, sycl::aspect::accelerator, sycl::aspect::fp16,
+          sycl::aspect::fp64,
           sycl::aspect::atomic64, sycl::aspect::queue_profiling,
           sycl::aspect::usm_device_allocations, sycl::aspect::usm_host_allocations,
           sycl::aspect::usm_shared_allocations}) {
@@ -1015,6 +1040,14 @@ template <>
 inline auto device::get_info<info::device::extensions>() const {
     return std::vector<std::string>{};
 }
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+inline bool device::has_extension(const std::string& extension) const {
+    const auto exts = get_info<info::device::extensions>();
+    return std::find(exts.begin(), exts.end(), extension) != exts.end();
+}
+#pragma clang diagnostic pop
 
 template <>
 inline auto device::get_info<info::device::printf_buffer_size>() const {

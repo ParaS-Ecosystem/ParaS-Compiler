@@ -110,6 +110,14 @@ public:
 
     PARAS_KERNEL_HD
     bool leader() const { return get_local_linear_id() == 0; }
+
+    PARAS_KERNEL_HD
+    friend bool operator==(const sub_group& a, const sub_group& b) {
+        return a.get_group_linear_id() == b.get_group_linear_id() &&
+               a.get_local_linear_id() == b.get_local_linear_id();
+    }
+    PARAS_KERNEL_HD
+    friend bool operator!=(const sub_group& a, const sub_group& b) { return !(a == b); }
 };
 
 /* ================= subgroup algorithms ================= */

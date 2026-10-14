@@ -41,37 +41,103 @@ class rocm_threadpool;
 
 namespace sycl {
 
+inline device paras_device_in_context(const context& ctx, const device& dev) {
+    for (const auto& d : ctx.get_devices())
+        if (d == dev)
+            return dev;
+    throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
+                          "queue: device is not associated with the context");
+}
+
 class queue {
 public:
     queue() : dev_(::paras_extension::select_device_no_selector()) {}
 
-    explicit queue(const decltype(cpu_selector_v)& selector, const property_list& = {})
-        : dev_(selector) {}
-    explicit queue(const decltype(gpu_selector_v)& selector, const property_list& = {})
-        : dev_(selector) {}
-    explicit queue(const decltype(accelerator_selector_v)& selector, const property_list& = {})
-        : dev_(selector) {}
-    explicit queue(const decltype(default_selector_v)& selector, const property_list& = {})
-        : dev_(selector) {}
+    explicit queue(const decltype(cpu_selector_v)& selector, const property_list& props = {})
+        : dev_(selector), props_(props) {}
+    explicit queue(const decltype(gpu_selector_v)& selector, const property_list& props = {})
+        : dev_(selector), props_(props) {}
+    explicit queue(const decltype(accelerator_selector_v)& selector, const property_list& props = {})
+        : dev_(selector), props_(props) {}
+    explicit queue(const decltype(default_selector_v)& selector, const property_list& props = {})
+        : dev_(selector), props_(props) {}
 
-    template <typename DeviceSelector>
-    explicit queue(const DeviceSelector& selector, const property_list& = {}) : dev_(selector) {}
+    template <typename DeviceSelector,
+              typename = std::enable_if_t<
+                  std::is_invocable_r_v<int, const DeviceSelector&, const device&>>>
+    explicit queue(const DeviceSelector& selector, const property_list& props = {})
+        : dev_(selector), props_(props) {}
 
-    template <typename DeviceSelector>
-    explicit queue(const DeviceSelector& selector, const async_handler&, const property_list& = {})
-        : dev_(selector) {}
+    template <typename DeviceSelector,
+              typename = std::enable_if_t<
+                  std::is_invocable_r_v<int, const DeviceSelector&, const device&>>>
+    explicit queue(const DeviceSelector& selector, const async_handler& ah,
+                   const property_list& props = {})
+        : dev_(selector), props_(props), paras_async_handler_(paras_make_async_handler(ah)) {}
 
     explicit queue(const property_list& props)
         : dev_(::paras_extension::select_device_no_selector()), props_(props) {}
 
-    explicit queue(const context& ctx, const device& dev, const async_handler&,
-                   const property_list& = {})
-        : ctx_(ctx), dev_(dev) {}
+    explicit queue(const context& ctx, const device& dev, const async_handler& ah,
+                   const property_list& props = {})
+        : ctx_(ctx), dev_(paras_device_in_context(ctx, dev)), props_(props),
+          paras_async_handler_(paras_make_async_handler(ah)) {}
 
-    template <typename DeviceSelector>
-    explicit queue(const context& ctx, const DeviceSelector& selector, const async_handler&,
-                   const property_list& = {})
-        : ctx_(ctx), dev_(selector) {}
+    template <typename DeviceSelector,
+              typename = std::enable_if_t<
+                  std::is_invocable_r_v<int, const DeviceSelector&, const device&>>>
+    explicit queue(const context& ctx, const DeviceSelector& selector, const async_handler& ah,
+                   const property_list& props = {})
+        : ctx_(ctx), dev_(paras_device_in_context(ctx, device(selector))), props_(props),
+          paras_async_handler_(paras_make_async_handler(ah)) {}
+
+    explicit queue(const async_handler& ah, const property_list& props = {})
+        : dev_(::paras_extension::select_device_no_selector()), props_(props),
+          paras_async_handler_(paras_make_async_handler(ah)) {}
+    explicit queue(const device& dev, const async_handler& ah, const property_list& props = {})
+        : dev_(dev), props_(props), paras_async_handler_(paras_make_async_handler(ah)) {}
+    template <typename DeviceSelector,
+              typename = std::enable_if_t<
+                  std::is_invocable_r_v<int, const DeviceSelector&, const device&>>>
+    explicit queue(const context& ctx, const DeviceSelector& selector,
+                   const property_list& props = {})
+        : ctx_(ctx), dev_(paras_device_in_context(ctx, device(selector))), props_(props) {}
+
+    template <typename CGF>
+    event submit(CGF cgf, const queue& secondaryQueue) {
+        try {
+            return submit(cgf);
+        } catch (...) {
+            queue secondary = secondaryQueue;
+            return secondary.submit(cgf);
+        }
+    }
+
+    const property_list& paras_props() const noexcept { return props_; }
+    const std::shared_ptr<paras_async_handler_fn>& paras_async_handler() const noexcept {
+        if (!(paras_async_handler_ && *paras_async_handler_) && ctx_.paras_async_handler())
+            return ctx_.paras_async_handler();
+        return paras_async_handler_;
+    }
+
+    void throw_asynchronous() { throw_async_exceptns(); }
+
+    template <typename Param>
+    typename Param::return_type get_info() const {
+        if constexpr (std::is_same_v<Param, info::queue::context>)
+            return get_context();
+        else
+            return get_device();
+    }
+
+    template <typename Property>
+    bool has_property() const noexcept {
+        return props_.template paras_has_property<Property>();
+    }
+    template <typename Property>
+    Property get_property() const {
+        return props_.template paras_get_property<Property>();
+    }
 
     explicit queue(const context& ctx, const device& dev, const property_list& props = {});
     explicit queue(const device& dev, const property_list& props = {});
@@ -88,7 +154,10 @@ public:
 #endif
         } else {
             handler h;
+            h.paras_enable_deferred_host_task();
+            h.paras_set_queue_info([this] { return dev_; }, [this] { return get_context(); });
             cgf(h);
+            return h.paras_finish_host_task(event{get_backend()}, paras_async_handler());
         }
 
         return event{get_backend()};
@@ -129,7 +198,12 @@ public:
     void wait_and_throw();
 
     device get_device() const { return dev_; }
-    context get_context() const { return ctx_; }
+    context get_context() const {
+        for (const auto& d : ctx_.get_devices())
+            if (d == dev_)
+                return ctx_;
+        return paras_default_context(dev_.get_platform());
+    }
     bool is_in_order() const { return props_.has_in_order(); }
 
     backend get_backend() const { return dev_.get_backend(); }
@@ -141,6 +215,12 @@ public:
     template <typename KernelName = void, typename Func, int dim>
     event parallel_for(range<dim> r, Func f) {
         return submit([&](handler& cgh) { cgh.template parallel_for<KernelName>(r, f); });
+    }
+
+    template <typename KernelName = void, typename Int, typename Func,
+              std::enable_if_t<std::is_integral_v<Int>, int> = 0>
+    event parallel_for(Int numWorkItems, Func f) {
+        return parallel_for<KernelName>(range<1>(static_cast<size_t>(numWorkItems)), f);
     }
 
     template <typename KernelName = void, typename Func, int dim>
@@ -200,6 +280,46 @@ public:
         return copy(src, dest, count);
     }
 
+    template <typename SrcT, int SrcDims, access_mode SrcMode, target SrcTgt,
+              access::placeholder IsPlaceholder, typename DestT>
+    event copy(accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsPlaceholder> src,
+               std::shared_ptr<DestT> dest) {
+        return submit([&](handler& h) { h.copy(src, dest); });
+    }
+    template <typename SrcT, typename DestT, int DestDims, access_mode DestMode, target DestTgt,
+              access::placeholder IsPlaceholder>
+    event copy(std::shared_ptr<SrcT> src,
+               accessor<DestT, DestDims, DestMode, DestTgt, IsPlaceholder> dest) {
+        return submit([&](handler& h) { h.copy(src, dest); });
+    }
+    template <typename SrcT, int SrcDims, access_mode SrcMode, target SrcTgt,
+              access::placeholder IsPlaceholder, typename DestT>
+    event copy(accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsPlaceholder> src, DestT* dest) {
+        return submit([&](handler& h) { h.copy(src, dest); });
+    }
+    template <typename SrcT, typename DestT, int DestDims, access_mode DestMode, target DestTgt,
+              access::placeholder IsPlaceholder>
+    event copy(const SrcT* src, accessor<DestT, DestDims, DestMode, DestTgt, IsPlaceholder> dest) {
+        return submit([&](handler& h) { h.copy(src, dest); });
+    }
+    template <typename SrcT, int SrcDims, access_mode SrcMode, target SrcTgt,
+              access::placeholder IsSrcPlaceholder, typename DestT, int DestDims,
+              access_mode DestMode, target DestTgt, access::placeholder IsDestPlaceholder>
+    event copy(accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsSrcPlaceholder> src,
+               accessor<DestT, DestDims, DestMode, DestTgt, IsDestPlaceholder> dest) {
+        return submit([&](handler& h) { h.copy(src, dest); });
+    }
+    template <typename T, int Dims, access_mode Mode, target Tgt,
+              access::placeholder IsPlaceholder>
+    event fill(accessor<T, Dims, Mode, Tgt, IsPlaceholder> dest, const T& src) {
+        return submit([&](handler& h) { h.fill(dest, src); });
+    }
+    template <typename T, int Dims, access_mode Mode, target Tgt,
+              access::placeholder IsPlaceholder>
+    event update_host(accessor<T, Dims, Mode, Tgt, IsPlaceholder> acc) {
+        return submit([&](handler& h) { h.update_host(acc); });
+    }
+
     event memcpy(void* dest, const void* src, size_t numBytes) {
         return submit([&](handler& cgh) { cgh.memcpy(dest, src, numBytes); });
     }
@@ -242,7 +362,7 @@ private:
     rocm_threadpool& get_or_create_rocm_pool() const;
 #endif
 
-    context ctx_{};
+    context ctx_{paras_default_context(platform{})};
     device dev_{};
 
     std::shared_ptr<int> id_{std::make_shared<int>()};
@@ -262,11 +382,17 @@ private:
     inline void throw_async_exceptns();
 
     std::shared_ptr<async_state> async_state_ = std::make_shared<async_state>();
+
+    std::shared_ptr<paras_async_handler_fn> paras_async_handler_{};
+    static std::shared_ptr<paras_async_handler_fn>
+    paras_make_async_handler(const async_handler& ah) {
+        return ah ? std::make_shared<paras_async_handler_fn>(ah) : nullptr;
+    }
 };
 
 inline sycl::queue::queue(const sycl::context& ctx, const sycl::device& dev,
                           const sycl::property_list& props)
-    : ctx_(ctx), dev_(dev), props_(props) {}
+    : ctx_(ctx), dev_(paras_device_in_context(ctx, dev)), props_(props) {}
 
 inline sycl::queue::queue(const sycl::device& dev, const sycl::property_list& props)
     : dev_(dev), props_(props) {}
@@ -277,7 +403,7 @@ inline void sycl::queue::rec_async_exceptn(std::exception_ptr ex) {
 }
 
 #if !PARAS_GPU_BACKEND
-inline void sycl::queue::wait() {}
+inline void sycl::queue::wait() { paras_drain_host_tasks(); }
 #endif
 
 inline void sycl::queue::throw_async_exceptns() {
@@ -296,9 +422,21 @@ inline void sycl::queue::throw_async_exceptns() {
 #if !PARAS_GPU_BACKEND
 inline void sycl::queue::wait_and_throw() {
     wait();
+    {
+        std::vector<std::shared_ptr<paras_event_state>> mine;
+        for (auto& s : paras_host_tasks().snapshot())
+            if (s->paras_handler == paras_async_handler())
+                mine.push_back(s);
+        paras_report_async_errors(mine);
+    }
     throw_async_exceptns();
 }
 #endif
+
+template <>
+struct is_property_of<property::queue::in_order, queue> : std::true_type {};
+template <>
+struct is_property_of<property::queue::enable_profiling, queue> : std::true_type {};
 
 } // namespace sycl
 
