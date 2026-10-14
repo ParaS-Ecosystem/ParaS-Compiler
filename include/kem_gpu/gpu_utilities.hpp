@@ -92,11 +92,34 @@ inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
 #endif
 #endif
 
+#ifndef PARAS_AMDGCN_WAVE_SIZE
+#  if defined(__clang__)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdeprecated-pragma"
+#  endif
+#  if defined(__AMDGCN_WAVEFRONT_SIZE__) && __AMDGCN_WAVEFRONT_SIZE__ == 32
+#    define PARAS_AMDGCN_WAVE_SIZE 32
+#  elif defined(__AMDGCN_WAVEFRONT_SIZE__) && __AMDGCN_WAVEFRONT_SIZE__ == 64
+#    define PARAS_AMDGCN_WAVE_SIZE 64
+#  elif defined(__AMDGCN_WAVEFRONT_SIZE) && __AMDGCN_WAVEFRONT_SIZE == 32
+#    define PARAS_AMDGCN_WAVE_SIZE 32
+#  elif defined(__AMDGCN_WAVEFRONT_SIZE) && __AMDGCN_WAVEFRONT_SIZE == 64
+#    define PARAS_AMDGCN_WAVE_SIZE 64
+#  elif defined(__GFX9__)
+#    define PARAS_AMDGCN_WAVE_SIZE 64
+#  elif defined(__AMDGCN__)
+#    define PARAS_AMDGCN_WAVE_SIZE 32
+#  else
+#    define PARAS_AMDGCN_WAVE_SIZE 0
+#  endif
+#  if defined(__clang__)
+#    pragma clang diagnostic pop
+#  endif
+#endif
+
 #ifndef PARAS_WARP_SIZE
-#  if defined(__AMDGCN_WAVEFRONT_SIZE)
-#    define PARAS_WARP_SIZE __AMDGCN_WAVEFRONT_SIZE
-#  elif defined(__AMDGCN_WAVEFRONT_SIZE__)
-#    define PARAS_WARP_SIZE __AMDGCN_WAVEFRONT_SIZE__
+#  if PARAS_AMDGCN_WAVE_SIZE
+#    define PARAS_WARP_SIZE PARAS_AMDGCN_WAVE_SIZE
 #  elif defined(__HIP__) || defined(__HIPCC__)
 #    define PARAS_WARP_SIZE 64
 #  elif defined(__CUDACC__) || defined(__CUDA_ARCH__)
@@ -118,11 +141,11 @@ inline bool paras_any_sync(std::uint64_t mask, bool pred) {
   return __any_sync(static_cast<unsigned>(mask), pred);
 #elif defined(__AMDGCN__)
   (void)mask;
-  #if !defined(__AMDGCN_WAVEFRONT_SIZE__)
+  #if !PARAS_AMDGCN_WAVE_SIZE
     #error "AMDGCN wavefront size is unavailable"
-  #elif __AMDGCN_WAVEFRONT_SIZE__ == 32
+  #elif PARAS_AMDGCN_WAVE_SIZE == 32
     return __builtin_amdgcn_ballot_w32(pred) != 0;
-  #elif __AMDGCN_WAVEFRONT_SIZE__ == 64
+  #elif PARAS_AMDGCN_WAVE_SIZE == 64
     return __builtin_amdgcn_ballot_w64(pred) != 0;
   #else
     #error "Unsupported AMDGCN wavefront size"
@@ -205,12 +228,12 @@ inline std::uint64_t paras_active_mask() {
   return static_cast<std::uint64_t>(__activemask());
 
 #elif defined(__AMDGCN__)
-  #if !defined(__AMDGCN_WAVEFRONT_SIZE__)
+  #if !PARAS_AMDGCN_WAVE_SIZE
     #error "AMDGCN wavefront size is unavailable"
-  #elif __AMDGCN_WAVEFRONT_SIZE__ == 32
+  #elif PARAS_AMDGCN_WAVE_SIZE == 32
     return static_cast<std::uint64_t>(
         __builtin_amdgcn_read_exec_lo());
-  #elif __AMDGCN_WAVEFRONT_SIZE__ == 64
+  #elif PARAS_AMDGCN_WAVE_SIZE == 64
     return static_cast<std::uint64_t>(
         __builtin_amdgcn_read_exec());
   #else

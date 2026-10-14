@@ -130,21 +130,45 @@ device::device(::paras_extension::device_ctor_tag, std::string name,
   paras_extension::trim_inplace(version_);
 }
 
-backend device::get_backend() const noexcept { return backend::host; }
+backend device::get_backend() const noexcept {
+  if (is_gpu_) {
+    if (vendor_ == "NVIDIA")
+      return backend::cuda;
+    if (vendor_ == "AMD")
+      return backend::hip;
+  }
+  return backend::host;
+}
 bool device::is_cpu() const noexcept { return is_cpu_; }
 bool device::is_gpu() const noexcept { return is_gpu_; }
 bool device::is_accelerator() const noexcept { return is_accelerator_; }
-platform device::get_platform() const { return platform("host"); }
+platform device::get_platform() const {
+  switch (get_backend()) {
+  case backend::cuda:
+    return platform("cuda");
+  case backend::hip:
+    return platform("hip");
+  default:
+    return platform("host");
+  }
+}
 
-std::vector<device> device::get_devices(info::device_type type) {
-  std::vector<device> out;
+}
 
-  if (type == info::device_type::cpu || type == info::device_type::all) {
-    out.emplace_back(device{});
+namespace paras_extension {
+
+std::vector<sycl::device>
+enumerate_physical_devices(sycl::info::device_type type) {
+  using sycl::info::device_type;
+  std::vector<sycl::device> out;
+
+  if (type == device_type::cpu || type == device_type::host ||
+      type == device_type::all) {
+    out.emplace_back(sycl::device{});
   }
 
-  if (type == info::device_type::gpu || type == info::device_type::all) {
-    auto gpus = ::paras_extension::detect_all_gpus();
+  if (type == device_type::gpu || type == device_type::all) {
+    auto gpus = detect_all_gpus();
     out.insert(out.end(), gpus.begin(), gpus.end());
   }
 

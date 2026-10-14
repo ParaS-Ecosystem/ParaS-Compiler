@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 #include <stdexcept>
@@ -39,6 +40,21 @@
 
 namespace paras_extension {
 struct device_ctor_tag {};
+
+inline const char *build_platform_name() noexcept {
+#if defined(PARASDEVICE) && PARASDEVICE == 2
+  return "hip";
+#elif defined(PARASDEVICE) && PARASDEVICE == 1
+  return "cuda";
+#else
+  return "host";
+#endif
+}
+
+inline bool show_all_devices() noexcept {
+  const char *v = std::getenv("PARAS_SHOW_ALL_DEVICES");
+  return v != nullptr && v[0] == '1';
+}
 }
 
 struct CUstream_st ;
@@ -238,7 +254,7 @@ class platform {
 
   private:
 
-    std::string name_{"host"};
+    std::string name_{::paras_extension::build_platform_name()};
 
 };
 
@@ -427,55 +443,56 @@ private:
   bool have_queue_profiling_{false};
 };
 
+}
+namespace paras_extension {
+
+std::vector<sycl::device>
+enumerate_physical_devices(sycl::info::device_type type);
+}
+namespace sycl {
+
+inline std::vector<device> device::get_devices(info::device_type type) {
+  const info::device_type query =
+      type == info::device_type::automatic ? info::device_type::all : type;
+  auto all = ::paras_extension::enumerate_physical_devices(query);
+  if (::paras_extension::show_all_devices())
+    return all;
+
+  const std::string build = ::paras_extension::build_platform_name();
+  std::vector<device> out;
+  for (auto &d : all)
+    if (d.get_platform().get_name() == build)
+      out.push_back(std::move(d));
+  return out;
+}
+
 inline std::vector<platform> platform::get_platforms() {
-  std::vector<platform> platforms;
-  const auto gpus = device::get_devices(info::device_type::gpu);
-  bool has_cuda = false;
-  bool has_hip = false;
-  for (const auto& gpu : gpus) {
-    if (gpu.get_backend() == backend::cuda) {
-      has_cuda = true;
-    } else if (gpu.get_backend() == backend::hip) {
-      has_hip = true;
+
+  bool has[3] = {false, false, false};
+  for (const auto &d : device::get_devices(info::device_type::all)) {
+    switch (d.get_backend()) {
+    case backend::cuda: has[0] = true; break;
+    case backend::hip:  has[1] = true; break;
+    default:            has[2] = true; break;
     }
   }
-  if (has_cuda) {
-    platforms.emplace_back("cuda");
-  }
-  if (has_hip) {
-    platforms.emplace_back("hip");
-  }
-  platforms.emplace_back("host");
+  static const char *const names[3] = {"cuda", "hip", "host"};
+  std::vector<platform> platforms;
+  for (int i = 0; i < 3; ++i)
+    if (has[i])
+      platforms.emplace_back(names[i]);
+
+  if (platforms.empty())
+    platforms.emplace_back(::paras_extension::build_platform_name());
   return platforms;
 }
 
 inline std::vector<sycl::device> platform::get_devices(sycl::info::device_type type) const {
-  if (name_ == "cuda" || name_ == "hip") {
-    if (type == sycl::info::device_type::gpu ||
-      type == sycl::info::device_type::all) {
-      const auto all_gpus = sycl::device::get_devices(sycl::info::device_type::gpu);
-      std::vector<sycl::device> platform_devices;
-      const auto requested_backend =
-        name_ == "cuda" ? sycl::backend::cuda : sycl::backend::hip;
-      for (const auto& gpu : all_gpus) {
-        if (gpu.get_backend() == requested_backend) {
-          platform_devices.push_back(gpu);
-        }
-      }
-      return platform_devices;
-    }
-    return {};
-  }
-
-    switch (type) {
-        case sycl::info::device_type::cpu:
-        case sycl::info::device_type::host:
-        case sycl::info::device_type::automatic:
-        case sycl::info::device_type::all:
-            return { sycl::device{} };
-        default:
-            return {};
-    }
+  std::vector<sycl::device> out;
+  for (auto &d : sycl::device::get_devices(type))
+    if (d.get_platform().get_name() == name_)
+      out.push_back(std::move(d));
+  return out;
 }
 
 template <typename DeviceSelector, typename>

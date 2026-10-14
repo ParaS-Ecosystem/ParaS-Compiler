@@ -79,6 +79,9 @@ inline void check_accessor_range(const range<D> &bufRange,
         image_array [[deprecated]] = 104
     };
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
     namespace access
     {
         using target = ::sycl::target;
@@ -1620,5 +1623,7 @@ namespace std
         }
     };
 }
+
+#pragma GCC diagnostic pop
 
 #endif

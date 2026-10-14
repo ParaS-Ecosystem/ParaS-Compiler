@@ -97,7 +97,7 @@ namespace sycl {
 
             platform get_platform() const {
                 return devices_.empty()
-                    ? platform("host")
+                    ? platform()
                     : devices_.front().get_platform();
             }
 
