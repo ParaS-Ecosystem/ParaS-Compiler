@@ -46,6 +46,10 @@ private:
   id<Dimensions> offset_;
 
 public:
+
+  PARAS_KERNEL_HD
+  nd_range() : global_range_(), local_range_(), offset_() {}
+
   PARAS_KERNEL_HD
   nd_range(range<Dimensions> g, range<Dimensions> l,
            id<Dimensions> o = id<Dimensions>())

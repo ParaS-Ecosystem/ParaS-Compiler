@@ -120,6 +120,7 @@ public:
   }
 
   template <typename CGF> event submit(CGF cgf) {
+    const std::uint64_t t_submit = event::paras_now_ns();
     event e;
 #if PARAS_GPU_BACKEND
     if (dev_.is_gpu()) {
@@ -138,6 +139,8 @@ public:
       cgf(h);
       e = h.paras_take_event();
     }
+    if (props_.template has_property<property::queue::enable_profiling>())
+      e.paras_start_profiling(t_submit);
     paras_attach_reporter(e);
     pending_->add(e);
     return e;

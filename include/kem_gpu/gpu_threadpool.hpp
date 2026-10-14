@@ -438,9 +438,12 @@ public:
 
   template <typename Func> sycl::event submit(Func cgf) {
     std::lock_guard<std::mutex> lock(submit_mutex_);
+    const std::uint64_t t_submit = sycl::event::paras_now_ns();
     sycl::handler cgh(*this);
     cgf(cgh);
     sycl::event e = cgh.paras_take_event();
+    if (props_.template has_property<sycl::property::queue::enable_profiling>())
+      e.paras_start_profiling(t_submit);
     paras_attach_reporter(e);
     pending_->add(e);
     return e;

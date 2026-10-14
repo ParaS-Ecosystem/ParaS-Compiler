@@ -33,6 +33,10 @@ inline constexpr bool is_device_copyable_v = is_device_copyable<T>::value;
 
 }
 
+#ifndef SYCL_DEVICE_COPYABLE
+#define SYCL_DEVICE_COPYABLE 1
+#endif
+
 #define SYCL_ADD_DEVICE_COPYABLE(T)                          \
   namespace sycl {                                            \
   template <>                                                 \

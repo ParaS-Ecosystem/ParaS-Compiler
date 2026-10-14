@@ -33,6 +33,7 @@
 #include <chrono>
 #include "backend.hpp"
 #include "exception.hpp"
+#include "info.hpp"
 #include <thread>
 #include <vector>
 
@@ -84,6 +85,10 @@ struct event_state {
 
   std::function<void(std::vector<std::exception_ptr>)> report;
   bool profiling = false;
+
+  std::uint64_t prof_submit = 0;
+  std::uint64_t prof_start = 0;
+  std::atomic<std::uint64_t> prof_end{0};
 
   std::shared_ptr<queue_gpu_state> gpu;
   std::atomic<unsigned long long> gpu_seq{0};
@@ -221,11 +226,40 @@ public:
       throw exception(make_error_code(errc::invalid),
                       "get_profiling_info: the queue was not created with "
                       "property::queue::enable_profiling");
-    wait();
-    return typename Param::return_type();
+    detail::event_state &s = *m_state;
+    if constexpr (std::is_same_v<Param, info::event_profiling::command_submit>) {
+      return s.prof_submit;
+    } else if constexpr (std::is_same_v<Param, info::event_profiling::command_start>) {
+      return s.prof_start;
+    } else {
+      wait();
+      std::uint64_t end = s.prof_end.load();
+      if (end == 0) {
+        std::uint64_t now = paras_now_ns();
+        if (now < s.prof_start)
+          now = s.prof_start;
+        s.prof_end.compare_exchange_strong(end, now);
+        end = s.prof_end.load();
+      }
+      return end;
+    }
   }
 
   void set_profiling(bool enabled) { m_state->profiling = enabled; }
+
+  static std::uint64_t paras_now_ns() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+  }
+
+  void paras_start_profiling(std::uint64_t submit_ns) {
+    m_state->profiling = true;
+    m_state->prof_submit = submit_ns;
+    const std::uint64_t now = paras_now_ns();
+    m_state->prof_start = now < submit_ns ? submit_ns : now;
+  }
   void mark_complete() {}
   bool is_ready() const { return paras_complete(); }
 };
