@@ -87,11 +87,40 @@ struct identity<BinaryOperation, T, std::enable_if_t<is_op_v<maximum, BinaryOper
                                    : std::numeric_limits<T>::lowest();
 };
 
+template <typename BinaryOperation, typename = void>
+struct half_identity {
+    static constexpr bool known = false;
+};
+template <typename BinaryOperation>
+struct half_identity<BinaryOperation, std::enable_if_t<is_op_v<plus, BinaryOperation, half>>> {
+    static constexpr bool known = true;
+    static constexpr half value = half(detail::paras_half_bits_tag{}, 0x0000);
+};
+template <typename BinaryOperation>
+struct half_identity<BinaryOperation,
+                     std::enable_if_t<is_op_v<multiplies, BinaryOperation, half>>> {
+    static constexpr bool known = true;
+    static constexpr half value = half(detail::paras_half_bits_tag{}, 0x3C00);
+};
+template <typename BinaryOperation>
+struct half_identity<BinaryOperation, std::enable_if_t<is_op_v<minimum, BinaryOperation, half>>> {
+    static constexpr bool known = true;
+    static constexpr half value = half(detail::paras_half_bits_tag{}, 0x7C00);
+};
+template <typename BinaryOperation>
+struct half_identity<BinaryOperation, std::enable_if_t<is_op_v<maximum, BinaryOperation, half>>> {
+    static constexpr bool known = true;
+    static constexpr half value = half(detail::paras_half_bits_tag{}, 0xFC00);
+};
+template <typename BinaryOperation, typename T>
+using identity_for =
+    std::conditional_t<std::is_same_v<T, half>, half_identity<BinaryOperation>,
+                       identity<BinaryOperation, T>>;
 } // namespace paras_identity_detail
 
 template <typename BinaryOperation, typename AccumulatorT>
 struct has_known_identity
-    : std::bool_constant<paras_identity_detail::identity<std::decay_t<BinaryOperation>,
+    : std::bool_constant<paras_identity_detail::identity_for<std::decay_t<BinaryOperation>,
                                                          std::decay_t<AccumulatorT>>::known> {};
 
 template <typename BinaryOperation, typename AccumulatorT>
@@ -103,7 +132,7 @@ struct known_identity {
     static_assert(has_known_identity_v<BinaryOperation, AccumulatorT>,
                   "known_identity: no known identity for this operation/type");
     static constexpr AccumulatorT value =
-        paras_identity_detail::identity<std::decay_t<BinaryOperation>,
+        paras_identity_detail::identity_for<std::decay_t<BinaryOperation>,
                                         std::decay_t<AccumulatorT>>::value;
 };
 

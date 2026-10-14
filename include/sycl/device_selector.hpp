@@ -68,6 +68,28 @@ inline constexpr auto default_selector_v = device_selector{[](const device& dev)
                                 : -1;
 }};
 
+namespace paras_detail {
+struct legacy_default_selector {
+    int operator()(const device& dev) const { return default_selector_v(dev); }
+};
+struct legacy_cpu_selector {
+    int operator()(const device& dev) const { return cpu_selector_v(dev); }
+};
+struct legacy_gpu_selector {
+    int operator()(const device& dev) const { return gpu_selector_v(dev); }
+};
+struct legacy_accelerator_selector {
+    int operator()(const device& dev) const { return accelerator_selector_v(dev); }
+};
+}
+
+using default_selector [[deprecated("use sycl::default_selector_v")]] =
+    paras_detail::legacy_default_selector;
+using cpu_selector [[deprecated("use sycl::cpu_selector_v")]] = paras_detail::legacy_cpu_selector;
+using gpu_selector [[deprecated("use sycl::gpu_selector_v")]] = paras_detail::legacy_gpu_selector;
+using accelerator_selector [[deprecated("use sycl::accelerator_selector_v")]] =
+    paras_detail::legacy_accelerator_selector;
+
 inline auto aspect_selector(const std::vector<aspect>& aspectList,
                             const std::vector<aspect>& denyList = {}) {
     return device_selector{[aspectList, denyList](const device& dev) -> int {

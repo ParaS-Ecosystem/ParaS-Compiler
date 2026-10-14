@@ -21,6 +21,7 @@
 #ifndef __PARAS_DATA_TYPES_HPP__
 #define __PARAS_DATA_TYPES_HPP__
 
+#include <cmath>
 #include <limits>
 #include <cstdint>
 #include <cstddef>
@@ -86,7 +87,12 @@ public:
     constexpr vec() noexcept : data{} {}
 
     PARAS_KERNEL_HD
-    explicit constexpr vec(T v) noexcept {
+#if __cplusplus >= 202002L
+    explicit(N > 1)
+#else
+    explicit
+#endif
+        constexpr vec(T v) noexcept {
         for (int i = 0; i < N; ++i)
             data[i] = v;
     }
@@ -120,9 +126,26 @@ private:
         }
     }
 
+    template <typename U, typename = void>
+    struct paras_has_static_size : std::false_type {};
+    template <typename U>
+    struct paras_has_static_size<U, std::void_t<decltype(U::size())>> : std::true_type {};
+    template <typename U>
+    static constexpr int paras_arg_count() noexcept {
+        if constexpr (std::is_convertible_v<U, T>)
+            return 1;
+        else if constexpr (paras_has_static_size<U>::value)
+            return static_cast<int>(U::size());
+        else
+            return -1000;
+    }
+
 public:
-    template <typename... Args, typename = std::enable_if_t<(sizeof...(Args) >= 1)>>
-    PARAS_KERNEL_HD explicit constexpr vec(Args... args) noexcept : data{} {
+    template <typename... Args,
+              typename = std::enable_if_t<(sizeof...(Args) >= 1) &&
+                                          ((paras_arg_count<Args>() + ... + 0) == N) &&
+                                          ((paras_arg_count<Args>() + ... + 0) > 1)>>
+    PARAS_KERNEL_HD constexpr vec(Args... args) noexcept : data{} {
         int idx = 0;
         ((idx = paras_fill_component(data, idx, args)), ...);
     }
@@ -135,6 +158,11 @@ public:
         constexpr std::size_t count = (N == 3) ? 4 : static_cast<std::size_t>(N);
         return sizeof(T) * count;
     }
+
+    [[deprecated("vec::get_count() is deprecated in SYCL 2020, use size()")]] PARAS_KERNEL_HD
+    std::size_t get_count() const { return static_cast<std::size_t>(size()); }
+    [[deprecated("vec::get_size() is deprecated in SYCL 2020, use byte_size()")]] PARAS_KERNEL_HD
+    std::size_t get_size() const { return byte_size(); }
 
     PARAS_KERNEL_HD
     T& operator[](int i) noexcept { return data[i]; }
@@ -1672,6 +1700,11 @@ public:
             return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this).byte_size();
         }
 
+        [[deprecated("vec::get_count() is deprecated in SYCL 2020, use size()")]] PARAS_KERNEL_HD
+        std::size_t get_count() const { return size(); }
+        [[deprecated("vec::get_size() is deprecated in SYCL 2020, use byte_size()")]] PARAS_KERNEL_HD
+        std::size_t get_size() const { return byte_size(); }
+
         PARAS_KERNEL_HD
         vec<T, (static_cast<int>(sizeof...(Indices)) + 1) / 2> lo() const noexcept {
             return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this).lo();
@@ -2401,8 +2434,29 @@ public:
     template <typename ConvertT, rounding_mode Mode = rounding_mode::automatic>
     PARAS_KERNEL_HD vec<ConvertT, N> convert() const noexcept {
         vec<ConvertT, N> result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = static_cast<ConvertT>(data[i]);
+        constexpr bool paras_src_fp =
+            std::is_floating_point_v<T> ||
+            (std::is_class_v<T> && std::is_convertible_v<T, float>);
+        constexpr bool paras_dst_fp =
+            std::is_floating_point_v<ConvertT> ||
+            (std::is_class_v<ConvertT> && std::is_convertible_v<float, ConvertT>);
+        for (int i = 0; i < N; ++i) {
+            if constexpr (paras_src_fp && !paras_dst_fp) {
+                const double v = static_cast<double>(data[i]);
+                double r;
+                if constexpr (Mode == rounding_mode::rtz)
+                    r = std::trunc(v);
+                else if constexpr (Mode == rounding_mode::rtp)
+                    r = std::ceil(v);
+                else if constexpr (Mode == rounding_mode::rtn)
+                    r = std::floor(v);
+                else
+                    r = std::nearbyint(v);
+                result.data[i] = static_cast<ConvertT>(r);
+            } else {
+                result.data[i] = static_cast<ConvertT>(data[i]);
+            }
+        }
         return result;
     }
 
@@ -2446,16 +2500,23 @@ using uint2 = vec<std::uint32_t, 2>;
 using uint3 = vec<std::uint32_t, 3>;
 using uint4 = vec<std::uint32_t, 4>;
 
+namespace detail {
+struct paras_half_bits_tag {};
+}
+
 class half {
 public:
     PARAS_KERNEL_HD
     constexpr half() noexcept : bits_(0) {}
 
     PARAS_KERNEL_HD
-    half(float v) noexcept : bits_(float_to_half_bits(v)) {}
+    constexpr half(detail::paras_half_bits_tag, std::uint16_t bits) noexcept : bits_(bits) {}
 
     PARAS_KERNEL_HD
-    operator float() const noexcept { return half_bits_to_float(bits_); }
+    constexpr half(float v) noexcept : bits_(float_to_half_bits(v)) {}
+
+    PARAS_KERNEL_HD
+    constexpr operator float() const noexcept { return half_bits_to_float(bits_); }
 
     PARAS_KERNEL_HD
     half& operator=(float v) noexcept {
@@ -2513,9 +2574,8 @@ private:
     std::uint16_t bits_;
 
     PARAS_KERNEL_HD
-    static std::uint16_t float_to_half_bits(float f) noexcept {
-        std::uint32_t x;
-        std::memcpy(&x, &f, sizeof(x));
+    static constexpr std::uint16_t float_to_half_bits(float f) noexcept {
+        const std::uint32_t x = __builtin_bit_cast(std::uint32_t, f);
         std::uint32_t sign = (x >> 16) & 0x8000u;
         std::int32_t exp = static_cast<std::int32_t>((x >> 23) & 0xFF) - 127 + 15;
         std::uint32_t mant = x & 0x7FFFFFu;
@@ -2529,7 +2589,9 @@ private:
             mant |= 0x800000u;
             std::uint32_t shift = static_cast<std::uint32_t>(14 - exp);
             std::uint32_t half_mant = mant >> shift;
-            if ((mant >> (shift - 1)) & 1u)
+            const std::uint32_t rem = mant & ((1u << shift) - 1u);
+            const std::uint32_t halfway = 1u << (shift - 1);
+            if (rem > halfway || (rem == halfway && (half_mant & 1u)))
                 ++half_mant;
             return static_cast<std::uint16_t>(sign | half_mant);
         }
@@ -2537,7 +2599,8 @@ private:
             return static_cast<std::uint16_t>(sign | 0x7C00u);
         }
         std::uint32_t half_mant = mant >> 13;
-        if (mant & 0x1000u) {
+        const std::uint32_t rem13 = mant & 0x1FFFu;
+        if (rem13 > 0x1000u || (rem13 == 0x1000u && (half_mant & 1u))) {
             ++half_mant;
             if (half_mant == 0x400u) {
                 half_mant = 0;
@@ -2551,11 +2614,11 @@ private:
     }
 
     PARAS_KERNEL_HD
-    static float half_bits_to_float(std::uint16_t h) noexcept {
+    static constexpr float half_bits_to_float(std::uint16_t h) noexcept {
         std::uint32_t sign = static_cast<std::uint32_t>(h & 0x8000u) << 16;
         std::uint32_t exp = (h >> 10) & 0x1Fu;
         std::uint32_t mant = h & 0x3FFu;
-        std::uint32_t bits;
+        std::uint32_t bits = 0;
 
         if (exp == 0) {
             if (mant == 0) {
@@ -2577,9 +2640,7 @@ private:
             bits = sign | (fexp << 23) | (mant << 13);
         }
 
-        float f;
-        std::memcpy(&f, &bits, sizeof(f));
-        return f;
+        return __builtin_bit_cast(float, bits);
     }
 };
 
@@ -2635,8 +2696,30 @@ using double16 = vec<double, 16>;
 
 template <typename T, std::size_t N>
 class marray {
+    template <typename U>
+    struct paras_marray_count {
+        static constexpr std::size_t value = 1;
+        static constexpr bool is_marray = false;
+    };
+    template <std::size_t M>
+    struct paras_marray_count<marray<T, M>> {
+        static constexpr std::size_t value = M;
+        static constexpr bool is_marray = true;
+    };
+    template <typename U>
+    PARAS_KERNEL_HD constexpr void paras_fill(std::size_t& idx, const U& arg) noexcept {
+        if constexpr (paras_marray_count<U>::is_marray) {
+            for (std::size_t j = 0; j < paras_marray_count<U>::value; ++j)
+                data[idx++] = arg.data[j];
+        } else {
+            data[idx++] = static_cast<T>(arg);
+        }
+    }
+
 public:
     using value_type = T;
+    using reference = T&;
+    using const_reference = const T&;
 
     T data[N];
 
@@ -2649,8 +2732,26 @@ public:
             data[i] = v;
     }
 
-    template <typename... Args, typename = std::enable_if_t<sizeof...(Args) == N>>
-    PARAS_KERNEL_HD constexpr marray(Args... args) noexcept : data{static_cast<T>(args)...} {}
+    template <typename... Args,
+              typename = std::enable_if_t<(sizeof...(Args) >= 1) &&
+                                          ((paras_marray_count<Args>::value + ... + 0) == N) &&
+                                          !(sizeof...(Args) == 1 &&
+                                            (std::is_same_v<Args, marray> && ...))>>
+    PARAS_KERNEL_HD constexpr marray(const Args&... args) noexcept : data{} {
+        std::size_t idx = 0;
+        (paras_fill(idx, args), ...);
+    }
+
+    PARAS_KERNEL_HD
+    marray& operator=(const T& rhs) noexcept {
+        for (std::size_t i = 0; i < N; ++i)
+            data[i] = rhs;
+        return *this;
+    }
+    template <std::size_t M = N, typename = std::enable_if_t<M == 1>>
+    PARAS_KERNEL_HD operator T() const noexcept {
+        return data[0];
+    }
 
     PARAS_KERNEL_HD
     static constexpr std::size_t size() noexcept { return N; }

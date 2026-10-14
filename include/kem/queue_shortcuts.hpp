@@ -111,3 +111,45 @@ sycl::event copy(const T* src, T* dest, size_t count, const std::vector<sycl::ev
     paras_wait_all(deps);
     return memcpy(dest, src, count * sizeof(T));
 }
+
+template <typename SrcT, int SrcDims, sycl::access_mode SrcMode, sycl::target SrcTgt,
+          sycl::access::placeholder IsPlaceholder, typename DestT>
+sycl::event copy(sycl::accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsPlaceholder> src,
+                 std::shared_ptr<DestT> dest) {
+    return submit([&](sycl::handler& h) { h.copy(src, dest); });
+}
+template <typename SrcT, typename DestT, int DestDims, sycl::access_mode DestMode,
+          sycl::target DestTgt, sycl::access::placeholder IsPlaceholder>
+sycl::event copy(std::shared_ptr<SrcT> src,
+                 sycl::accessor<DestT, DestDims, DestMode, DestTgt, IsPlaceholder> dest) {
+    return submit([&](sycl::handler& h) { h.copy(src, dest); });
+}
+template <typename SrcT, int SrcDims, sycl::access_mode SrcMode, sycl::target SrcTgt,
+          sycl::access::placeholder IsPlaceholder, typename DestT>
+sycl::event copy(sycl::accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsPlaceholder> src, DestT* dest) {
+    return submit([&](sycl::handler& h) { h.copy(src, dest); });
+}
+template <typename SrcT, typename DestT, int DestDims, sycl::access_mode DestMode,
+          sycl::target DestTgt, sycl::access::placeholder IsPlaceholder>
+sycl::event copy(const SrcT* src,
+                 sycl::accessor<DestT, DestDims, DestMode, DestTgt, IsPlaceholder> dest) {
+    return submit([&](sycl::handler& h) { h.copy(src, dest); });
+}
+template <typename SrcT, int SrcDims, sycl::access_mode SrcMode, sycl::target SrcTgt,
+          sycl::access::placeholder IsSrcPlaceholder, typename DestT, int DestDims,
+          sycl::access_mode DestMode, sycl::target DestTgt,
+          sycl::access::placeholder IsDestPlaceholder>
+sycl::event copy(sycl::accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsSrcPlaceholder> src,
+                 sycl::accessor<DestT, DestDims, DestMode, DestTgt, IsDestPlaceholder> dest) {
+    return submit([&](sycl::handler& h) { h.copy(src, dest); });
+}
+template <typename T, int Dims, sycl::access_mode Mode, sycl::target Tgt,
+          sycl::access::placeholder IsPlaceholder>
+sycl::event fill(sycl::accessor<T, Dims, Mode, Tgt, IsPlaceholder> dest, const T& src) {
+    return submit([&](sycl::handler& h) { h.fill(dest, src); });
+}
+template <typename T, int Dims, sycl::access_mode Mode, sycl::target Tgt,
+          sycl::access::placeholder IsPlaceholder>
+sycl::event update_host(sycl::accessor<T, Dims, Mode, Tgt, IsPlaceholder> acc) {
+    return submit([&](sycl::handler& h) { h.update_host(acc); });
+}

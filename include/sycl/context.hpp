@@ -23,6 +23,8 @@
 
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <string>
 #include "sycl/property_list.hpp"
 #include "sycl/device.hpp"
 #include <functional>
@@ -60,28 +62,31 @@ class context {
 public:
     explicit context(const property_list& = {}) : devices_{device{}} {}
 
-    explicit context(async_handler, const property_list& = {}) : devices_{device{}} {}
+    explicit context(async_handler ah, const property_list& = {})
+        : devices_{device{}}, paras_ah_(paras_wrap_handler(ah)) {}
 
     explicit context(const device& dev, const property_list& = {}) : devices_{dev} {}
 
-    explicit context(const device& dev, async_handler, const property_list& = {}) : devices_{dev} {}
+    explicit context(const device& dev, async_handler ah, const property_list& = {})
+        : devices_{dev}, paras_ah_(paras_wrap_handler(ah)) {}
 
     explicit context(const std::vector<device>& deviceList, const property_list& = {})
         : devices_{deviceList.empty()
                        ? throw sycl::exception(sycl::make_error_code(sycl::errc::invalid))
                        : deviceList} {}
 
-    explicit context(const std::vector<device>& deviceList, async_handler,
+    explicit context(const std::vector<device>& deviceList, async_handler ah,
                      const property_list& = {})
         : devices_{deviceList.empty()
                        ? throw sycl::exception(sycl::make_error_code(sycl::errc::invalid))
-                       : deviceList} {}
+                       : deviceList},
+          paras_ah_(paras_wrap_handler(ah)) {}
 
     explicit context(const platform& plt, const property_list& = {})
         : devices_{plt.get_devices()} {}
 
-    explicit context(const platform& plt, async_handler, const property_list& = {})
-        : devices_{plt.get_devices()} {}
+    explicit context(const platform& plt, async_handler ah, const property_list& = {})
+        : devices_{plt.get_devices()}, paras_ah_(paras_wrap_handler(ah)) {}
 
     backend get_backend() const noexcept {
         return devices_.empty() ? backend::host : devices_.front().get_backend();
@@ -116,8 +121,39 @@ public:
 
 private:
     std::vector<device> devices_;
+    std::shared_ptr<async_handler> paras_ah_;
+    static std::shared_ptr<async_handler> paras_wrap_handler(const async_handler& ah) {
+        return ah ? std::make_shared<async_handler>(ah) : nullptr;
+    }
+
+public:
+    const std::shared_ptr<async_handler>& paras_async_handler() const noexcept { return paras_ah_; }
+
+private:
     std::shared_ptr<int> id_{std::make_shared<int>()};
 };
+
+inline context paras_default_context(const platform& p) {
+    static std::mutex m;
+    static std::vector<std::pair<std::string, context>> contexts;
+    std::lock_guard<std::mutex> lock(m);
+    for (const auto& kv : contexts)
+        if (kv.first == p.get_name())
+            return kv.second;
+    contexts.emplace_back(p.get_name(), context(p));
+    return contexts.back().second;
+}
+
+inline property::buffer::context_bound::context_bound(context boundContext)
+    : holder_(std::static_pointer_cast<const void>(std::make_shared<context>(boundContext))) {}
+inline context property::buffer::context_bound::get_context() const {
+    return *std::static_pointer_cast<const context>(holder_.get());
+}
+inline property::image::context_bound::context_bound(context boundContext)
+    : holder_(std::static_pointer_cast<const void>(std::make_shared<context>(boundContext))) {}
+inline context property::image::context_bound::get_context() const {
+    return *std::static_pointer_cast<const context>(holder_.get());
+}
 
 inline exception::exception(const context& ctx, std::error_code ec, const std::string& what_arg)
     : exception(ec, what_arg) {
@@ -135,6 +171,10 @@ inline exception::exception(const context& ctx, int ev, const std::error_categor
     : exception(ctx, std::error_code(ev, cat)) {}
 
 inline context exception::get_context() const {
+    if (!context_) {
+        throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
+                              "exception has no associated context");
+    }
     return *context_;
 }
 

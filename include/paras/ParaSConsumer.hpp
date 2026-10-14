@@ -38,6 +38,7 @@
 #include "paras/ParaSVarDeclHandler.hpp"
 #include "paras/ParaSDeviceFunctionMarker.hpp"
 #include "paras/ParaSLambdaHandler.hpp"
+#include "paras/ParaSKernelAttrHandler.hpp" 
 
 class ParaSConsumer : public clang::ASTConsumer {
 private:
@@ -49,6 +50,7 @@ private:
     VarDeclReplacer vdr_callback;
     ParaSLambdaHandler lambda_callback;
     clang::Rewriter& rewriter_;
+    clang::Rewriter& headerRewriter_;
     std::vector<std::string> backend_target_;
 
 public:

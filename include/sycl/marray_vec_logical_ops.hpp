@@ -60,7 +60,8 @@ struct vec_rel_t {
 
 #define PARAS_SYCL_DEFINE_MARRAY_SCALAR_OP(OP)                                                     \
     template <typename T, std::size_t N>                                                           \
-    constexpr marray<T, N> operator OP(const marray<T, N>& lhs, const T& rhs) {                    \
+    constexpr marray<T, N> operator OP(const marray<T, N>& lhs,                                    \
+                                       const paras_type_identity_t<T>& rhs) {                      \
         marray<T, N> result{};                                                                     \
         for (std::size_t i = 0; i < N; ++i)                                                        \
             result[i] = lhs[i] OP rhs;                                                             \
@@ -69,7 +70,8 @@ struct vec_rel_t {
 
 #define PARAS_SYCL_DEFINE_MARRAY_SCALAR_OP_REVERSED(OP)                                            \
     template <typename T, std::size_t N>                                                           \
-    constexpr marray<T, N> operator OP(const T& lhs, const marray<T, N>& rhs) {                    \
+    constexpr marray<T, N> operator OP(const paras_type_identity_t<T>& lhs,                        \
+                                       const marray<T, N>& rhs) {                                  \
         marray<T, N> result{};                                                                     \
         for (std::size_t i = 0; i < N; ++i)                                                        \
             result[i] = lhs OP rhs[i];                                                             \

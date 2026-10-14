@@ -27,8 +27,9 @@ template <typename Func>
 sycl::event threadpool::spawn_1D(Func f) {
     const std::uint64_t paras_t0 = paras_profiling_start();
     sycl::handler cgh(*this);
+    cgh.paras_enable_deferred_host_task(); 
     f(cgh);
-    return paras_finish_event(paras_t0);
+    return cgh.paras_finish_host_task(paras_finish_event(paras_t0), paras_async_handler());
 }
 
 template <typename Func>
@@ -39,8 +40,9 @@ sycl::event threadpool::spawn_1D_event(Func f) {
 template <typename Func>
 sycl::event threadpool::spawn_ND(Func f) {
     sycl::handler cgh(*this);
+    cgh.paras_enable_deferred_host_task(); 
     f(cgh);
-    return sycl::event{};
+    return cgh.paras_finish_host_task(sycl::event{}, paras_async_handler());
 }
 
 #endif

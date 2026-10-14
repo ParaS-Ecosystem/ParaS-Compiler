@@ -28,8 +28,26 @@
 
 namespace sycl {
 
+#if __cplusplus < 202002L
+namespace detail {
+template <typename Derived, int Dimensions>
+struct id_size_t_conversion {};
+
+template <typename Derived>
+struct id_size_t_conversion<Derived, 1> {
+    PARAS_KERNEL_HD operator size_t() const noexcept {
+        return static_cast<const Derived*>(this)->dims_[0];
+    }
+};
+}
+#endif
+
 template <int Dimensions = 1>
-class id {
+class id
+#if __cplusplus < 202002L
+    : public detail::id_size_t_conversion<id<Dimensions>, Dimensions>
+#endif
+{
 public:
     static constexpr int dimensions = Dimensions;
     size_t dims_[Dimensions];
@@ -39,21 +57,21 @@ public:
             dims_[i] = 0;
     }
 
-    PARAS_KERNEL_HD
-    id(size_t i0) {
+    template <int D = Dimensions, typename std::enable_if_t<D == 1, int> = 0>
+    PARAS_KERNEL_HD id(size_t i0) {
         static_assert(Dimensions == 1, "id(size_t) is only valid for id<1>");
         dims_[0] = i0;
     }
 
-    PARAS_KERNEL_HD
-    id(size_t i0, size_t i1) {
+    template <int D = Dimensions, typename std::enable_if_t<D == 2, int> = 0>
+    PARAS_KERNEL_HD id(size_t i0, size_t i1) {
         static_assert(Dimensions == 2, "id(size_t,size_t) is only valid for id<2>");
         dims_[0] = i0;
         dims_[1] = i1;
     }
 
-    PARAS_KERNEL_HD
-    id(size_t i0, size_t i1, size_t i2) {
+    template <int D = Dimensions, typename std::enable_if_t<D == 3, int> = 0>
+    PARAS_KERNEL_HD id(size_t i0, size_t i1, size_t i2) {
         static_assert(Dimensions == 3, "id(size_t,size_t,size_t) is only valid for id<3>");
         dims_[0] = i0;
         dims_[1] = i1;
@@ -61,7 +79,7 @@ public:
     }
 
     PARAS_KERNEL_HD
-    explicit id(const range<Dimensions>& r) {
+    id(const range<Dimensions>& r) noexcept {
         for (int i = 0; i < Dimensions; i++)
             dims_[i] = r[i];
     }
@@ -81,11 +99,13 @@ public:
     /** Implicit id<1> -> size_t (SYCL 2020). Kept as a plain (non-template)
      *  conversion so `ptr[id]` keeps working; the operator== below is an
      *  exact match, so `id<2> == id<2>` no longer falls back to this. */
-    PARAS_KERNEL_HD
-    operator size_t() const {
-        static_assert(Dimensions == 1, "Implicit conversion only valid for id<1>");
+#if __cplusplus >= 202002L
+    PARAS_KERNEL_HD operator size_t() const noexcept
+        requires(Dimensions == 1)
+    {
         return dims_[0];
     }
+#endif
 
     PARAS_KERNEL_HD
     friend bool operator==(const id& a, const id& b) {

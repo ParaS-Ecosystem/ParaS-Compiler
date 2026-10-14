@@ -24,9 +24,11 @@
 #include <cstddef>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <tuple>
 #include <vector>
 
 #include "range.hpp"
@@ -39,12 +41,24 @@
 #include "group.hpp"
 #include "reduction.hpp"
 #include "spec_constant.hpp"
+#include "bundle_state.hpp"
+#include "aspect.hpp"
 #include "../utilities/internal_utils.hpp"
+#include <cstring>
+#include "access.hpp"
 
 class threadpool;
 class cuda_threadpool;
 class rocm_threadpool;
 namespace sycl {
+class device;
+class context;
+template <bundle_state State>
+class kernel_bundle;
+
+template <typename DataT, int Dimensions, access_mode AccessMode, target AccessTarget,
+          access::placeholder IsPlaceholder>
+class accessor;
 
 class handler {
     threadpool* pool_;
@@ -76,8 +90,24 @@ public:
         this->template parallel_for<KernelName>(range<1>(static_cast<size_t>(numWorkItems)), f);
     }
 
+    template <typename KernelName = void, typename Int, std::size_t D, typename Func,
+              std::enable_if_t<std::is_integral_v<Int> && (D >= 1 && D <= 3), int> = 0>
+    void parallel_for(const Int (&r)[D], Func f) {
+        if constexpr (D == 1)
+            this->template parallel_for<KernelName>(range<1>(static_cast<size_t>(r[0])), f);
+        else if constexpr (D == 2)
+            this->template parallel_for<KernelName>(
+                range<2>(static_cast<size_t>(r[0]), static_cast<size_t>(r[1])), f);
+        else
+            this->template parallel_for<KernelName>(
+                range<3>(static_cast<size_t>(r[0]), static_cast<size_t>(r[1]),
+                         static_cast<size_t>(r[2])),
+                f);
+    }
+
     template <typename KernelName = void, typename Func>
     void single_task(Func f) {
+        paras_check_kernel_features<KernelName, Func>();
         if constexpr (std::is_invocable_v<const Func&, kernel_handler>) {
             this->template parallel_for<KernelName>(range<1>(1),
                                                     [f](id<1>) { f(kernel_handler{}); });
@@ -103,7 +133,25 @@ public:
     >*/
     template <typename FunctorT>
     void host_task(FunctorT&& hostFunction) {
+        if (paras_defer_host_task_) {
+            auto fp = std::make_shared<std::decay_t<FunctorT>>(std::forward<FunctorT>(hostFunction));
+            paras_pending_host_task_ = [fp]() { (*fp)(); };
+            return;
+        }
         hostFunction();
+    }
+
+    void paras_enable_deferred_host_task() { paras_defer_host_task_ = true; }
+
+    event paras_finish_host_task(event ev,
+                                 std::shared_ptr<paras_async_handler_fn> async_handler = {}) {
+        if (paras_pending_host_task_) {
+            auto body = std::move(paras_pending_host_task_);
+            paras_pending_host_task_ = nullptr;
+            return paras_launch_host_task(std::move(body), deps_, std::move(async_handler));
+        }
+        ev.set_dependencies(deps_);
+        return ev;
     }
 
     /** SYCL-CTS integration: require(accessor), required by
@@ -118,6 +166,79 @@ public:
     template <typename AccessorT>
     void require(AccessorT&) {}
 
+    template <typename DataT, int Dims, access_mode Mode, target Tgt,
+              access::placeholder IsPlaceholder>
+    void require(accessor<DataT, Dims, Mode, Tgt, IsPlaceholder>) {}
+
+    template <typename SrcT, int SrcDims, access_mode SrcMode, target SrcTgt, typename DestT,
+              access::placeholder IsPlaceholder>
+    void copy(accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsPlaceholder> src,
+              std::shared_ptr<DestT> dest) {
+        copy(src, dest.get());
+    }
+    template <typename SrcT, typename DestT, int DestDims, access_mode DestMode, target DestTgt,
+              access::placeholder IsPlaceholder>
+    void copy(std::shared_ptr<SrcT> src,
+              accessor<DestT, DestDims, DestMode, DestTgt, IsPlaceholder> dest) {
+        copy(static_cast<const SrcT*>(src.get()), dest);
+    }
+    template <typename SrcT, int SrcDims, access_mode SrcMode, target SrcTgt, typename DestT,
+              access::placeholder IsPlaceholder>
+    void copy(accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsPlaceholder> src, DestT* dest) {
+        paras_drain_host_tasks();
+        unsigned char* out = reinterpret_cast<unsigned char*>(dest);
+        for (const auto& e : src) {
+            std::memcpy(out, &e, sizeof(SrcT));
+            out += sizeof(SrcT);
+        }
+    }
+    template <typename SrcT, typename DestT, int DestDims, access_mode DestMode, target DestTgt,
+              access::placeholder IsPlaceholder>
+    void copy(const SrcT* src, accessor<DestT, DestDims, DestMode, DestTgt, IsPlaceholder> dest) {
+        paras_drain_host_tasks();
+        const unsigned char* in = reinterpret_cast<const unsigned char*>(src);
+        for (auto& e : dest) {
+            std::memcpy(const_cast<std::remove_const_t<DestT>*>(&e), in, sizeof(DestT));
+            in += sizeof(DestT);
+        }
+    }
+    template <typename SrcT, int SrcDims, access_mode SrcMode, target SrcTgt,
+              access::placeholder IsSrcPlaceholder, typename DestT, int DestDims,
+              access_mode DestMode, target DestTgt, access::placeholder IsDestPlaceholder>
+    void copy(accessor<SrcT, SrcDims, SrcMode, SrcTgt, IsSrcPlaceholder> src,
+              accessor<DestT, DestDims, DestMode, DestTgt, IsDestPlaceholder> dest) {
+        if (dest.byte_size() < src.byte_size())
+            throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
+                                  "handler::copy: destination accessor is too small");
+        paras_drain_host_tasks();
+        std::vector<unsigned char> bytes;
+        bytes.reserve(src.byte_size());
+        for (const auto& e : src) {
+            const unsigned char* p = reinterpret_cast<const unsigned char*>(&e);
+            bytes.insert(bytes.end(), p, p + sizeof(SrcT));
+        }
+        std::size_t pos = 0;
+        for (auto& e : dest) {
+            if (pos >= bytes.size())
+                break;
+            std::memcpy(const_cast<std::remove_const_t<DestT>*>(&e), bytes.data() + pos,
+                        sizeof(DestT));
+            pos += sizeof(DestT);
+        }
+    }
+    template <typename T, int Dims, access_mode Mode, target Tgt,
+              access::placeholder IsPlaceholder>
+    void update_host(accessor<T, Dims, Mode, Tgt, IsPlaceholder>) {
+        paras_drain_host_tasks();
+    }
+    template <typename T, int Dims, access_mode Mode, target Tgt,
+              access::placeholder IsPlaceholder>
+    void fill(accessor<T, Dims, Mode, Tgt, IsPlaceholder> dest, const T& src) {
+        paras_drain_host_tasks();
+        for (auto& e : dest)
+            e = src;
+    }
+
     /** SYCL-CTS integration: set_specialization_constant<SpecName>(value)
      *  (SYCL-2020 4.9.5, tests/spec_constants). Writes directly into the
      *  specialization_id object's own storage -- see spec_constant.hpp's
@@ -129,6 +250,10 @@ public:
     template <auto& SpecName>
     void set_specialization_constant(
         typename std::remove_reference_t<decltype(SpecName)>::value_type value) {
+        if (paras_bundle_has_)
+            throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
+                                  "set_specialization_constant after use_kernel_bundle");
+        paras_handler_spec_set_ = true;
         paras_spec_detail::set<SpecName>(value);
         spec_resets_.push_back([] { paras_spec_detail::set<SpecName>(SpecName.value_); });
     }
@@ -136,8 +261,15 @@ public:
     template <auto& SpecName>
     typename std::remove_reference_t<decltype(SpecName)>::value_type
     get_specialization_constant() const {
+        if (paras_bundle_has_)
+            throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
+                                  "get_specialization_constant after use_kernel_bundle");
         return paras_spec_detail::host_value<SpecName>;
     }
+
+    void use_kernel_bundle(const kernel_bundle<bundle_state::executable>& execBundle);
+
+    bool paras_device_has(aspect a) const;
 
     ~handler() {
         for (auto& reset : spec_resets_)
@@ -156,53 +288,67 @@ public:
 
     template <typename KernelName = void, int Dim, typename Func>
     void parallel_for_work_group(range<Dim> numWorkGroups, range<Dim> workGroupSize, Func f) {
+        paras_check_kernel_features<KernelName, Func>();
+        paras_hierarchical_ = true;
         this->template parallel_for<KernelName>(numWorkGroups, [=](item<Dim> it) {
             group<Dim> g(it.get_id(), numWorkGroups, workGroupSize);
             f(g);
         });
+        paras_hierarchical_ = false;
     }
 
     /** parallel_for with a sycl::reduction (SYCL 2020 4.9.4.2.2). Runs as an
      *  ordinary parallel_for on this handler's backend; every work-item
      *  owns a reducer and merges it into the reduction variable when done
      *  (see reduction.hpp). */
-    template <typename KernelName = void, int Dim, typename T, typename BinaryOperation,
-              typename KernelFunc>
-    void parallel_for(range<Dim> r, reduction_impl<T, BinaryOperation> red, KernelFunc f) {
+    template <typename KernelName = void, int Dim, typename T, typename BinaryOperation, int RD,
+              std::size_t RE, bool RU, typename KernelFunc>
+    void parallel_for(range<Dim> r, reduction_impl<T, BinaryOperation, RD, RE, RU> red,
+                      KernelFunc f) {
+        using red_t = reduction_impl<T, BinaryOperation, RD, RE, RU>;
         paras_reduction_prepare(red);
-        T* var = red.var_;
-        const BinaryOperation op = red.op_;
-        const T identity = red.identity_;
-        const bool known = red.identity_known_;
         this->template parallel_for<KernelName>(r, [=](item<Dim> it) {
-            reducer<T, BinaryOperation> rd(identity, known, op);
+            paras_reduction_detail::runner<red_t> run(red);
             if constexpr (std::is_invocable_v<const KernelFunc&, id<Dim>,
-                                              reducer<T, BinaryOperation>&>) {
-                f(it.get_id(), rd);
+                                              typename paras_reduction_detail::runner<
+                                                  red_t>::reducer_t&>) {
+                f(it.get_id(), run.red);
             } else {
-                f(it, rd);
+                f(it, run.red);
             }
-            if (rd.paras_has_value())
-                paras_reduction_merge(var, rd.paras_value(), op);
+            run.merge(red);
         });
     }
 
-    template <typename KernelName = void, int Dim, typename T, typename BinaryOperation,
-              typename KernelFunc>
-    void parallel_for(const nd_range<Dim>& r, reduction_impl<T, BinaryOperation> red,
+    template <typename KernelName = void, int Dim, typename T, typename BinaryOperation, int RD,
+              std::size_t RE, bool RU, typename KernelFunc>
+    void parallel_for(const nd_range<Dim>& r, reduction_impl<T, BinaryOperation, RD, RE, RU> red,
                       KernelFunc f) {
+        using red_t = reduction_impl<T, BinaryOperation, RD, RE, RU>;
         paras_reduction_prepare(red);
-        T* var = red.var_;
-        const BinaryOperation op = red.op_;
-        const T identity = red.identity_;
-        const bool known = red.identity_known_;
         this->template parallel_for<KernelName>(r, [=](nd_item<Dim> it) {
-            reducer<T, BinaryOperation> rd(identity, known, op);
-            f(it, rd);
-            if (rd.paras_has_value())
-                paras_reduction_merge(var, rd.paras_value(), op);
+            paras_reduction_detail::runner<red_t> run(red);
+            f(it, run.red);
+            run.merge(red);
         });
     }
+
+#if !PARAS_GPU_BACKEND
+    template <typename KernelName = void, int Dim, typename... Rest,
+              typename = std::enable_if_t<(sizeof...(Rest) >= 3)>>
+    void parallel_for(range<Dim> r, Rest&&... rest) {
+        paras_parallel_for_reductions<KernelName, item<Dim>>(
+            r, std::forward_as_tuple(std::forward<Rest>(rest)...),
+            std::make_index_sequence<sizeof...(Rest) - 1>{});
+    }
+    template <typename KernelName = void, int Dim, typename... Rest,
+              typename = std::enable_if_t<(sizeof...(Rest) >= 3)>>
+    void parallel_for(const nd_range<Dim>& r, Rest&&... rest) {
+        paras_parallel_for_reductions<KernelName, nd_item<Dim>>(
+            r, std::forward_as_tuple(std::forward<Rest>(rest)...),
+            std::make_index_sequence<sizeof...(Rest) - 1>{});
+    }
+#endif
 
     inline void memset(void* ptr, int value, size_t num_bytes);
     inline void memcpy(void* dest, const void* src, size_t num_bytes);
@@ -310,7 +456,9 @@ public:
     >*/
     template <typename T>
     void fill(T* ptr, const T& pattern, std::size_t count) {
-        std::vector<T> staged(count, pattern);
+        std::vector<unsigned char> staged(count * sizeof(T));
+        for (std::size_t i = 0; i < count; ++i)
+            std::memcpy(staged.data() + i * sizeof(T), &pattern, sizeof(T));
         memcpy(ptr, staged.data(), count * sizeof(T));
     }
 
@@ -339,17 +487,56 @@ public:
     void prefetch(const void*, std::size_t, Ignored&&...) {}
 
 private:
-    template <typename T, typename BinaryOperation>
-    void paras_reduction_prepare(const reduction_impl<T, BinaryOperation>& red) {
+    template <typename T, typename BinaryOperation, int RD, std::size_t RE, bool RU>
+    void paras_reduction_prepare(const reduction_impl<T, BinaryOperation, RD, RE, RU>& red) {
         if (red.initialize_to_identity_) {
             const T identity = red.identity_;
-            memcpy(red.var_, &identity, sizeof(T));
+            for (std::size_t i = 0; i < (RD == 0 ? 1 : RE); ++i)
+                memcpy(red.var_ + i, &identity, sizeof(T));
         }
     }
 
+#if !PARAS_GPU_BACKEND
+    template <typename KernelName, typename ItemT, typename RangeT, typename Tuple,
+              std::size_t... I>
+    void paras_parallel_for_reductions(const RangeT& r, Tuple&& args,
+                                       std::index_sequence<I...>) {
+        auto reds = std::make_tuple(std::get<I>(args)...);
+        auto f = std::get<sizeof...(I)>(args);
+        (paras_reduction_prepare(std::get<I>(reds)), ...);
+        this->template parallel_for<KernelName>(r, [=](ItemT it) {
+            std::tuple<paras_reduction_detail::runner<
+                std::decay_t<std::tuple_element_t<I, decltype(reds)>>>...>
+                runs(std::get<I>(reds)...);
+            f(it, std::get<I>(runs).red...);
+            (std::get<I>(runs).merge(std::get<I>(reds)), ...);
+        });
+    }
+#endif
+
     std::size_t local_memory_bytes_ = 0;
     std::vector<std::function<void()>> spec_resets_;
+    std::function<bool(const void*)> paras_bundle_has_;
+    bool paras_handler_spec_set_ = false;
+    std::function<device()> paras_queue_device_;
+    std::function<context()> paras_queue_context_;
+
+public:
+    template <typename DevFn, typename CtxFn>
+    void paras_set_queue_info(DevFn dev, CtxFn ctx) {
+        paras_queue_device_ = dev;
+        paras_queue_context_ = ctx;
+    }
+
+private:
+    template <typename KernelName>
+    void paras_check_bound_bundle();
+    template <typename KernelName, typename Func>
+    void paras_check_kernel_features();
     bool async_mode_ = false;
+    bool paras_defer_host_task_ = false;
+    bool paras_hierarchical_ = false;
+    std::function<void()> paras_pending_host_task_;
 };
 
 } // namespace sycl

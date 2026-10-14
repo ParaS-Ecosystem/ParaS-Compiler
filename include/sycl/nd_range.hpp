@@ -58,6 +58,14 @@ public:
 
   PARAS_KERNEL_HD
   id<Dimensions> get_offset() const { return offset_; }
+
+  PARAS_KERNEL_HD
+  friend bool operator==(const nd_range& a, const nd_range& b) {
+    return a.global_range_ == b.global_range_ && a.local_range_ == b.local_range_ &&
+           a.offset_ == b.offset_;
+  }
+  PARAS_KERNEL_HD
+  friend bool operator!=(const nd_range& a, const nd_range& b) { return !(a == b); }
 };
 
 } // namespace sycl

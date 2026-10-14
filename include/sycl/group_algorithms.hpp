@@ -217,6 +217,11 @@ PARAS_KERNEL_HD inline bool all_of_group(Group g, T x, Predicate pred) {
     return all_of_group(g, pred(x));
 }
 
+template <typename Group, typename T, typename Predicate>
+PARAS_KERNEL_HD inline bool any_of_group(Group g, T x, Predicate pred) {
+    return any_of_group(g, static_cast<bool>(pred(x)));
+}
+
 template <typename Group>
 PARAS_KERNEL_HD inline bool none_of_group(Group g, bool pred) {
     return !any_of_group(g, pred);
@@ -286,6 +291,22 @@ PARAS_KERNEL_HD inline T inclusive_scan_over_group(Group g, V x, BinaryOperation
     return binary_op(init,
                      static_cast<T>(inclusive_scan_over_group(g, static_cast<T>(x), binary_op)));
 }
+
+template <typename Group, typename V, typename T, typename BinaryOperation,
+          typename = std::enable_if_t<!std::is_same_v<V, T>>>
+PARAS_KERNEL_HD inline T exclusive_scan_over_group(Group g, V x, T init,
+                                                   BinaryOperation binary_op) {
+    return exclusive_scan_over_group(g, static_cast<T>(x), init, binary_op);
+}
+
+template <typename T>
+struct is_group : std::false_type {};
+template <int Dimensions>
+struct is_group<group<Dimensions>> : std::true_type {};
+template <>
+struct is_group<sub_group> : std::true_type {};
+template <typename T>
+inline constexpr bool is_group_v = is_group<T>::value;
 
 /* ================= permute_group_by_xor ================= */
 

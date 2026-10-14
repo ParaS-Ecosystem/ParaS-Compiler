@@ -35,7 +35,7 @@ device::device()
     : name_("Unknown CPU"), vendor_("Unknown"), driver_version_(""), version_(""),
       max_compute_units_(0), max_work_group_size_(1024), global_mem_size_bytes_(0),
       local_mem_type_(info::local_mem_type::none), is_cpu_(true), is_gpu_(false),
-      is_accelerator_(false), have_queue_profiling_(false) {
+      is_accelerator_(false), have_queue_profiling_(true) {
     unsigned int hw = std::thread::hardware_concurrency();
     max_compute_units_ = hw ? hw : 1;
 
