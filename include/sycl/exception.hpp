@@ -58,6 +58,9 @@ template <> struct is_error_code_enum<sycl::errc> : public std::true_type {};
 
 namespace sycl {
 
+#ifdef PARAS_HD_REGION_ACTIVE
+PARAS_HD_REGION_PAUSE
+#endif
 namespace detail {
 class sycl_category_impl : public std::error_category {
 public:
@@ -89,6 +92,9 @@ inline const std::error_category &sycl_category() noexcept {
   static detail::sycl_category_impl instance;
   return instance;
 }
+#ifdef PARAS_HD_REGION_ACTIVE
+PARAS_HD_REGION_RESUME
+#endif
 
 inline std::error_code make_error_code(errc e) noexcept {
   return std::error_code(static_cast<int>(e), sycl_category());

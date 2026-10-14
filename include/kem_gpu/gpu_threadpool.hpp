@@ -21,6 +21,13 @@
 #ifndef __PARAS_GPU_THREADPOOL_HPP__
 #define __PARAS_GPU_THREADPOOL_HPP__
 
+#include "kem_gpu/hd_region.hpp"
+#ifndef PARAS_HD_REGION_ACTIVE
+#define PARAS_HD_REGION_ACTIVE
+#define PARAS_HD_REGION_OWNER_GPU_THREADPOOL
+PARAS_HD_REGION_OPEN
+#endif
+
 #include "sycl/context.hpp"
 #include "sycl/device.hpp"
 #include "sycl/device_selector.hpp"
@@ -1067,5 +1074,11 @@ inline void sycl::handler::paras_reduction_wait() {
   if (gpu_pool_)
     gpu_pool_->wait();
 }
+
+#ifdef PARAS_HD_REGION_OWNER_GPU_THREADPOOL
+PARAS_HD_REGION_CLOSE
+#undef PARAS_HD_REGION_OWNER_GPU_THREADPOOL
+#undef PARAS_HD_REGION_ACTIVE
+#endif
 
 #endif

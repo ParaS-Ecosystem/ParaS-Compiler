@@ -33,7 +33,7 @@
 
 namespace sycl {
 
-device::device()
+device::device(::paras_extension::host_device_tag)
     : name_("Unknown CPU"), vendor_("Unknown"), driver_version_(""),
       version_(""), max_compute_units_(0), max_work_group_size_(1024),
       global_mem_size_bytes_(0), local_mem_type_(info::local_mem_type::none),
@@ -164,7 +164,7 @@ enumerate_physical_devices(sycl::info::device_type type) {
 
   if (type == device_type::cpu || type == device_type::host ||
       type == device_type::all) {
-    out.emplace_back(sycl::device{});
+    out.emplace_back(sycl::device(host_device_tag{}));
   }
 
   if (type == device_type::gpu || type == device_type::all) {

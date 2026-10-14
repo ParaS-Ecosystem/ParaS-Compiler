@@ -152,7 +152,15 @@ public:
   friend bool operator!=(const event &a, const event &b) { return !(a == b); }
   const void *paras_identity() const { return m_state.get(); }
 
-  backend get_backend() const noexcept { return backend::host; }
+  backend get_backend() const noexcept {
+#if defined(PARASDEVICE) && PARASDEVICE == 2
+    return backend::hip;
+#elif defined(PARASDEVICE) && PARASDEVICE == 1
+    return backend::cuda;
+#else
+    return backend::host;
+#endif
+  }
 
   void wait() const {
     if (m_state->done.valid())

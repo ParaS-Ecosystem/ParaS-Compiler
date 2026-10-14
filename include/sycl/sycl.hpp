@@ -25,6 +25,13 @@
 #define SYCL_LANGUAGE_VERSION 202012L
 #endif
 
+#include "kem_gpu/hd_region.hpp"
+#ifndef PARAS_HD_REGION_ACTIVE
+#define PARAS_HD_REGION_ACTIVE
+#define PARAS_HD_REGION_OWNER_SYCL_HPP
+PARAS_HD_REGION_OPEN
+#endif
+
 #include "access.hpp"
 #include "accessor.hpp"
 #include "aspect.hpp"
@@ -74,5 +81,11 @@
 #include "sub_group.hpp"
 #include "usm.hpp"
 #include "usm_alloc.hpp"
+
+#ifdef PARAS_HD_REGION_OWNER_SYCL_HPP
+PARAS_HD_REGION_CLOSE
+#undef PARAS_HD_REGION_OWNER_SYCL_HPP
+#undef PARAS_HD_REGION_ACTIVE
+#endif
 
 #endif

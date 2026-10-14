@@ -41,6 +41,8 @@
 namespace paras_extension {
 struct device_ctor_tag {};
 
+struct host_device_tag {};
+
 inline const char *build_platform_name() noexcept {
 #if defined(PARASDEVICE) && PARASDEVICE == 2
   return "hip";
@@ -275,6 +277,8 @@ public:
 
   device();
 
+  explicit device(::paras_extension::host_device_tag);
+
   device(::paras_extension::device_ctor_tag,
          std::string name,
          std::string vendor,
@@ -293,7 +297,8 @@ public:
          bool queue_profiling);
 
   template <typename DeviceSelector>
-  explicit device(const DeviceSelector& selector) : device() {
+  explicit device(const DeviceSelector& selector)
+      : device(::paras_extension::host_device_tag{}) {
       int best = -1;
       for (const device &d : get_devices(info::device_type::all)) {
           const int score = selector(d);
@@ -465,6 +470,27 @@ inline std::vector<device> device::get_devices(info::device_type type) {
       out.push_back(std::move(d));
   return out;
 }
+
+}
+namespace paras_extension {
+
+inline sycl::device default_device() {
+  const auto devs = sycl::device::get_devices(sycl::info::device_type::all);
+  for (const auto &d : devs) {
+#if defined(PARASDEVICE) && PARASDEVICE
+    if (d.is_gpu())
+      return d;
+#else
+    if (d.is_cpu())
+      return d;
+#endif
+  }
+  return devs.empty() ? sycl::device(host_device_tag{}) : devs.front();
+}
+}
+namespace sycl {
+
+inline device::device() : device(::paras_extension::default_device()) {}
 
 inline std::vector<platform> platform::get_platforms() {
 
