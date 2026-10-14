@@ -161,6 +161,25 @@ const clang::CXXMethodDecl *resolveKernelCallOperator(
   return nullptr;
 }
 
+const clang::CXXRecordDecl *functorRecordFromExpr(const clang::Expr *expr) {
+  expr = stripKernelExpr(expr);
+  if (!expr)
+    return nullptr;
+  const clang::CXXRecordDecl *record =
+      expr->getType().getNonReferenceType()->getAsCXXRecordDecl();
+  if (!record || !record->hasDefinition() || record->isLambda())
+    return nullptr;
+  record = record->getDefinition();
+  for (const clang::CXXMethodDecl *method : record->methods())
+    if (method->getOverloadedOperator() == clang::OO_Call)
+      return record;
+  for (const clang::Decl *decl : record->decls())
+    if (const auto *tmpl = llvm::dyn_cast<clang::FunctionTemplateDecl>(decl))
+      if (tmpl->getTemplatedDecl()->getOverloadedOperator() == clang::OO_Call)
+        return record;
+  return nullptr;
+}
+
 }
 
 void ParaSLambdaHandler::run(
@@ -172,6 +191,17 @@ void ParaSLambdaHandler::run(
 
   const clang::Expr *kernelExpr =
       result.Nodes.getNodeAs<clang::Expr>("paras-kernel-callable");
+  if (const auto *kernelCall =
+          result.Nodes.getNodeAs<clang::CallExpr>("paras-kernel-call")) {
+
+    for (unsigned i = kernelCall->getNumArgs(); i > 0; --i) {
+      const clang::Expr *arg = kernelCall->getArg(i - 1);
+      if (arg && !llvm::isa<clang::CXXDefaultArgExpr>(arg)) {
+        kernelExpr = arg;
+        break;
+      }
+    }
+  }
   if (!kernelExpr)
     return;
 
@@ -180,8 +210,28 @@ void ParaSLambdaHandler::run(
   const clang::CXXMethodDecl *callOperator =
       resolveKernelCallOperator(kernelExpr, seenExprs, seenFunctions);
 
-  if (!callOperator)
+  const clang::CXXRecordDecl *functorFromOperator = nullptr;
+  if (callOperator && callOperator->getParent() &&
+      !callOperator->getParent()->isLambda()) {
+    functorFromOperator = callOperator->getParent();
+    callOperator = nullptr;
+  }
+
+  if (!callOperator) {
+
+    const clang::CXXRecordDecl *functor =
+        functorFromOperator ? functorFromOperator
+                            : functorRecordFromExpr(kernelExpr);
+    if (!functor || !processedFunctors.insert(functor).second)
+      return;
+    if (parasVerbose())
+      llvm::outs() << "[ParaS] Kernel function object: "
+                   << functor->getQualifiedNameAsString() << "\n";
+    ParaSDeviceCallGraph deviceGraph(rewriter);
+    deviceGraph.addFunctor(functor);
+    deviceGraph.run(*result.Context);
     return;
+  }
 
   const clang::CXXMethodDecl *kernelKey = callOperator->getCanonicalDecl();
   if (!processedKernels.insert(kernelKey).second)

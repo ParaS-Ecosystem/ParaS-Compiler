@@ -78,6 +78,68 @@ void ParaSDeviceCallGraph::enqueue(const clang::FunctionDecl *FD) {
 
 void ParaSDeviceCallGraph::addKernel(const clang::CXXMethodDecl *callOperator) {
   enqueue(callOperator);
+  enqueueParameterClasses(callOperator);
+}
+
+void ParaSDeviceCallGraph::enqueueRecordSpecialMembers(
+    const clang::CXXRecordDecl *record) {
+  if (!record || !record->hasDefinition() || record->isLambda())
+    return;
+  record = record->getDefinition();
+  for (const clang::CXXConstructorDecl *ctor : record->ctors())
+    if (ctor && !ctor->isImplicit())
+      enqueue(ctor);
+
+  for (const clang::Decl *decl : record->decls())
+    if (const auto *tmpl = llvm::dyn_cast<clang::FunctionTemplateDecl>(decl))
+      if (llvm::isa<clang::CXXConstructorDecl>(tmpl->getTemplatedDecl()))
+        for (const clang::FunctionDecl *spec : tmpl->specializations())
+          enqueue(spec);
+  if (const clang::CXXDestructorDecl *dtor = record->getDestructor())
+    if (!dtor->isImplicit())
+      enqueue(dtor);
+}
+
+void ParaSDeviceCallGraph::enqueueParameterClasses(
+    const clang::FunctionDecl *FD) {
+  if (!FD)
+    return;
+  for (const clang::ParmVarDecl *param : FD->parameters()) {
+    if (!param)
+      continue;
+    const clang::QualType type =
+        param->getType().getNonReferenceType().getUnqualifiedType();
+    enqueueRecordSpecialMembers(type->getAsCXXRecordDecl());
+  }
+}
+
+void ParaSDeviceCallGraph::addFunctor(const clang::CXXRecordDecl *record) {
+  if (!record || !record->hasDefinition() || record->isLambda())
+    return;
+  record = record->getDefinition();
+
+  auto isCallOperator = [](const clang::FunctionDecl *FD) {
+    return FD && FD->getOverloadedOperator() == clang::OO_Call;
+  };
+
+  for (const clang::CXXMethodDecl *method : record->methods()) {
+    if (isCallOperator(method)) {
+      enqueue(method);
+      enqueueParameterClasses(method);
+    }
+  }
+
+  for (const clang::Decl *decl : record->decls()) {
+    const auto *tmpl = llvm::dyn_cast<clang::FunctionTemplateDecl>(decl);
+    if (!tmpl || !isCallOperator(tmpl->getTemplatedDecl()))
+      continue;
+    for (const clang::FunctionDecl *spec : tmpl->specializations()) {
+      enqueue(spec);
+      enqueueParameterClasses(spec);
+    }
+  }
+
+  enqueueRecordSpecialMembers(record);
 }
 
 void ParaSDeviceCallGraph::annotate(const clang::FunctionDecl *FD,
@@ -92,6 +154,9 @@ void ParaSDeviceCallGraph::annotate(const clang::FunctionDecl *FD,
 
   if (definition->hasAttr<clang::CUDADeviceAttr>() ||
       definition->hasAttr<clang::CUDAGlobalAttr>())
+    return;
+
+  if (definition->isImplicit())
     return;
 
   if (const auto *method = llvm::dyn_cast<clang::CXXMethodDecl>(definition)) {
@@ -169,6 +234,13 @@ void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
 
     bool VisitCXXConstructExpr(clang::CXXConstructExpr *expr) {
       graph.enqueue(expr->getConstructor());
+
+      if (const clang::CXXRecordDecl *record =
+              expr->getType()->getAsCXXRecordDecl())
+        if (record->hasDefinition())
+          if (const clang::CXXDestructorDecl *dtor =
+                  record->getDefinition()->getDestructor())
+            graph.enqueue(dtor);
       return true;
     }
   } visitor(*this);

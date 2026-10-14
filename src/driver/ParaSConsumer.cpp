@@ -197,9 +197,11 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
   }
 
   matchers.addMatcher(
-      callExpr(callee(functionDecl(hasName("sycl::handler::parallel_for"))),
-               hasArgument(1, expr().bind("paras-kernel-callable")))
-          .bind("paras-parallel-for"),
+      callExpr(callee(functionDecl(hasAnyName(
+                   "sycl::handler::parallel_for", "sycl::handler::single_task",
+                   "sycl::handler::parallel_for_work_group"))),
+               argumentCountAtLeast(1))
+          .bind("paras-kernel-call"),
       &lambda_callback);
 }
 

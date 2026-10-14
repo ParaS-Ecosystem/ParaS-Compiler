@@ -45,10 +45,15 @@ private:
   void annotate(const clang::FunctionDecl *FD, clang::ASTContext &context);
   void process(const clang::FunctionDecl *FD, clang::ASTContext &context);
 
+  void enqueueParameterClasses(const clang::FunctionDecl *FD);
+  void enqueueRecordSpecialMembers(const clang::CXXRecordDecl *record);
+
 public:
   explicit ParaSDeviceCallGraph(clang::Rewriter &r) : rewriter(r) {}
 
   void addKernel(const clang::CXXMethodDecl *callOperator);
+
+  void addFunctor(const clang::CXXRecordDecl *record);
   void enqueue(const clang::FunctionDecl *FD);
   void run(clang::ASTContext &context);
 };
