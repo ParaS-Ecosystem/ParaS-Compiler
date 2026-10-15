@@ -228,6 +228,24 @@ public:
 #endif
   }
 
+  template <typename Func, int dim>
+  void paras_check_reqd_work_group_size(const nd_range<dim> &r) const {
+#if !PARAS_DEVICE_PASS
+    const detail::kernel_props p = detail::kernel_props_of<Func>::get();
+    if (p.wg_dims == 0)
+      return;
+    bool match = p.wg_dims == dim;
+    for (int i = 0; match && i < dim; ++i)
+      match = r.get_local_range()[i] == p.wg[i];
+    if (!match)
+      throw exception(make_error_code(errc::nd_range),
+                      "the nd_range work-group size does not match the "
+                      "kernel's [[sycl::reqd_work_group_size]]");
+#else
+    (void)r;
+#endif
+  }
+
   template <typename Func> void paras_check_range_kernel() const {
     if constexpr (!detail::is_hierarchical_kernel<Func>::value)
       if (has_local_acc_)

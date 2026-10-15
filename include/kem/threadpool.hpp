@@ -447,6 +447,7 @@ void handler::parallel_for(range<dim> r, Func f) {
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(const nd_range<dim> &r, Func f) {
   paras_launch_kernel<KernelName, Func>();
+  paras_check_reqd_work_group_size<Func>(r);
   wait_for_dependencies();
 
   if constexpr (dim == 1) {
