@@ -46,6 +46,8 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
     : pf_callback(r), s_callback(r, backend_target), qh_callback(r),
       fph_callback(r), vdr_callback(r, backend_target),
       lambda_callback(r, backend_target), rewriter(r) {
+  gpuBuild = !backend_target.empty() &&
+             (backend_target[0] == "cuda" || backend_target[0] == "hip");
 
   const char *noQueueRewrite = std::getenv("PARAS_NO_QUEUE_REWRITE");
   const bool rewriteQueues = !(noQueueRewrite && noQueueRewrite[0] == '1');
@@ -208,5 +210,5 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
 void ParaSConsumer::HandleTranslationUnit(clang::ASTContext &context) {
   matchers.matchAST(context);
 
-  paras::rewriteKernelAttributes(context, rewriter);
+  paras::rewriteKernelAttributes(context, rewriter, gpuBuild);
 }

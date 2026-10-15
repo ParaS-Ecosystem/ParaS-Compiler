@@ -93,7 +93,7 @@ PARAS_KERNEL_HD To reinterpret_bits(const From &src) noexcept {
   static_assert(sizeof(To) == sizeof(From),
                 "reinterpret_bits requires matching sizes");
   To dst;
-  memcpy(&dst, &src, sizeof(To));
+  __builtin_memcpy(&dst, &src, sizeof(To));
   return dst;
 }
 #endif

@@ -76,6 +76,18 @@ void ParaSDeviceCallGraph::enqueue(const clang::FunctionDecl *FD) {
     workList.push_back(FD);
 }
 
+void ParaSDeviceCallGraph::enqueueDestructorOf(clang::QualType type) {
+  if (type.isNull())
+    return;
+  const clang::Type *t = type->getBaseElementTypeUnsafe();
+  if (!t)
+    return;
+  if (const clang::CXXRecordDecl *rd = t->getAsCXXRecordDecl())
+    if (rd->hasDefinition())
+      if (const clang::CXXDestructorDecl *dtor = rd->getDestructor())
+        enqueue(dtor);
+}
+
 void ParaSDeviceCallGraph::addKernel(const clang::CXXMethodDecl *callOperator) {
   enqueue(callOperator);
   enqueueParameterClasses(callOperator);
@@ -169,7 +181,8 @@ void ParaSDeviceCallGraph::annotate(const clang::FunctionDecl *FD,
     return;
 
   bool insertedAny = false;
-  for (const clang::FunctionDecl *redecl : annotationKey->redecls()) {
+  auto annotateFamily = [&](const clang::FunctionDecl *familyKey) {
+  for (const clang::FunctionDecl *redecl : familyKey->redecls()) {
     if (!redecl || !isRewritable(redecl, SM))
       continue;
 
@@ -177,9 +190,21 @@ void ParaSDeviceCallGraph::annotate(const clang::FunctionDecl *FD,
         redecl->hasAttr<clang::CUDAGlobalAttr>())
       continue;
 
-    clang::SourceLocation loc = SM.getSpellingLoc(redecl->getBeginLoc());
+    clang::SourceLocation loc = SM.getSpellingLoc(redecl->getInnerLocStart());
     if (loc.isInvalid() || loc.isMacroID())
       continue;
+
+    if (!annotatedAt.insert(loc).second)
+      continue;
+    {
+      clang::SourceLocation nameLoc = SM.getSpellingLoc(redecl->getLocation());
+      if (nameLoc.isValid() && !nameLoc.isMacroID() &&
+          SM.getFileID(nameLoc) == SM.getFileID(loc) &&
+          rewriter.getRewrittenText(
+                      clang::CharSourceRange::getTokenRange(loc, nameLoc))
+                  .find("__device__") != std::string::npos)
+        continue;
+    }
 
     if (rewriter.InsertTextBefore(loc, "__host__ __device__ ")) {
       llvm::errs() << "[ParaS] failed to mark device-callable redeclaration: "
@@ -188,6 +213,31 @@ void ParaSDeviceCallGraph::annotate(const clang::FunctionDecl *FD,
     }
 
     insertedAny = true;
+  }
+  };
+  annotateFamily(annotationKey);
+
+  const clang::FunctionTemplateDecl *FTD =
+      annotationKey->getDescribedFunctionTemplate();
+  if (!FTD)
+    FTD = annotationKey->getPrimaryTemplate();
+  if (FTD) {
+    if (const clang::FunctionDecl *primary = FTD->getTemplatedDecl()) {
+      const clang::FunctionDecl *key = primary->getCanonicalDecl();
+      if (isRewritable(key, SM) && !key->hasAttr<clang::CUDADeviceAttr>() &&
+          annotated.insert(key).second)
+        annotateFamily(key);
+    }
+    for (const clang::FunctionDecl *spec :
+         const_cast<clang::FunctionTemplateDecl *>(FTD)->specializations()) {
+      if (!spec || spec->getTemplateSpecializationKind() !=
+                       clang::TSK_ExplicitSpecialization)
+        continue;
+      const clang::FunctionDecl *key = spec->getCanonicalDecl();
+      if (isRewritable(key, SM) && !key->hasAttr<clang::CUDADeviceAttr>() &&
+          annotated.insert(key).second)
+        annotateFamily(key);
+    }
   }
 
   if (insertedAny)
@@ -213,13 +263,20 @@ void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
 
     explicit CalleeVisitor(ParaSDeviceCallGraph &g) : graph(g) {}
 
+    bool shouldVisitImplicitCode() const { return true; }
+
     bool VisitDeclRefExpr(clang::DeclRefExpr *expr) {
       if (!expr)
         return true;
 
       const auto *var = llvm::dyn_cast<clang::VarDecl>(expr->getDecl());
-      if (!var || !var->isStaticLocal() || !var->isConstexpr() ||
+
+      if (!var || !var->isStaticLocal() ||
           var->getStorageClass() != clang::SC_Static)
+        return true;
+      if (!var->isConstexpr() &&
+          !(var->getType().isConstQualified() &&
+            var->isUsableInConstantExpressions(var->getASTContext())))
         return true;
 
       staticConstexprCandidates.insert(var->getCanonicalDecl());
@@ -243,9 +300,34 @@ void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
             graph.enqueue(dtor);
       return true;
     }
+
+    bool VisitCXXBindTemporaryExpr(clang::CXXBindTemporaryExpr *expr) {
+      if (const clang::CXXTemporary *temp = expr->getTemporary())
+        graph.enqueue(temp->getDestructor());
+      return true;
+    }
+
+    bool VisitVarDecl(clang::VarDecl *var) {
+      if (var && var->hasLocalStorage())
+        graph.enqueueDestructorOf(var->getType());
+      return true;
+    }
   } visitor(*this);
 
   visitor.TraverseStmt(const_cast<clang::Stmt *>(definition->getBody()));
+
+  if (const auto *ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(definition))
+    for (const clang::CXXCtorInitializer *init : ctor->inits())
+      if (init && init->getInit())
+        visitor.TraverseStmt(init->getInit());
+
+  if (const auto *dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(definition))
+    if (const clang::CXXRecordDecl *rd = dtor->getParent()) {
+      for (const clang::FieldDecl *field : rd->fields())
+        enqueueDestructorOf(field->getType());
+      for (const clang::CXXBaseSpecifier &base : rd->bases())
+        enqueueDestructorOf(base.getType());
+    }
 
   clang::SourceManager &SM = context.getSourceManager();
 

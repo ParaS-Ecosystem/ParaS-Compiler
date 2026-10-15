@@ -34,6 +34,7 @@ private:
   llvm::DenseSet<const clang::FunctionDecl *> visited;
 
   llvm::DenseSet<const clang::FunctionDecl *> annotated;
+  llvm::DenseSet<clang::SourceLocation> annotatedAt;
 
   llvm::SmallVector<const clang::FunctionDecl *, 64> workList;
 
@@ -54,6 +55,7 @@ public:
   void addKernel(const clang::CXXMethodDecl *callOperator);
 
   void addFunctor(const clang::CXXRecordDecl *record);
+  void enqueueDestructorOf(clang::QualType type);
   void enqueue(const clang::FunctionDecl *FD);
   void run(clang::ASTContext &context);
 };

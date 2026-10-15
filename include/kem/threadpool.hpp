@@ -263,7 +263,8 @@ public:
 
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(const sycl::nd_range<dim> &r, Func f) {
-    sycl::detail::note_and_check_kernel<KernelName, Func>(get_device());
+    sycl::detail::note_and_check_nd_kernel<KernelName, Func>(
+        get_device(), r.get_local_range());
     if constexpr (dim == 1) {
       execute_nd_range_1D(r, f);
     } else if constexpr (dim == 2) {
@@ -446,8 +447,7 @@ void handler::parallel_for(range<dim> r, Func f) {
 
 template <typename KernelName, typename Func, int dim>
 void handler::parallel_for(const nd_range<dim> &r, Func f) {
-  paras_launch_kernel<KernelName, Func>();
-  paras_check_reqd_work_group_size<Func>(r);
+  paras_launch_nd_kernel<KernelName, Func>(r);
   wait_for_dependencies();
 
   if constexpr (dim == 1) {

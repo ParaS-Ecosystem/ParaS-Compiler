@@ -220,6 +220,16 @@ public:
     }
   }
 
+  template <typename KernelName, typename Func, int D>
+  void paras_launch_nd_kernel(const nd_range<D> &r) {
+    paras_launch_kernel<KernelName, Func>();
+#if !PARAS_DEVICE_PASS
+    detail::check_nd_launch(detail::note_kernel<KernelName, Func>(),
+                            r.get_local_range(), paras_reduction_device());
+#else
+    (void)r;
+#endif
+  }
   template <typename KernelName, typename Func> void paras_launch_kernel() {
 #if !PARAS_DEVICE_PASS
     const detail::kernel_info *ki = detail::note_kernel<KernelName, Func>();

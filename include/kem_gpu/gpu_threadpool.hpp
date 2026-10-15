@@ -605,7 +605,8 @@ public:
 
   template <typename KernelName = void, typename Func, int dim>
   sycl::event parallel_for(const sycl::nd_range<dim> &r, Func f) {
-    sycl::detail::note_and_check_kernel<KernelName, Func>(get_device());
+    sycl::detail::note_and_check_nd_kernel<KernelName, Func>(
+        get_device(), r.get_local_range());
     if constexpr (dim == 1) {
       gpu_execute_nd_range_1D(r, f);
     } else if constexpr (dim == 2) {

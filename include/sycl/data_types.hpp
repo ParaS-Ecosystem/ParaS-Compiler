@@ -2405,7 +2405,7 @@ return (*this) *= static_cast<vec>(rhs);
         static_assert(sizeof(asVecType) == sizeof(vec),
                       "as<>() requires the source and destination vec to have the same total byte size");
         asVecType result;
-        std::memcpy(&result, this, sizeof(vec));
+        __builtin_memcpy(&result, this, sizeof(vec));
         return result;
     }
 
@@ -2559,7 +2559,7 @@ To bit_cast(const From& from) noexcept {
     static_assert(sizeof(To) == sizeof(From),
                   "sycl::bit_cast requires equally-sized types");
     To to;
-    std::memcpy(&to, &from, sizeof(To));
+    __builtin_memcpy(&to, &from, sizeof(To));
     return to;
 }
 

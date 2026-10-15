@@ -23,6 +23,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/AST/QualTypeNames.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/SourceManager.h"
@@ -31,6 +32,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -196,6 +198,21 @@ std::vector<AttrSpan> specifiersBefore(const llvm::StringRef text,
   return out;
 }
 
+std::vector<AttrSpan> specifiersFrom(const llvm::StringRef text, unsigned pos) {
+  std::vector<AttrSpan> out;
+  unsigned i = pos;
+  while (true) {
+    while (i < text.size() && isSpace(text[i]))
+      ++i;
+    AttrSpan span;
+    if (!specifierAt(text, i, span))
+      break;
+    out.push_back(span);
+    i = span.end;
+  }
+  return out;
+}
+
 std::string propsList(const std::vector<std::string> &props) {
   std::string r = "::sycl::detail::kp_list<";
   for (std::size_t i = 0; i < props.size(); ++i) {
@@ -268,13 +285,33 @@ std::string calleeMemberName(const clang::CallExpr *CE) {
 
 class KernelAttrVisitor : public clang::RecursiveASTVisitor<KernelAttrVisitor> {
 public:
-  KernelAttrVisitor(clang::ASTContext &ctx, clang::Rewriter &rw)
-      : ctx(ctx), SM(ctx.getSourceManager()), rw(rw) {
+  KernelAttrVisitor(clang::ASTContext &ctx, clang::Rewriter &rw, bool gpu)
+      : ctx(ctx), SM(ctx.getSourceManager()), rw(rw), gpu(gpu) {
     parasInclude = std::string(PARAS_INSTALL_PREFIX) + "/include/";
   }
 
   bool shouldVisitTemplateInstantiations() const { return false; }
   bool shouldVisitImplicitCode() const { return false; }
+
+  bool VisitVarDecl(clang::VarDecl *VD) {
+    if (!gpu || !VD || !VD->isConstexpr() || !VD->getType()->isReferenceType() ||
+        !VD->isLocalVarDecl() || VD->isStaticLocal() ||
+        llvm::isa<clang::ParmVarDecl>(VD))
+      return true;
+    if (const auto *FD = llvm::dyn_cast_or_null<clang::FunctionDecl>(
+            VD->getParentFunctionOrMethod()))
+      if (FD->isConstexpr())
+        return true;
+    clang::SourceLocation loc = VD->getBeginLoc();
+    clang::FileID fid;
+    unsigned off = 0;
+    if (!userFileLoc(loc, fid, off))
+      return true;
+    if (!staticRefs.insert(loc).second)
+      return true;
+    rw.InsertTextBefore(loc, "static __device__ ");
+    return true;
+  }
 
   bool VisitCXXMethodDecl(clang::CXXMethodDecl *MD) {
     if (MD->getOverloadedOperator() != clang::OO_Call)
@@ -297,6 +334,8 @@ public:
       return true;
     const llvm::StringRef text = SM.getBufferData(fid);
     auto specs = specifiersBefore(text, off);
+    if (specs.empty())
+      specs = specifiersFrom(text, off);
     const bool usesHalf = MD->doesThisDeclarationHaveABody() &&
                           bodyUsesHalf(MD->getBody());
     if (MD != declMD)
@@ -368,8 +407,27 @@ public:
         if (FTL.getRParenLoc().isValid())
           from = FTL.getRParenLoc();
     clang::SourceLocation to = body->getLBracLoc();
-    if (from.isMacroID() || to.isMacroID() || LE->getBeginLoc().isMacroID() ||
-        LE->getEndLoc().isMacroID())
+    clang::SourceLocation lb = LE->getBeginLoc(), le = LE->getEndLoc();
+
+    auto argText = [&](clang::SourceLocation l) {
+      while (l.isMacroID() && SM.isMacroArgExpansion(l))
+        l = SM.getImmediateSpellingLoc(l);
+      return l;
+    };
+    {
+      const clang::SourceLocation alb = argText(lb), ale = argText(le),
+                                  afrom = argText(from), ato = argText(to);
+      if (alb.isFileID() && ale.isFileID() && afrom.isFileID() &&
+          ato.isFileID()) {
+        lb = alb;
+        le = ale;
+        from = afrom;
+        to = ato;
+      }
+    }
+    if (lb.isMacroID() && from.isMacroID() && to.isMacroID() && le.isMacroID())
+      return rewriteMacroLambda(LE, from, to);
+    if (from.isMacroID() || to.isMacroID() || lb.isMacroID() || le.isMacroID())
       return true;
     unsigned fromOff, toOff;
     clang::FileID fid, fid2;
@@ -382,7 +440,7 @@ public:
                           bodyUsesHalf(const_cast<clang::CompoundStmt *>(body));
     if (specs.empty() && !usesHalf)
       return true;
-    if (!done.insert(LE->getBeginLoc()).second)
+    if (!done.insert(lb).second)
       return true;
     std::vector<std::string> props;
     if (usesHalf)
@@ -394,10 +452,79 @@ public:
       rw.RemoveText(clang::SourceRange(SM.getComposedLoc(fid, sp.begin),
                                        SM.getComposedLoc(fid, sp.end - 1)));
     }
-    rw.InsertTextBefore(LE->getBeginLoc(),
-                        "::sycl::detail::with_kernel_props<" +
+    rw.InsertTextBefore(lb, "::sycl::detail::with_kernel_props<" +
                             propsList(props) + ">(");
-    rw.InsertTextAfterToken(LE->getEndLoc(), ")");
+    rw.InsertTextAfterToken(le, ")");
+    return true;
+  }
+
+  bool rewriteMacroLambda(clang::LambdaExpr *LE, clang::SourceLocation from,
+                          clang::SourceLocation to) {
+    const clang::SourceLocation sb = SM.getSpellingLoc(LE->getBeginLoc());
+    const clang::SourceLocation se = SM.getSpellingLoc(LE->getEndLoc());
+    const clang::SourceLocation sf = SM.getSpellingLoc(from);
+    const clang::SourceLocation st = SM.getSpellingLoc(to);
+    clang::FileID fid, fid2, fid3, fid4;
+    unsigned ob, oe, of, ot;
+    if (!userFileLoc(sb, fid, ob) || !userFileLoc(se, fid2, oe) ||
+        !userFileLoc(sf, fid3, of) || !userFileLoc(st, fid4, ot) ||
+        fid != fid2 || fid != fid3 || fid != fid4 || !(ob < of && of < ot && ot <= oe))
+      return true;
+    const llvm::StringRef def = SM.getBufferData(fid);
+
+    const std::string param = trim(def.substr(of + 1, ot - of - 1).str());
+    if (param.empty() ||
+        !std::all_of(param.begin(), param.end(), [](char c) {
+          return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+        }) ||
+        std::isdigit(static_cast<unsigned char>(param[0])) ||
+        param == "mutable" || param == "constexpr" || param == "noexcept")
+      return true;
+
+    clang::SourceLocation body = LE->getBeginLoc();
+    while (body.isMacroID() && SM.isMacroArgExpansion(body))
+      body = SM.getImmediateSpellingLoc(body);
+    const clang::CharSourceRange inv = SM.getImmediateExpansionRange(body);
+    clang::FileID ifid, ifid2;
+    unsigned ib, ie;
+    if (!userFileLoc(SM.getSpellingLoc(inv.getBegin()), ifid, ib) ||
+        !userFileLoc(SM.getSpellingLoc(inv.getEnd()), ifid2, ie) ||
+        ifid != ifid2 || ie <= ib)
+      return true;
+    const llvm::StringRef itext = SM.getBufferData(ifid);
+    const auto specs = scanRange(itext, ib, std::min<unsigned>(ie + 1, itext.size()));
+    bool ok = true;
+    for (const auto &sp : specs)
+      ok = ok && !sp.props.empty();
+    if (!ok)
+      return true;
+
+    const clang::SourceLocation defKey = SM.getComposedLoc(fid, ob);
+    if (macroLambdas.insert(defKey).second) {
+      const unsigned pb = of + 1 + static_cast<unsigned>(
+                                       def.substr(of + 1).find(param));
+      rw.RemoveText(clang::SourceRange(
+          SM.getComposedLoc(fid, pb),
+          SM.getComposedLoc(fid, pb + static_cast<unsigned>(param.size()) - 1)));
+      rw.InsertTextBefore(defKey, "::sycl::detail::with_kernel_props_fn<void " +
+                                      param + ">(");
+      rw.InsertTextAfterToken(SM.getComposedLoc(fid, oe), ")");
+    }
+
+    if (!specs.empty() &&
+        macroInvocations.insert(SM.getComposedLoc(ifid, ib)).second) {
+      std::vector<std::string> props;
+      for (const auto &sp : specs)
+        props.insert(props.end(), sp.props.begin(), sp.props.end());
+      for (std::size_t i = 0; i < specs.size(); ++i) {
+        const clang::SourceRange r(SM.getComposedLoc(ifid, specs[i].begin),
+                                   SM.getComposedLoc(ifid, specs[i].end - 1));
+        if (i == 0)
+          rw.ReplaceText(r, "(" + propsList(props) + ")");
+        else
+          rw.RemoveText(r);
+      }
+    }
     return true;
   }
 
@@ -442,14 +569,306 @@ private:
   llvm::DenseMap<const clang::CXXRecordDecl *, ClassEntry> classProps;
   llvm::DenseSet<clang::SourceLocation> done;
   llvm::DenseSet<const clang::LambdaExpr *> kernelLambdas;
+  llvm::DenseSet<clang::SourceLocation> staticRefs;
+  llvm::DenseSet<clang::SourceLocation> macroLambdas;
+  llvm::DenseSet<clang::SourceLocation> macroInvocations;
+  bool gpu = false;
+};
+
+class KernelUseScanner : public clang::RecursiveASTVisitor<KernelUseScanner> {
+public:
+  KernelUseScanner(clang::ASTContext &ctx, clang::Rewriter &rw)
+      : ctx(ctx), SM(ctx.getSourceManager()), rw(rw) {
+    parasInclude = std::string(PARAS_INSTALL_PREFIX) + "/include/";
+  }
+
+  bool shouldVisitTemplateInstantiations() const { return true; }
+
+  bool VisitCallExpr(clang::CallExpr *CE) {
+    const clang::FunctionDecl *FD = CE->getDirectCallee();
+    if (!FD || FD->isDependentContext())
+      return true;
+    const std::string name = FD->getNameAsString();
+    if (name != "single_task" && name != "parallel_for" &&
+        name != "parallel_for_work_group")
+      return true;
+    const auto *MD = llvm::dyn_cast<clang::CXXMethodDecl>(FD);
+    if (!MD || !MD->getParent())
+      return true;
+    const std::string cls = MD->getParent()->getQualifiedNameAsString();
+    if (cls != "sycl::handler" && cls != "sycl::queue")
+      return true;
+    const clang::TemplateArgumentList *targs = FD->getTemplateSpecializationArgs();
+    if (!targs || targs->size() == 0 ||
+        targs->get(0).getKind() != clang::TemplateArgument::Type)
+      return true;
+    const clang::QualType kn = targs->get(0).getAsType();
+    if (kn.isNull() || kn->isVoidType() || kn->isDependentType() ||
+        !nameable(kn))
+      return true;
+    if (CE->getNumArgs() == 0)
+      return true;
+    const clang::Expr *last = CE->getArg(CE->getNumArgs() - 1);
+    if (!last)
+      return true;
+    const clang::CXXRecordDecl *RD =
+        last->getType().getNonReferenceType()->getAsCXXRecordDecl();
+    if (!RD)
+      return true;
+
+    std::set<std::string> aspects;
+    llvm::DenseSet<const clang::FunctionDecl *> seen;
+    if (RD->isLambda()) {
+      if (const clang::CXXMethodDecl *op = RD->getLambdaCallOperator())
+        analyze(op, 0, aspects, seen);
+    } else {
+      for (const clang::CXXMethodDecl *m : RD->methods())
+        if (m->getOverloadedOperator() == clang::OO_Call)
+          analyze(m, 0, aspects, seen);
+
+      for (const clang::Decl *d : RD->decls())
+        if (const auto *ftd = llvm::dyn_cast<clang::FunctionTemplateDecl>(d))
+          for (const clang::FunctionDecl *spec : ftd->specializations())
+            if (spec->getOverloadedOperator() == clang::OO_Call)
+              analyze(spec, 0, aspects, seen);
+    }
+    if (aspects.empty())
+      return true;
+
+    clang::PrintingPolicy pp(ctx.getLangOpts());
+    pp.SuppressTagKeyword = true;
+    pp.FullyQualifiedName = true;
+    pp.SuppressUnwrittenScope = true;
+    const std::string kname =
+        clang::TypeName::getFullyQualifiedName(kn, ctx, pp, true);
+    std::string list;
+    for (const std::string &a : aspects)
+      list += (list.empty() ? "" : ", ") + a;
+    const std::string key = kname + "|" + list;
+    if (!emitted.insert(key).second)
+      return true;
+    out += "static const bool paras_kreq_" + std::to_string(counter++) +
+           " = ::sycl::detail::paras_add_kernel_aspects<" + kname + ">({" +
+           list + "});\n";
+    return true;
+  }
+
+  void finish() {
+    if (out.empty())
+      return;
+    const clang::FileID main = SM.getMainFileID();
+    rw.InsertTextAfter(SM.getLocForEndOfFile(main),
+                       "\n// ParaS: optional features used by instantiated "
+                       "kernels\n" + out);
+  }
+
+private:
+  bool userCode(const clang::FunctionDecl *FD) {
+    clang::SourceLocation loc = SM.getSpellingLoc(FD->getLocation());
+    if (loc.isInvalid() || SM.isInSystemHeader(loc) ||
+        SM.isInExternCSystemHeader(loc))
+      return false;
+    auto entry = SM.getFileEntryRefForID(SM.getFileID(loc));
+    if (!entry)
+      return false;
+    const std::string n = entry->getName().str();
+    return n.compare(0, parasInclude.size(), parasInclude) != 0;
+  }
+
+  bool nameable(clang::QualType T, int depth = 0) {
+    if (depth > 16 || T.isNull())
+      return false;
+    T = T.getCanonicalType();
+    if (T->isBuiltinType())
+      return true;
+    if (const auto *PT = T->getAs<clang::PointerType>())
+      return nameable(PT->getPointeeType(), depth + 1);
+    if (const auto *ET = T->getAs<clang::EnumType>()) {
+      const clang::EnumDecl *ED = ET->getDecl();
+      return ED && !ED->getParentFunctionOrMethod();
+    }
+    const clang::CXXRecordDecl *RD = T->getAsCXXRecordDecl();
+    if (!RD || RD->isLambda() || RD->getParentFunctionOrMethod() ||
+        !RD->getIdentifier())
+      return false;
+    if (const auto *spec =
+            llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(RD)) {
+      for (const clang::TemplateArgument &a : spec->getTemplateArgs().asArray()) {
+        if (a.getKind() == clang::TemplateArgument::Type) {
+          if (!nameable(a.getAsType(), depth + 1))
+            return false;
+        } else if (a.getKind() == clang::TemplateArgument::Integral) {
+          if (!nameable(a.getIntegralType(), depth + 1))
+            return false;
+        } else {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  void declaredAspects(const clang::FunctionDecl *FD, std::set<std::string> &out) {
+
+    std::vector<const clang::FunctionDecl *> decls;
+    if (const clang::FunctionTemplateDecl *ftd = FD->getPrimaryTemplate()) {
+      for (const clang::RedeclarableTemplateDecl *r : ftd->redecls())
+        if (const auto *f = llvm::dyn_cast<clang::FunctionTemplateDecl>(r))
+          if (f->getTemplatedDecl())
+            decls.push_back(f->getTemplatedDecl());
+    } else {
+      const clang::FunctionDecl *pattern = FD->getTemplateInstantiationPattern();
+      for (const clang::FunctionDecl *r : (pattern ? pattern : FD)->redecls())
+        decls.push_back(r);
+    }
+    for (const clang::FunctionDecl *pattern : decls)
+      declaredAspectsAt(FD, pattern, out);
+  }
+
+  void declaredAspectsAt(const clang::FunctionDecl *FD,
+                         const clang::FunctionDecl *pattern,
+                         std::set<std::string> &out) {
+
+    clang::SourceLocation start = pattern->getOuterLocStart();
+    if (const clang::FunctionTemplateDecl *t =
+            pattern->getDescribedFunctionTemplate())
+      start = t->getBeginLoc();
+    const clang::SourceLocation b = SM.getExpansionLoc(start);
+    const clang::SourceLocation n = SM.getExpansionLoc(pattern->getLocation());
+    if (b.isInvalid() || n.isInvalid())
+      return;
+    const auto db = SM.getDecomposedLoc(b), dn = SM.getDecomposedLoc(n);
+    if (db.first != dn.first || dn.second <= db.second)
+      return;
+    const llvm::StringRef text = SM.getBufferData(db.first);
+    std::vector<AttrSpan> specs = scanRange(text, db.second, dn.second);
+
+    unsigned pos = db.second;
+    while (true) {
+      unsigned i = pos;
+      while (i > 0 && isSpace(text[i - 1]))
+        --i;
+      unsigned j = i;
+      while (j > 0 && (std::isalnum(static_cast<unsigned char>(text[j - 1])) ||
+                       text[j - 1] == '_'))
+        --j;
+      if (j < i) {
+        pos = j;
+        continue;
+      }
+      const auto before = specifiersBefore(text, i);
+      if (before.empty())
+        break;
+      specs.insert(specs.end(), before.begin(), before.end());
+      pos = before.front().begin;
+    }
+    for (const AttrSpan &sp : specs) {
+      const std::string body =
+          text.substr(sp.begin + 2, sp.end - sp.begin - 4).str();
+      for (const std::string &attr : splitArgs(body)) {
+        std::string compact;
+        for (char c : attr)
+          if (!isSpace(c))
+            compact += c;
+        const std::string pre = "sycl::device_has(";
+        if (compact.compare(0, pre.size(), pre) != 0 || compact.back() != ')')
+          continue;
+        const std::string args =
+            compact.substr(pre.size(), compact.size() - pre.size() - 1);
+        for (std::string a : splitArgs(args)) {
+          while (a.size() > 2 && a.front() == '(' && a.back() == ')')
+            a = a.substr(1, a.size() - 2);
+          const std::size_t sep = a.rfind("aspect::");
+          if (sep != std::string::npos) {
+            out.insert("::sycl::aspect::" + a.substr(sep + 8));
+            continue;
+          }
+
+          const clang::FunctionTemplateDecl *ftd = FD->getPrimaryTemplate();
+          const clang::TemplateArgumentList *targs =
+              FD->getTemplateSpecializationArgs();
+          if (!ftd || !targs)
+            continue;
+          const clang::TemplateParameterList *tpl = ftd->getTemplateParameters();
+          for (unsigned i = 0; i < tpl->size() && i < targs->size(); ++i) {
+            const clang::NamedDecl *p = tpl->getParam(i);
+            if (p && p->getNameAsString() == a &&
+                targs->get(i).getKind() == clang::TemplateArgument::Integral)
+              out.insert("static_cast<::sycl::aspect>(" +
+                         std::to_string(targs->get(i).getAsIntegral().getExtValue()) +
+                         ")");
+          }
+        }
+      }
+    }
+  }
+
+  class BodyScan : public clang::RecursiveASTVisitor<BodyScan> {
+  public:
+    bool half = false;
+    std::vector<const clang::FunctionDecl *> callees;
+    bool shouldVisitImplicitCode() const { return true; }
+    bool VisitExpr(clang::Expr *E) {
+      if (!E->isTypeDependent() && isHalfType(E->getType()))
+        half = true;
+      return true;
+    }
+    bool VisitVarDecl(clang::VarDecl *VD) {
+      if (isHalfType(VD->getType()))
+        half = true;
+      return true;
+    }
+    bool VisitCallExpr(clang::CallExpr *C) {
+      if (const clang::FunctionDecl *F = C->getDirectCallee())
+        callees.push_back(F);
+      return true;
+    }
+    bool VisitCXXConstructExpr(clang::CXXConstructExpr *C) {
+      if (C->getConstructor())
+        callees.push_back(C->getConstructor());
+      return true;
+    }
+  };
+
+  void analyze(const clang::FunctionDecl *FD, int depth,
+               std::set<std::string> &aspects,
+               llvm::DenseSet<const clang::FunctionDecl *> &seen) {
+    if (!FD || depth > 8 || !seen.insert(FD->getCanonicalDecl()).second)
+      return;
+    if (!userCode(FD))
+      return;
+    if (depth > 0)
+      declaredAspects(FD, aspects);
+    const clang::FunctionDecl *def = nullptr;
+    if (!FD->hasBody(def) || !def || !def->getBody())
+      return;
+    BodyScan scan;
+    scan.TraverseStmt(def->getBody());
+    if (scan.half)
+      aspects.insert("::sycl::aspect::fp16");
+    for (const clang::FunctionDecl *c : scan.callees)
+      analyze(c, depth + 1, aspects, seen);
+  }
+
+  clang::ASTContext &ctx;
+  clang::SourceManager &SM;
+  clang::Rewriter &rw;
+  std::string parasInclude;
+  std::set<std::string> emitted;
+  std::string out;
+  int counter = 0;
 };
 
 }
 
 namespace paras {
-void rewriteKernelAttributes(clang::ASTContext &ctx, clang::Rewriter &rw) {
-  KernelAttrVisitor v(ctx, rw);
+void rewriteKernelAttributes(clang::ASTContext &ctx, clang::Rewriter &rw,
+                             bool gpuBuild) {
+  KernelAttrVisitor v(ctx, rw, gpuBuild);
   v.TraverseDecl(ctx.getTranslationUnitDecl());
   v.finish();
+  KernelUseScanner u(ctx, rw);
+  u.TraverseDecl(ctx.getTranslationUnitDecl());
+  u.finish();
 }
 }

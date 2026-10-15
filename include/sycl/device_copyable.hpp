@@ -44,7 +44,11 @@ inline constexpr bool is_device_copyable_v = is_device_copyable<T>::value;
   }
 
 #ifndef SYCL_EXTERNAL
+#if defined(__HIP__) || defined(__CUDA__)
+#define SYCL_EXTERNAL __host__ __device__
+#else
 #define SYCL_EXTERNAL
+#endif
 #endif
 
 #endif

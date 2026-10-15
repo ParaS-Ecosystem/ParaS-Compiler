@@ -1381,21 +1381,21 @@ PARAS_KERNEL_HD inline T1 bitselect(T1 a_arg, T2 b_arg, T3 c_arg) {
     if constexpr (std::is_floating_point_v<S>) {
       using U = detail::same_size_uint_t<S>;
       U ua; U ub; U uc;
-      std::memcpy(&ua, &a, sizeof(S));
-      std::memcpy(&ub, &b, sizeof(S));
-      std::memcpy(&uc, &c, sizeof(S));
+      __builtin_memcpy(&ua, &a, sizeof(S));
+      __builtin_memcpy(&ub, &b, sizeof(S));
+      __builtin_memcpy(&uc, &c, sizeof(S));
       U ur = (ua & ~uc) | (ub & uc);
       S r;
-      std::memcpy(&r, &ur, sizeof(S));
+      __builtin_memcpy(&r, &ur, sizeof(S));
       return r;
     } else if constexpr (std::is_same_v<S, half>) {
       std::uint16_t ua, ub, uc;
-      std::memcpy(&ua, &a, sizeof(std::uint16_t));
-      std::memcpy(&ub, &b, sizeof(std::uint16_t));
-      std::memcpy(&uc, &c, sizeof(std::uint16_t));
+      __builtin_memcpy(&ua, &a, sizeof(std::uint16_t));
+      __builtin_memcpy(&ub, &b, sizeof(std::uint16_t));
+      __builtin_memcpy(&uc, &c, sizeof(std::uint16_t));
       std::uint16_t ur = (ua & ~uc) | (ub & uc);
       S result;
-      std::memcpy(&result, &ur, sizeof(std::uint16_t));
+      __builtin_memcpy(&result, &ur, sizeof(std::uint16_t));
       return result;
     } else {
       using U = std::make_unsigned_t<S>;

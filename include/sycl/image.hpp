@@ -31,6 +31,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <new>
 #include <functional>
 #include <memory>
 #include <type_traits>
@@ -83,6 +85,61 @@ inline std::size_t image_channel_bytes(image_format f) {
   }
 }
 
+template <typename T> class kernel_shared_ptr {
+  alignas(std::shared_ptr<T>) unsigned char sp_[sizeof(std::shared_ptr<T>)];
+  T *raw_ = nullptr;
+
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+#define PARAS_KSP_DEVICE_PASS 1
+#endif
+  std::shared_ptr<T> &sp() { return *reinterpret_cast<std::shared_ptr<T> *>(sp_); }
+  const std::shared_ptr<T> &sp() const {
+    return *reinterpret_cast<const std::shared_ptr<T> *>(sp_);
+  }
+  void copy_from(const kernel_shared_ptr &o) {
+#ifdef PARAS_KSP_DEVICE_PASS
+    for (std::size_t i = 0; i < sizeof(sp_); ++i) sp_[i] = o.sp_[i];
+#else
+    new (sp_) std::shared_ptr<T>(o.sp());
+#endif
+    raw_ = o.raw_;
+  }
+  void destroy() {
+#ifndef PARAS_KSP_DEVICE_PASS
+    sp().~shared_ptr();
+#endif
+  }
+
+public:
+  kernel_shared_ptr() {
+#ifndef PARAS_KSP_DEVICE_PASS
+    new (sp_) std::shared_ptr<T>();
+#endif
+  }
+  kernel_shared_ptr(std::shared_ptr<T> p) : raw_(p.get()) {
+#ifndef PARAS_KSP_DEVICE_PASS
+    new (sp_) std::shared_ptr<T>(std::move(p));
+#endif
+  }
+  kernel_shared_ptr(const kernel_shared_ptr &o) { copy_from(o); }
+  kernel_shared_ptr &operator=(const kernel_shared_ptr &o) {
+    if (this != &o) {
+      destroy();
+      copy_from(o);
+    }
+    return *this;
+  }
+  ~kernel_shared_ptr() { destroy(); }
+#undef PARAS_KSP_DEVICE_PASS
+
+  T *get() const noexcept { return raw_; }
+  T &operator*() const noexcept { return *raw_; }
+  T *operator->() const noexcept { return raw_; }
+  friend bool operator==(const kernel_shared_ptr &a, const kernel_shared_ptr &b) {
+    return a.raw_ == b.raw_;
+  }
+};
+
 struct image_storage {
   image_format format;
   std::size_t count;
@@ -118,12 +175,12 @@ inline float image_half_to_float(std::uint16_t h) {
     bits = sign | ((exp + 127 - 15) << 23) | (man << 13);
   }
   float f;
-  std::memcpy(&f, &bits, 4);
+  __builtin_memcpy(&f, &bits, 4);
   return f;
 }
 inline std::uint16_t image_float_to_half(float f) {
   std::uint32_t x;
-  std::memcpy(&x, &f, 4);
+  __builtin_memcpy(&x, &f, 4);
   const std::uint16_t sign = static_cast<std::uint16_t>((x >> 16) & 0x8000u);
   const std::uint32_t exp = (x >> 23) & 0xffu, man = x & 0x7fffffu;
   if (exp == 0xff)
@@ -162,29 +219,29 @@ inline double image_load_channel(const image_storage &s, std::size_t idx,
   case image_format::b8g8r8a8_unorm:
     return *p / 255.0;
   case image_format::r16g16b16a16_unorm: {
-    std::uint16_t v; std::memcpy(&v, p, 2); return v / 65535.0;
+    std::uint16_t v; __builtin_memcpy(&v, p, 2); return v / 65535.0;
   }
   case image_format::r8g8b8a8_sint:
     return static_cast<std::int8_t>(*p);
   case image_format::r8g8b8a8_uint:
     return *p;
   case image_format::r16g16b16a16_sint: {
-    std::int16_t v; std::memcpy(&v, p, 2); return v;
+    std::int16_t v; __builtin_memcpy(&v, p, 2); return v;
   }
   case image_format::r16g16b16a16_uint: {
-    std::uint16_t v; std::memcpy(&v, p, 2); return v;
+    std::uint16_t v; __builtin_memcpy(&v, p, 2); return v;
   }
   case image_format::r32b32g32a32_sint: {
-    std::int32_t v; std::memcpy(&v, p, 4); return v;
+    std::int32_t v; __builtin_memcpy(&v, p, 4); return v;
   }
   case image_format::r32b32g32a32_uint: {
-    std::uint32_t v; std::memcpy(&v, p, 4); return v;
+    std::uint32_t v; __builtin_memcpy(&v, p, 4); return v;
   }
   case image_format::r16b16g16a16_sfloat: {
-    std::uint16_t v; std::memcpy(&v, p, 2); return image_half_to_float(v);
+    std::uint16_t v; __builtin_memcpy(&v, p, 2); return image_half_to_float(v);
   }
   case image_format::r32g32b32a32_sfloat: {
-    float v; std::memcpy(&v, p, 4); return v;
+    float v; __builtin_memcpy(&v, p, 4); return v;
   }
   }
   return 0;
@@ -206,17 +263,17 @@ inline void image_store_channel(image_storage &s, std::size_t idx, int c,
     break;
   case image_format::r16g16b16a16_unorm: {
     std::uint16_t x = static_cast<std::uint16_t>(std::lround(clampd(v, 0, 1) * 65535.0));
-    std::memcpy(p, &x, 2);
+    __builtin_memcpy(p, &x, 2);
     break;
   }
-  case image_format::r8g8b8a8_sint: { std::int8_t x = static_cast<std::int8_t>(v); std::memcpy(p, &x, 1); break; }
-  case image_format::r8g8b8a8_uint: { std::uint8_t x = static_cast<std::uint8_t>(v); std::memcpy(p, &x, 1); break; }
-  case image_format::r16g16b16a16_sint: { std::int16_t x = static_cast<std::int16_t>(v); std::memcpy(p, &x, 2); break; }
-  case image_format::r16g16b16a16_uint: { std::uint16_t x = static_cast<std::uint16_t>(v); std::memcpy(p, &x, 2); break; }
-  case image_format::r32b32g32a32_sint: { std::int32_t x = static_cast<std::int32_t>(v); std::memcpy(p, &x, 4); break; }
-  case image_format::r32b32g32a32_uint: { std::uint32_t x = static_cast<std::uint32_t>(v); std::memcpy(p, &x, 4); break; }
-  case image_format::r16b16g16a16_sfloat: { std::uint16_t x = image_float_to_half(static_cast<float>(v)); std::memcpy(p, &x, 2); break; }
-  case image_format::r32g32b32a32_sfloat: { float x = static_cast<float>(v); std::memcpy(p, &x, 4); break; }
+  case image_format::r8g8b8a8_sint: { std::int8_t x = static_cast<std::int8_t>(v); __builtin_memcpy(p, &x, 1); break; }
+  case image_format::r8g8b8a8_uint: { std::uint8_t x = static_cast<std::uint8_t>(v); __builtin_memcpy(p, &x, 1); break; }
+  case image_format::r16g16b16a16_sint: { std::int16_t x = static_cast<std::int16_t>(v); __builtin_memcpy(p, &x, 2); break; }
+  case image_format::r16g16b16a16_uint: { std::uint16_t x = static_cast<std::uint16_t>(v); __builtin_memcpy(p, &x, 2); break; }
+  case image_format::r32b32g32a32_sint: { std::int32_t x = static_cast<std::int32_t>(v); __builtin_memcpy(p, &x, 4); break; }
+  case image_format::r32b32g32a32_uint: { std::uint32_t x = static_cast<std::uint32_t>(v); __builtin_memcpy(p, &x, 4); break; }
+  case image_format::r16b16g16a16_sfloat: { std::uint16_t x = image_float_to_half(static_cast<float>(v)); __builtin_memcpy(p, &x, 2); break; }
+  case image_format::r32g32b32a32_sfloat: { float x = static_cast<float>(v); __builtin_memcpy(p, &x, 4); break; }
   }
 }
 
@@ -308,7 +365,7 @@ inline void image_check_index(std::size_t idx) {
 template <typename DataT, int Dimensions, access_mode AccessMode,
           image_target AccessTarget = image_target::device>
 class unsampled_image_accessor {
-  std::shared_ptr<detail::image_storage> st_;
+  detail::kernel_shared_ptr<detail::image_storage> st_;
   range<Dimensions> r_;
 
 public:
@@ -416,7 +473,7 @@ public:
 template <typename DataT, int Dimensions,
           image_target AccessTarget = image_target::device>
 class sampled_image_accessor {
-  std::shared_ptr<detail::image_storage> st_;
+  detail::kernel_shared_ptr<detail::image_storage> st_;
   range<Dimensions> r_;
   image_sampler smp_{};
 

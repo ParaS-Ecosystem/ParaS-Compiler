@@ -91,6 +91,10 @@ int executor(std::vector<std::string> command,
       prefix.push_back("-x");
       prefix.push_back(back_end);
       prefix.push_back("--offload-arch=" + tar_arch);
+
+      prefix.push_back("-include");
+      prefix.push_back(std::string(PARAS_INSTALL_PREFIX) +
+                       "/include/kem_gpu/device_prelude.hpp");
     }
     if (!bkend_target[2].empty()) {
       prefix.push_back("-resource-dir");

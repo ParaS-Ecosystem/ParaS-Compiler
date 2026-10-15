@@ -26,7 +26,8 @@
 
 namespace paras {
 
-void rewriteKernelAttributes(clang::ASTContext &ctx, clang::Rewriter &rw);
+void rewriteKernelAttributes(clang::ASTContext &ctx, clang::Rewriter &rw,
+                             bool gpuBuild = false);
 }
 
 #endif

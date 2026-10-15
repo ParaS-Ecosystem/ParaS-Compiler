@@ -220,6 +220,43 @@ inline void kernel_launch_check(const kernel_info *ki, const bundle_impl *kb,
                         "support");
 }
 
+template <int D>
+inline void check_nd_launch(const kernel_info *ki, const range<D> &local,
+                            const device &dev) {
+  if (local.size() > dev.get_info<info::device::max_work_group_size>())
+    throw exception(make_error_code(errc::nd_range),
+                    "nd_range: the work-group size exceeds the device's "
+                    "max_work_group_size");
+  if (ki != nullptr && ki->props.wg_dims > 0) {
+    const auto &p = ki->props;
+    const int declared = int(p.wg_has[0]) + int(p.wg_has[1]) + int(p.wg_has[2]);
+    bool same = true;
+    if (p.wg_has[D - 1]) {
+      for (int i = 0; same && i < D; ++i)
+        same = p.wg_by_dim[D - 1][i] == local[i];
+    } else if (declared == 1) {
+      same = false;
+    }
+    if (!same)
+      throw exception(make_error_code(errc::nd_range),
+                      "nd_range: the work-group size differs from the "
+                      "kernel's reqd_work_group_size");
+  }
+}
+
+template <typename KernelName, typename Func, int D>
+inline void note_and_check_nd_kernel(const device &dev, const range<D> &local) {
+#if !PARAS_DEVICE_PASS
+  const kernel_info *ki = note_kernel<KernelName, Func>();
+  if (ki)
+    kernel_launch_check(ki, nullptr, dev);
+  check_nd_launch(ki, local, dev);
+#else
+  (void)dev;
+  (void)local;
+#endif
+}
+
 template <typename KernelName, typename Func>
 inline void note_and_check_kernel(const device &dev) {
 #if !PARAS_DEVICE_PASS

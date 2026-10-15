@@ -49,6 +49,7 @@ private:
   VarDeclReplacer vdr_callback;
   ParaSLambdaHandler lambda_callback;
   clang::Rewriter &rewriter;
+  bool gpuBuild = false;
 
 public:
   ParaSConsumer(clang::Rewriter &r, std::vector<std::string> backend_target);

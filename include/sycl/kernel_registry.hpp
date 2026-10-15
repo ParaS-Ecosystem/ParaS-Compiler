@@ -21,7 +21,9 @@
 #ifndef __PARAS_KERNEL_REGISTRY_HPP__
 #define __PARAS_KERNEL_REGISTRY_HPP__
 
+#include <algorithm>
 #include <cstddef>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -40,6 +42,9 @@ struct kernel_props {
   std::vector<aspect> aspects;
   int wg_dims = 0;
   std::size_t wg[3] = {0, 0, 0};
+
+  bool wg_has[3] = {false, false, false};
+  std::size_t wg_by_dim[3][3] = {};
   std::size_t sg = 0;
 };
 
@@ -58,8 +63,11 @@ template <std::size_t... Ns> struct kp_apply<kp_work_group_size<Ns...>> {
                   "reqd_work_group_size takes 1 to 3 values");
     p.wg_dims = static_cast<int>(sizeof...(Ns));
     const std::size_t v[] = {Ns...};
-    for (std::size_t i = 0; i < sizeof...(Ns); ++i)
+    for (std::size_t i = 0; i < sizeof...(Ns); ++i) {
       p.wg[i] = v[i];
+      p.wg_by_dim[sizeof...(Ns) - 1][i] = v[i];
+    }
+    p.wg_has[sizeof...(Ns) - 1] = true;
   }
 };
 template <std::size_t N> struct kp_apply<kp_sub_group_size<N>> {
@@ -118,6 +126,8 @@ struct kernel_registry {
   std::mutex m;
   std::vector<const kernel_info *> order;
   std::map<const void *, const kernel_info *> by_key;
+
+  std::map<const void *, std::vector<aspect>> pending_aspects;
 };
 inline kernel_registry &kernel_registry_instance() {
   static kernel_registry *r = new kernel_registry;
@@ -131,10 +141,34 @@ inline const kernel_info *register_kernel(const void *key, std::string name,
   auto it = r.by_key.find(key);
   if (it != r.by_key.end())
     return it->second;
+  auto pend = r.pending_aspects.find(key);
+  if (pend != r.pending_aspects.end()) {
+    for (aspect a : pend->second)
+      if (std::find(props.aspects.begin(), props.aspects.end(), a) ==
+          props.aspects.end())
+        props.aspects.push_back(a);
+    r.pending_aspects.erase(pend);
+  }
   auto *ki = new kernel_info{key, std::move(name), std::move(props)};
   r.by_key.emplace(key, ki);
   r.order.push_back(ki);
   return ki;
+}
+
+template <typename KernelName>
+inline bool paras_add_kernel_aspects(std::initializer_list<aspect> as) {
+  auto &r = kernel_registry_instance();
+  std::lock_guard<std::mutex> lock(r.m);
+  const void *key = &type_key<KernelName>::value;
+  auto it = r.by_key.find(key);
+  std::vector<aspect> &dst =
+      it != r.by_key.end()
+          ? const_cast<kernel_info *>(it->second)->props.aspects
+          : r.pending_aspects[key];
+  for (aspect a : as)
+    if (std::find(dst.begin(), dst.end(), a) == dst.end())
+      dst.push_back(a);
+  return true;
 }
 
 inline const kernel_info *find_kernel(const void *key) {
@@ -183,6 +217,16 @@ template <typename Props, typename F> struct kernel_with_props {
 template <typename Props, typename F>
 inline kernel_with_props<Props, F> with_kernel_props(F f) {
   return {std::move(f)};
+}
+
+template <typename Sig> struct kp_from_signature { using type = void; };
+template <typename P> struct kp_from_signature<void(P)> { using type = P; };
+template <typename Sig, typename F> inline auto with_kernel_props_fn(F f) {
+  using P = typename kp_from_signature<Sig>::type;
+  if constexpr (std::is_void_v<P>)
+    return f;
+  else
+    return with_kernel_props<P>(std::move(f));
 }
 
 struct bundle_impl;

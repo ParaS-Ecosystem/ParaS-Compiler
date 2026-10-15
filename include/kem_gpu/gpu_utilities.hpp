@@ -23,6 +23,7 @@
 #include "kem/host_group_runtime.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 #if defined(__HIP__) || defined(__HIPCC__) || defined(__HIP_DEVICE_COMPILE__)
 #include <hip/hip_runtime.h>
@@ -160,7 +161,7 @@ inline bool paras_any_sync(std::uint64_t mask, bool pred) {
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl_down(std::uint64_t mask, T v, int delta) {
+PARAS_KERNEL_HD inline T paras_shfl_down_native(std::uint64_t mask, T v, int delta) {
 #if defined(__CUDA_ARCH__)
   return __shfl_down_sync(static_cast<unsigned>(mask), v, delta);
 #elif defined(__AMDGCN__)
@@ -175,7 +176,7 @@ PARAS_KERNEL_HD inline T paras_shfl_down(std::uint64_t mask, T v, int delta) {
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl_up(std::uint64_t mask, T v, int delta) {
+PARAS_KERNEL_HD inline T paras_shfl_up_native(std::uint64_t mask, T v, int delta) {
 #if defined(__CUDA_ARCH__)
   return __shfl_up_sync(static_cast<unsigned>(mask), v, delta);
 #elif defined(__AMDGCN__)
@@ -190,7 +191,7 @@ PARAS_KERNEL_HD inline T paras_shfl_up(std::uint64_t mask, T v, int delta) {
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl(std::uint64_t mask, T v, int lane) {
+PARAS_KERNEL_HD inline T paras_shfl_native(std::uint64_t mask, T v, int lane) {
 #if defined(__CUDA_ARCH__)
   return __shfl_sync(static_cast<unsigned>(mask), v, lane);
 #elif defined(__AMDGCN__)
@@ -205,7 +206,7 @@ PARAS_KERNEL_HD inline T paras_shfl(std::uint64_t mask, T v, int lane) {
 }
 
 template <typename T>
-PARAS_KERNEL_HD inline T paras_shfl_xor(std::uint64_t mask, T v, int lane_mask) {
+PARAS_KERNEL_HD inline T paras_shfl_xor_native(std::uint64_t mask, T v, int lane_mask) {
 #if defined(__CUDA_ARCH__)
   return __shfl_xor_sync(static_cast<unsigned>(mask), v, lane_mask);
 #elif defined(__AMDGCN__)
@@ -218,6 +219,43 @@ PARAS_KERNEL_HD inline T paras_shfl_xor(std::uint64_t mask, T v, int lane_mask) 
   return v;
 #endif
 }
+
+template <typename T>
+struct paras_shfl_native_type
+    : std::integral_constant<bool,
+          std::is_same<T, int>::value || std::is_same<T, unsigned>::value ||
+          std::is_same<T, long>::value || std::is_same<T, unsigned long>::value ||
+          std::is_same<T, long long>::value ||
+          std::is_same<T, unsigned long long>::value ||
+          std::is_same<T, float>::value || std::is_same<T, double>::value> {};
+
+template <typename T, typename Op>
+PARAS_KERNEL_HD inline T paras_shfl_words(T v, Op op) {
+  constexpr int N = static_cast<int>((sizeof(T) + 3) / 4);
+  unsigned w[N] = {};
+  __builtin_memcpy(w, &v, sizeof(T));
+  for (int k = 0; k < N; ++k) w[k] = op(w[k]);
+  T r = v;
+  __builtin_memcpy(&r, w, sizeof(T));
+  return r;
+}
+
+#define PARAS_SHFL_WRAP(NAME, ARG)                                            \
+  template <typename T>                                                       \
+  PARAS_KERNEL_HD inline T NAME(std::uint64_t mask, T v, int ARG) {           \
+    if constexpr (paras_shfl_native_type<T>::value) {                         \
+      return NAME##_native(mask, v, ARG);                                     \
+    } else {                                                                  \
+      return paras_shfl_words(v, [=](unsigned x) {                            \
+        return NAME##_native(mask, x, ARG);                                   \
+      });                                                                     \
+    }                                                                         \
+  }
+PARAS_SHFL_WRAP(paras_shfl_down, delta)
+PARAS_SHFL_WRAP(paras_shfl_up, delta)
+PARAS_SHFL_WRAP(paras_shfl, lane)
+PARAS_SHFL_WRAP(paras_shfl_xor, lane_mask)
+#undef PARAS_SHFL_WRAP
 
 PARAS_KERNEL_HD
 inline std::uint64_t paras_active_mask() {
