@@ -45,6 +45,8 @@ struct kernel_props {
 
   bool wg_has[3] = {false, false, false};
   std::size_t wg_by_dim[3][3] = {};
+
+  std::vector<const void *> spec_uses;
   std::size_t sg = 0;
 };
 
@@ -53,7 +55,9 @@ template <std::size_t... Ns> struct kp_work_group_size {};
 template <std::size_t N> struct kp_sub_group_size {};
 template <typename... Ps> struct kp_list {};
 
-template <typename P> struct kp_apply;
+template <typename P> struct kp_apply {
+  static void to(kernel_props &p) { P::to(p); }
+};
 template <aspect... As> struct kp_apply<kp_device_has<As...>> {
   static void to(kernel_props &p) { (p.aspects.push_back(As), ...); }
 };
@@ -72,6 +76,12 @@ template <std::size_t... Ns> struct kp_apply<kp_work_group_size<Ns...>> {
 };
 template <std::size_t N> struct kp_apply<kp_sub_group_size<N>> {
   static void to(kernel_props &p) { p.sg = N; }
+};
+
+template <auto &S> struct kp_spec_use {
+  static void to(kernel_props &p) {
+    p.spec_uses.push_back(static_cast<const void *>(&S));
+  }
 };
 template <typename... Ps> struct kp_apply<kp_list<Ps...>> {
   static void to(kernel_props &p) { (kp_apply<Ps>::to(p), ...); }
@@ -128,6 +138,7 @@ struct kernel_registry {
   std::map<const void *, const kernel_info *> by_key;
 
   std::map<const void *, std::vector<aspect>> pending_aspects;
+  std::map<const void *, std::vector<const void *>> pending_specs;
 };
 inline kernel_registry &kernel_registry_instance() {
   static kernel_registry *r = new kernel_registry;
@@ -149,6 +160,12 @@ inline const kernel_info *register_kernel(const void *key, std::string name,
         props.aspects.push_back(a);
     r.pending_aspects.erase(pend);
   }
+  auto ps = r.pending_specs.find(key);
+  if (ps != r.pending_specs.end()) {
+    for (const void *sp : ps->second)
+      props.spec_uses.push_back(sp);
+    r.pending_specs.erase(ps);
+  }
   auto *ki = new kernel_info{key, std::move(name), std::move(props)};
   r.by_key.emplace(key, ki);
   r.order.push_back(ki);
@@ -168,6 +185,22 @@ inline bool paras_add_kernel_aspects(std::initializer_list<aspect> as) {
   for (aspect a : as)
     if (std::find(dst.begin(), dst.end(), a) == dst.end())
       dst.push_back(a);
+  return true;
+}
+
+template <typename KernelName>
+inline bool paras_add_kernel_spec_uses(std::initializer_list<const void *> ids) {
+  auto &r = kernel_registry_instance();
+  std::lock_guard<std::mutex> lock(r.m);
+  const void *key = &type_key<KernelName>::value;
+  auto it = r.by_key.find(key);
+  if (it != r.by_key.end()) {
+    auto &p = const_cast<kernel_info *>(it->second)->props;
+    p.spec_uses.insert(p.spec_uses.end(), ids.begin(), ids.end());
+  } else {
+    auto &v = r.pending_specs[key];
+    v.insert(v.end(), ids.begin(), ids.end());
+  }
   return true;
 }
 

@@ -96,6 +96,25 @@ PARAS_KERNEL_HD To reinterpret_bits(const From &src) noexcept {
   __builtin_memcpy(&dst, &src, sizeof(To));
   return dst;
 }
+
+template <typename U>
+PARAS_KERNEL_HD inline U paras_atomic_cas(U *p, U expected, U desired) noexcept {
+#if defined(__CUDA_ARCH__)
+  if (__nvvm_isspacep_local(p)) {
+    const U old = *p;
+    if (old == expected)
+      *p = desired;
+    return old;
+  }
+  return atomicCAS(p, expected, desired);
+#elif PARAS_DEVICE_PASS
+  return atomicCAS(p, expected, desired);
+#else
+  __atomic_compare_exchange_n(p, &expected, desired, false, __ATOMIC_SEQ_CST,
+                              __ATOMIC_SEQ_CST);
+  return expected;
+#endif
+}
 #endif
 
 PARAS_KERNEL_HD inline void atomic_fence(memory_order order, memory_scope) {
@@ -169,7 +188,7 @@ private:
       T assumed_val = reinterpret_bits<T>(assumed_bits);
       T new_val = op(assumed_val, v);
       U new_bits = reinterpret_bits<U>(new_val);
-      old_bits = atomicCAS(uptr, assumed_bits, new_bits);
+      old_bits = paras_atomic_cas(uptr, assumed_bits, new_bits);
     } while (assumed_bits != old_bits);
     return reinterpret_bits<T>(old_bits);
   }
@@ -192,7 +211,7 @@ private:
       T new_val = op(assumed_val, v);
       unsigned short new_half =reinterpret_bits<unsigned short>(new_val);
       unsigned int new_word =(assumed_word & ~mask) | (static_cast<unsigned int>(new_half) << shift);
-      old_word = atomicCAS(word_ptr, assumed_word, new_word);
+      old_word = paras_atomic_cas(word_ptr, assumed_word, new_word);
 
     } while (assumed_word != old_word);
 
@@ -224,7 +243,7 @@ private:
         expected = reinterpret_bits<T>(old_bits);
         return false;
       }
-      U observed_bits = atomicCAS(uptr, expected_bits, desired_bits);
+      U observed_bits = paras_atomic_cas(uptr, expected_bits, desired_bits);
       if (observed_bits == expected_bits)
         return true;
       old_bits = observed_bits;
@@ -259,7 +278,7 @@ private:
           (old_word & ~mask) |
           (static_cast<unsigned int>(desired_half) << shift);
       unsigned int observed_word =
-          atomicCAS(word_ptr, old_word, desired_word);
+          paras_atomic_cas(word_ptr, old_word, desired_word);
       if (observed_word == old_word)
         return true;
       old_word = observed_word;

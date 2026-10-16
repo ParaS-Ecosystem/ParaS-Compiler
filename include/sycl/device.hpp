@@ -332,6 +332,9 @@ public:
     case aspect::fp64:
       return have_fp64_;
 
+    case aspect::online_compiler:
+    case aspect::online_linker:
+
     case aspect::atomic64:
     case aspect::usm_device_allocations:
     case aspect::usm_host_allocations:
@@ -860,10 +863,10 @@ inline auto device::get_info<info::device::device_type>() const {
 }
 
 template <>
-inline auto device::get_info<info::device::is_compiler_available>() const { return false; }
+inline auto device::get_info<info::device::is_compiler_available>() const { return true; }
 
 template <>
-inline auto device::get_info<info::device::is_linker_available>() const { return false; }
+inline auto device::get_info<info::device::is_linker_available>() const { return true; }
 
 template <>
 struct backend_return<backend::cuda, device> {

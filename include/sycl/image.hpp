@@ -96,13 +96,22 @@ template <typename T> class kernel_shared_ptr {
   const std::shared_ptr<T> &sp() const {
     return *reinterpret_cast<const std::shared_ptr<T> *>(sp_);
   }
-  void copy_from(const kernel_shared_ptr &o) {
+  void copy_from(const kernel_shared_ptr &o) noexcept {
 #ifdef PARAS_KSP_DEVICE_PASS
     for (std::size_t i = 0; i < sizeof(sp_); ++i) sp_[i] = o.sp_[i];
 #else
     new (sp_) std::shared_ptr<T>(o.sp());
 #endif
     raw_ = o.raw_;
+  }
+  void move_from(kernel_shared_ptr &o) noexcept {
+#ifdef PARAS_KSP_DEVICE_PASS
+    copy_from(o);
+#else
+    new (sp_) std::shared_ptr<T>(std::move(o.sp()));
+    raw_ = o.raw_;
+    o.raw_ = nullptr;
+#endif
   }
   void destroy() {
 #ifndef PARAS_KSP_DEVICE_PASS
@@ -121,15 +130,24 @@ public:
     new (sp_) std::shared_ptr<T>(std::move(p));
 #endif
   }
-  kernel_shared_ptr(const kernel_shared_ptr &o) { copy_from(o); }
-  kernel_shared_ptr &operator=(const kernel_shared_ptr &o) {
+
+  kernel_shared_ptr(const kernel_shared_ptr &o) noexcept { copy_from(o); }
+  kernel_shared_ptr(kernel_shared_ptr &&o) noexcept { move_from(o); }
+  kernel_shared_ptr &operator=(const kernel_shared_ptr &o) noexcept {
     if (this != &o) {
       destroy();
       copy_from(o);
     }
     return *this;
   }
-  ~kernel_shared_ptr() { destroy(); }
+  kernel_shared_ptr &operator=(kernel_shared_ptr &&o) noexcept {
+    if (this != &o) {
+      destroy();
+      move_from(o);
+    }
+    return *this;
+  }
+  ~kernel_shared_ptr() noexcept { destroy(); }
 #undef PARAS_KSP_DEVICE_PASS
 
   T *get() const noexcept { return raw_; }

@@ -27,13 +27,20 @@
 #include <algorithm>
 #include <type_traits>
 #include <functional>
+#include <cstring>
+#include <mutex>
 
+#include "kem_gpu/gpu_utilities.hpp"
 #include "range.hpp"
 #include "event.hpp"
 #include "property_list.hpp"
 #include "access.hpp"
 #include "handler.hpp"
 #include "accessor.hpp"
+#include "exception.hpp"
+#if PARAS_GPU_BACKEND && !PARAS_DEVICE_PASS
+#include "kem_gpu/gpu_runtime_api.hpp"
+#endif
 
 namespace sycl {
 
@@ -59,6 +66,103 @@ bool operator!=(const buffer_allocator<T>&, const buffer_allocator<U>&) noexcept
     return false;
 }
 
+namespace detail {
+
+struct buffer_mirror {
+    char *host_base = nullptr;
+    std::size_t bytes = 0;
+    void *dst = nullptr;
+    bool write_back = false;
+    std::shared_ptr<void> keep;
+    void *dev = nullptr;
+    std::mutex m;
+    buffer_mirror() = default;
+    buffer_mirror(const buffer_mirror &) = delete;
+    buffer_mirror &operator=(const buffer_mirror &) = delete;
+    ~buffer_mirror();
+
+    char *storage();
+};
+
+#if PARAS_GPU_BACKEND && !PARAS_DEVICE_PASS
+inline bool buffer_mirror_wanted() {
+    static const bool wanted = [] {
+        if (const char *e = std::getenv("PARAS_BUFFER_MIRROR"))
+            return e[0] == '1';
+        int dev = 0;
+        if (cudaGetDevice(&dev) != cudaSuccess)
+            return false;
+        cudaDeviceProp prop;
+        if (cudaGetDeviceProperties(&prop, dev) != cudaSuccess)
+            return false;
+        return prop.pageableMemoryAccess == 0;
+    }();
+    return wanted;
+}
+inline void *buffer_mirror_alloc(std::size_t bytes) {
+    void *p = nullptr;
+    if (cudaMallocManaged(&p, bytes ? bytes : 1) != cudaSuccess)
+        throw sycl::exception(make_error_code(errc::memory_allocation),
+                              "buffer: cannot allocate managed memory");
+    return p;
+}
+inline char *buffer_mirror::storage() {
+    std::lock_guard<std::mutex> lock(m);
+    if (!dev) {
+        dev = buffer_mirror_alloc(bytes);
+        if (host_base)
+            std::memcpy(dev, host_base, bytes);
+    }
+    return static_cast<char *>(dev);
+}
+inline buffer_mirror::~buffer_mirror() {
+    if (!dev)
+        return;
+    wait_all_host_tasks();
+    cudaDeviceSynchronize();
+    if (write_back && dst)
+        std::memcpy(dst, dev, bytes);
+
+}
+#elif !PARAS_DEVICE_PASS
+
+inline bool buffer_mirror_wanted() {
+    static const bool wanted = [] {
+        const char *e = std::getenv("PARAS_BUFFER_MIRROR");
+        return e && e[0] == '1';
+    }();
+    return wanted;
+}
+inline void *buffer_mirror_alloc(std::size_t bytes) {
+    return std::calloc(bytes ? bytes : 1, 1);
+}
+inline char *buffer_mirror::storage() {
+    std::lock_guard<std::mutex> lock(m);
+    if (!dev) {
+        dev = buffer_mirror_alloc(bytes);
+        if (host_base)
+            std::memcpy(dev, host_base, bytes);
+    }
+    return static_cast<char *>(dev);
+}
+inline buffer_mirror::~buffer_mirror() {
+    if (!dev)
+        return;
+    wait_all_host_tasks();
+    if (write_back && dst)
+        std::memcpy(dst, dev, bytes);
+
+}
+#else
+inline bool buffer_mirror_wanted() { return false; }
+inline void *buffer_mirror_alloc(std::size_t) { return nullptr; }
+inline char *buffer_mirror::storage() { return host_base; }
+inline buffer_mirror::~buffer_mirror() {}
+#endif
+
+struct buffer_view_tag {};
+}
+
 template <
     typename T,
     int Dimensions = 1,
@@ -66,6 +170,21 @@ template <
 class buffer
 {
     T* data_;
+    std::shared_ptr<detail::buffer_mirror> mirror_;
+
+    void paras_mirror(std::size_t n, T *back, std::shared_ptr<void> keep = {}) {
+        if (!detail::buffer_mirror_wanted() ||
+            props_.template has_property<property::buffer::use_host_ptr>())
+            return;
+        auto m = std::make_shared<detail::buffer_mirror>();
+        m->host_base = const_cast<char *>(reinterpret_cast<const char *>(data_));
+        m->bytes = n * sizeof(T);
+        m->dst = const_cast<void *>(static_cast<const void *>(back));
+        m->write_back = back != nullptr;
+        m->keep = std::move(keep);
+        mirror_ = std::move(m);
+    }
+
     range<Dimensions> r_;
     property_list props_;
     bool is_sub_buffer_ = false;
@@ -93,12 +212,22 @@ public:
 
         size_t N = rr.size();
         data_ = static_cast<T*>(::operator new[](N * sizeof(T)));
+        paras_mirror(N, nullptr);
     }
 
     buffer(T* hostPtr,
            const range<Dimensions>& rr,
            const property_list& propList = {})
-        : data_(hostPtr), r_(rr), props_(propList) {}
+        : data_(hostPtr), r_(rr), props_(propList)
+    {
+        if (hostPtr)
+            paras_mirror(rr.size(), hostPtr);
+    }
+
+    buffer(detail::buffer_view_tag, T *p, const range<Dimensions> &rr,
+           const property_list &propList,
+           std::shared_ptr<detail::buffer_mirror> m)
+        : data_(p), r_(rr), props_(propList), mirror_(std::move(m)) {}
 
     template <typename U = T,
               typename = std::enable_if_t<!std::is_const_v<U>>>
@@ -111,6 +240,7 @@ public:
         size_t N = rr.size();
         data_ = static_cast<T*>(::operator new[](N * sizeof(T)));
         for (size_t i = 0; i < N; ++i) ::new (data_ + i) T(hostPtr[i]);
+        paras_mirror(N, nullptr);
     }
 
     buffer(const range<Dimensions>& rr, AllocatorT,
@@ -137,6 +267,7 @@ public:
         data_ = static_cast<T*>(::operator new[](n * sizeof(T)));
         std::size_t i = 0;
         for (auto it = first; it != last; ++it, ++i) ::new (data_ + i) T(*it);
+        paras_mirror(n, nullptr);
     }
 
     template <typename InputIterator>
@@ -148,7 +279,8 @@ public:
               typename = decltype(std::declval<Container&>().data()),
               typename = decltype(std::declval<Container&>().size()),
               int D = Dimensions,
-              typename = std::enable_if_t<D == 1>>
+              typename = std::enable_if_t<D == 1 &&
+                  !std::is_same_v<std::decay_t<Container>, buffer>>>
     buffer(Container& container, AllocatorT,
            const property_list& propList = {})
         : buffer(container.data(), range<1>(container.size()), propList) {}
@@ -157,7 +289,8 @@ public:
               typename = decltype(std::declval<Container&>().data()),
               typename = decltype(std::declval<Container&>().size()),
               int D = Dimensions,
-              typename = std::enable_if_t<D == 1>>
+              typename = std::enable_if_t<D == 1 &&
+                  !std::is_same_v<std::decay_t<Container>, buffer>>>
     buffer(Container& container,
            const property_list& propList = {})
         : buffer(container.data(), range<1>(container.size()), propList) {}
@@ -165,7 +298,11 @@ public:
     buffer(const std::shared_ptr<T>& hostData,
            const range<Dimensions>& rr,
            const property_list& propList = {})
-        : data_(hostData.get()), r_(rr), props_(propList) {}
+        : data_(hostData.get()), r_(rr), props_(propList)
+    {
+        if (hostData)
+            paras_mirror(rr.size(), hostData.get(), hostData);
+    }
 
     buffer(const std::shared_ptr<T>& hostData,
            const range<Dimensions>& rr, AllocatorT,
@@ -175,7 +312,12 @@ public:
     buffer(const std::shared_ptr<T[]>& hostData,
            const range<Dimensions>& rr,
            const property_list& propList = {})
-        : data_(hostData.get()), r_(rr), props_(propList) {}
+        : data_(hostData.get()), r_(rr), props_(propList)
+    {
+        if (hostData)
+            paras_mirror(rr.size(), hostData.get(),
+                         std::shared_ptr<void>(hostData, hostData.get()));
+    }
 
     buffer(const std::shared_ptr<T[]>& hostData,
            const range<Dimensions>& rr, AllocatorT,
@@ -193,10 +335,30 @@ public:
     }
 
     template <typename T2>
-    void set_final_data(T2) {}
-    void set_final_data(std::nullptr_t) {}
+    void set_final_data(T2 dst) {
+        if (!mirror_)
+            return;
+        if constexpr (std::is_convertible_v<T2, T *>) {
+            mirror_->dst = const_cast<void *>(static_cast<const void *>(static_cast<T *>(dst)));
+            mirror_->write_back = mirror_->dst != nullptr;
+        } else if constexpr (std::is_convertible_v<T2, std::weak_ptr<T>>) {
+            auto sp = std::weak_ptr<T>(dst).lock();
+            mirror_->dst = const_cast<void *>(static_cast<const void *>(sp.get()));
+            mirror_->keep = sp;
+            mirror_->write_back = sp != nullptr;
+        } else {
 
-    void set_write_back(bool = true) {}
+        }
+    }
+    void set_final_data(std::nullptr_t) {
+        if (mirror_)
+            mirror_->write_back = false;
+    }
+
+    void set_write_back(bool flag = true) {
+        if (mirror_)
+            mirror_->write_back = flag && mirror_->dst != nullptr;
+    }
 
     bool is_sub_buffer() const noexcept { return is_sub_buffer_; }
     AllocatorT get_allocator() const { return AllocatorT{}; }
@@ -211,6 +373,7 @@ public:
             flat_offset = (baseIndex[0] * b.r_[1] + baseIndex[1]) * b.r_[2] + baseIndex[2];
         }
         data_ = b.data_ + flat_offset;
+        mirror_ = b.mirror_;
     }
 
     friend bool operator==(const buffer &lhs, const buffer &rhs) noexcept {
@@ -224,7 +387,8 @@ public:
     buffer<ReinterpretT, ReinterpretDim> reinterpret(range<ReinterpretDim> reinterpretRange) const
     {
         return buffer<ReinterpretT, ReinterpretDim>(
-            reinterpret_cast<ReinterpretT*>(data_), reinterpretRange, props_);
+            detail::buffer_view_tag{}, reinterpret_cast<ReinterpretT*>(data_),
+            reinterpretRange, props_, mirror_);
     }
 
     template <typename ReinterpretT, int ReinterpretDim = Dimensions>
@@ -328,7 +492,13 @@ public:
         return accessor<T, Dimensions, access::mode::read_write, target::host_buffer>(*this);
     }
 
-    T* data() const { return data_; }
+    T* data() const {
+        if (!mirror_)
+            return data_;
+        return reinterpret_cast<T *>(
+            mirror_->storage() +
+            (reinterpret_cast<const char *>(data_) - mirror_->host_base));
+    }
 
     range<Dimensions> get_range() const noexcept { return r_; }
 

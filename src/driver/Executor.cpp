@@ -24,6 +24,7 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Path.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <sys/wait.h>
@@ -87,7 +88,21 @@ int executor(std::vector<std::string> command,
     tar_arch = bkend_target[1];
 
     std::vector<std::string> prefix;
+
+    const bool rdc = std::find(command.begin(), command.end(), "-fgpu-rdc") !=
+                     command.end();
+    if (bkend_target[3] == "is_link_only" && rdc) {
+      prefix.push_back("--offload-arch=" + tar_arch);
+      if (back_end == "hip") {
+        prefix.push_back("--hip-link");
+      } else if (back_end == "cuda") {
+        prefix.push_back("--offload-new-driver");
+        prefix.push_back("--offload-link");
+      }
+    }
     if (bkend_target[3] != "is_link_only") {
+      if (rdc && back_end == "cuda")
+        prefix.push_back("--offload-new-driver");
       prefix.push_back("-x");
       prefix.push_back(back_end);
       prefix.push_back("--offload-arch=" + tar_arch);

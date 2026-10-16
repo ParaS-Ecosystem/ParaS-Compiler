@@ -27,6 +27,7 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/Lexer.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 
@@ -359,8 +360,7 @@ public:
         if (std::find(entry.props.begin(), entry.props.end(), p) ==
             entry.props.end())
           entry.props.push_back(p);
-      rw.RemoveText(clang::SourceRange(SM.getComposedLoc(fid, sp.begin),
-                                       SM.getComposedLoc(fid, sp.end - 1)));
+      removeChars(fid, sp.begin, sp.end - sp.begin);
       if (entry.insertAt.isInvalid())
         entry.insertAt = SM.getComposedLoc(fid, specs.front().begin);
     }
@@ -438,19 +438,23 @@ public:
     auto specs = scanRange(text, fromOff, toOff);
     const bool usesHalf = kernelLambdas.count(LE) &&
                           bodyUsesHalf(const_cast<clang::CompoundStmt *>(body));
-    if (specs.empty() && !usesHalf)
+    std::vector<std::string> specUses;
+    if (kernelLambdas.count(LE))
+      specUses = specConstantsIn(const_cast<clang::CompoundStmt *>(body));
+    if (specs.empty() && !usesHalf && specUses.empty())
       return true;
     if (!done.insert(lb).second)
       return true;
     std::vector<std::string> props;
     if (usesHalf)
       props.push_back(kFp16Prop);
+    for (const std::string &u : specUses)
+      props.push_back("::sycl::detail::kp_spec_use<" + u + ">");
     for (const auto &sp : specs) {
       if (!done.insert(SM.getComposedLoc(fid, sp.begin)).second)
         return true;
       props.insert(props.end(), sp.props.begin(), sp.props.end());
-      rw.RemoveText(clang::SourceRange(SM.getComposedLoc(fid, sp.begin),
-                                       SM.getComposedLoc(fid, sp.end - 1)));
+      removeChars(fid, sp.begin, sp.end - sp.begin);
     }
     rw.InsertTextBefore(lb, "::sycl::detail::with_kernel_props<" +
                             propsList(props) + ">(");
@@ -503,9 +507,7 @@ public:
     if (macroLambdas.insert(defKey).second) {
       const unsigned pb = of + 1 + static_cast<unsigned>(
                                        def.substr(of + 1).find(param));
-      rw.RemoveText(clang::SourceRange(
-          SM.getComposedLoc(fid, pb),
-          SM.getComposedLoc(fid, pb + static_cast<unsigned>(param.size()) - 1)));
+      removeChars(fid, pb, static_cast<unsigned>(param.size()));
       rw.InsertTextBefore(defKey, "::sycl::detail::with_kernel_props_fn<void " +
                                       param + ">(");
       rw.InsertTextAfterToken(SM.getComposedLoc(fid, oe), ")");
@@ -517,12 +519,12 @@ public:
       for (const auto &sp : specs)
         props.insert(props.end(), sp.props.begin(), sp.props.end());
       for (std::size_t i = 0; i < specs.size(); ++i) {
-        const clang::SourceRange r(SM.getComposedLoc(ifid, specs[i].begin),
-                                   SM.getComposedLoc(ifid, specs[i].end - 1));
+        const unsigned len = specs[i].end - specs[i].begin;
         if (i == 0)
-          rw.ReplaceText(r, "(" + propsList(props) + ")");
+          rw.ReplaceText(SM.getComposedLoc(ifid, specs[i].begin), len,
+                         "(" + propsList(props) + ")");
         else
-          rw.RemoveText(r);
+          removeChars(ifid, specs[i].begin, len);
       }
     }
     return true;
@@ -539,6 +541,61 @@ public:
   }
 
 private:
+
+  std::vector<std::string> specConstantsIn(clang::Stmt *body) {
+    struct Finder : clang::RecursiveASTVisitor<Finder> {
+      std::vector<const clang::TemplateArgumentLoc *> args;
+      std::vector<std::pair<const clang::TemplateArgumentLoc *, unsigned>> lists;
+      void take(llvm::StringRef name, const clang::TemplateArgumentLoc *a,
+                unsigned n) {
+        if (name == "get_specialization_constant" && a && n == 1)
+          args.push_back(a);
+      }
+      bool VisitMemberExpr(clang::MemberExpr *E) {
+        if (E->hasExplicitTemplateArgs())
+          take(E->getMemberNameInfo().getAsString(), E->getTemplateArgs(),
+               E->getNumTemplateArgs());
+        return true;
+      }
+      bool VisitCXXDependentScopeMemberExpr(clang::CXXDependentScopeMemberExpr *E) {
+        if (E->hasExplicitTemplateArgs())
+          take(E->getMemberNameInfo().getAsString(), E->getTemplateArgs(),
+               E->getNumTemplateArgs());
+        return true;
+      }
+      bool VisitUnresolvedMemberExpr(clang::UnresolvedMemberExpr *E) {
+        if (E->hasExplicitTemplateArgs())
+          take(E->getMemberNameInfo().getAsString(), E->getTemplateArgs(),
+               E->getNumTemplateArgs());
+        return true;
+      }
+    } f;
+    f.TraverseStmt(body);
+    std::vector<std::string> out;
+    for (const clang::TemplateArgumentLoc *a : f.args) {
+      clang::SourceRange r = a->getSourceRange();
+      clang::SourceLocation b = SM.getSpellingLoc(r.getBegin());
+      clang::SourceLocation e = SM.getSpellingLoc(r.getEnd());
+      if (b.isInvalid() || e.isInvalid() || SM.getFileID(b) != SM.getFileID(e))
+        continue;
+      const std::string t =
+          clang::Lexer::getSourceText(clang::CharSourceRange::getTokenRange(b, e),
+                                      SM, ctx.getLangOpts())
+              .str();
+      if (t.empty() || std::find(out.begin(), out.end(), t) != out.end())
+        continue;
+      out.push_back(t);
+    }
+    return out;
+  }
+
+  void removeChars(clang::FileID fid, unsigned off, unsigned len) {
+    clang::Rewriter::RewriteOptions opts;
+    opts.IncludeInsertsAtBeginOfRange = false;
+    opts.IncludeInsertsAtEndOfRange = false;
+    rw.RemoveText(SM.getComposedLoc(fid, off), len, opts);
+  }
+
   bool userFileLoc(clang::SourceLocation loc, clang::FileID &fid,
                    unsigned &off) {
     if (loc.isInvalid() || loc.isMacroID())
@@ -616,7 +673,8 @@ public:
     if (!RD)
       return true;
 
-    std::set<std::string> aspects;
+    std::set<std::string> aspects, specs;
+    specOut = &specs;
     llvm::DenseSet<const clang::FunctionDecl *> seen;
     if (RD->isLambda()) {
       if (const clang::CXXMethodDecl *op = RD->getLambdaCallOperator())
@@ -632,7 +690,8 @@ public:
             if (spec->getOverloadedOperator() == clang::OO_Call)
               analyze(spec, 0, aspects, seen);
     }
-    if (aspects.empty())
+    specOut = nullptr;
+    if (aspects.empty() && specs.empty())
       return true;
 
     clang::PrintingPolicy pp(ctx.getLangOpts());
@@ -644,12 +703,20 @@ public:
     std::string list;
     for (const std::string &a : aspects)
       list += (list.empty() ? "" : ", ") + a;
-    const std::string key = kname + "|" + list;
+    std::string slist;
+    for (const std::string &a : specs)
+      slist += (slist.empty() ? "" : ", ") + a;
+    const std::string key = kname + "|" + list + "|" + slist;
     if (!emitted.insert(key).second)
       return true;
-    out += "static const bool paras_kreq_" + std::to_string(counter++) +
-           " = ::sycl::detail::paras_add_kernel_aspects<" + kname + ">({" +
-           list + "});\n";
+    if (!list.empty())
+      out += "static const bool paras_kreq_" + std::to_string(counter++) +
+             " = ::sycl::detail::paras_add_kernel_aspects<" + kname + ">({" +
+             list + "});\n";
+    if (!slist.empty())
+      out += "static const bool paras_kreq_" + std::to_string(counter++) +
+             " = ::sycl::detail::paras_add_kernel_spec_uses<" + kname +
+             ">({" + slist + "});\n";
     return true;
   }
 
@@ -818,9 +885,20 @@ private:
         half = true;
       return true;
     }
+    std::vector<const clang::VarDecl *> specIds;
     bool VisitCallExpr(clang::CallExpr *C) {
-      if (const clang::FunctionDecl *F = C->getDirectCallee())
+      if (const clang::FunctionDecl *F = C->getDirectCallee()) {
         callees.push_back(F);
+
+        if (F->getNameAsString() == "get_specialization_constant")
+          if (const clang::TemplateArgumentList *ta =
+                  F->getTemplateSpecializationArgs())
+            for (const clang::TemplateArgument &a : ta->asArray())
+              if (a.getKind() == clang::TemplateArgument::Declaration)
+                if (const auto *vd =
+                        llvm::dyn_cast<clang::VarDecl>(a.getAsDecl()))
+                  specIds.push_back(vd);
+      }
       return true;
     }
     bool VisitCXXConstructExpr(clang::CXXConstructExpr *C) {
@@ -829,6 +907,8 @@ private:
       return true;
     }
   };
+
+  std::set<std::string> *specOut = nullptr;
 
   void analyze(const clang::FunctionDecl *FD, int depth,
                std::set<std::string> &aspects,
@@ -846,6 +926,20 @@ private:
     scan.TraverseStmt(def->getBody());
     if (scan.half)
       aspects.insert("::sycl::aspect::fp16");
+    if (specOut)
+      for (const clang::VarDecl *vd : scan.specIds)
+        if (vd->hasGlobalStorage() && !vd->isStaticLocal() &&
+            !vd->getParentFunctionOrMethod() && !vd->isInAnonymousNamespace()) {
+
+          std::string name;
+          llvm::raw_string_ostream os(name);
+          clang::PrintingPolicy pp(ctx.getLangOpts());
+          pp.SuppressTagKeyword = true;
+          pp.FullyQualifiedName = true;
+          vd->getNameForDiagnostic(os, pp,  true);
+          os.flush();
+          specOut->insert("&::" + name);
+        }
     for (const clang::FunctionDecl *c : scan.callees)
       analyze(c, depth + 1, aspects, seen);
   }

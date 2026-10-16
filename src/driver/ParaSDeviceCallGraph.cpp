@@ -194,6 +194,30 @@ void ParaSDeviceCallGraph::annotate(const clang::FunctionDecl *FD,
     if (loc.isInvalid() || loc.isMacroID())
       continue;
 
+    {
+      const auto dec = SM.getDecomposedLoc(loc);
+      const llvm::StringRef text = SM.getBufferData(dec.first);
+      unsigned off = dec.second;
+      while (off + 1 < text.size() && text[off] == '[' && text[off + 1] == '[') {
+        int depth = 0;
+        unsigned i = off;
+        for (; i < text.size(); ++i) {
+          if (text[i] == '[')
+            ++depth;
+          else if (text[i] == ']' && --depth == 0)
+            break;
+        }
+        if (i >= text.size())
+          break;
+        off = i + 1;
+        while (off < text.size() &&
+               (text[off] == ' ' || text[off] == '\t' || text[off] == '\n' ||
+                text[off] == '\r'))
+          ++off;
+      }
+      loc = SM.getComposedLoc(dec.first, off);
+    }
+
     if (!annotatedAt.insert(loc).second)
       continue;
     {

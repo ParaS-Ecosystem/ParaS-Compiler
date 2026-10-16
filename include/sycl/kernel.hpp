@@ -164,7 +164,10 @@ make_bundle(const context &ctx, const std::vector<device> &devs,
             bundle_state state, const std::vector<const kernel_info *> &kis) {
   auto b = std::make_shared<bundle_impl>();
   b->ctx = ctx;
-  b->devs = devs;
+
+  for (const device &d : devs)
+    if (std::find(b->devs.begin(), b->devs.end(), d) == b->devs.end())
+      b->devs.push_back(d);
   b->state = state;
   for (const kernel_info *ki : kis) {
     if (b->find(ki))
@@ -458,7 +461,15 @@ public:
 
   template <auto &SpecName>
   bool has_specialization_constant() const noexcept {
-    return !empty();
+
+    for (const auto &im : b_->images) {
+      const detail::kernel_info *ki = im->ki;
+      if (std::find(ki->props.spec_uses.begin(), ki->props.spec_uses.end(),
+                    static_cast<const void *>(&SpecName)) !=
+          ki->props.spec_uses.end())
+        return true;
+    }
+    return false;
   }
 
   template <auto &SpecName,

@@ -57,6 +57,11 @@
 #include <unistd.h>
 #if defined(__HIP__)
 #include <hip/hip_runtime.h>
+
+namespace std {
+using ::memcpy;
+using ::memset;
+}
 #endif
 
 #endif

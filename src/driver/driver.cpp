@@ -692,8 +692,8 @@ int main(int argc, const char **argv) {
     std::string libpath = PARAS_INSTALL_PREFIX + std::string("/lib/");
     compilerFlags[1].push_back(libpath);
     compilerFlags[1].push_back("-lDeviceDiscoveryModule");
-    executor::executor(compilerFlags[1], compilerFlags[3]);
-    return 0;
+
+    return executor::executor(compilerFlags[1], compilerFlags[3]);
   }
 
   const char **fakeargs = new const char *[compilerFlags[0].size() + 1];

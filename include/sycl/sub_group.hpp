@@ -48,14 +48,23 @@ public:
 
   PARAS_KERNEL_D
   static linear_id_type paras_block_linear_id() {
+
+#if PARAS_DEVICE_PASS
     return threadIdx.x +
            threadIdx.y * blockDim.x +
            threadIdx.z * blockDim.x * blockDim.y;
+#else
+    return 0;
+#endif
   }
 
   PARAS_KERNEL_D
   static linear_id_type paras_block_size() {
+#if PARAS_DEVICE_PASS
     return blockDim.x * blockDim.y * blockDim.z;
+#else
+    return 1;
+#endif
   }
 
   PARAS_KERNEL_D
