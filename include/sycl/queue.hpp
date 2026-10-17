@@ -334,7 +334,10 @@ public:
     return gpu_state_;
   }
 
-  template <typename AccT> event update_host(AccT) { return event{}; }
+  template <typename AccT> event update_host(AccT acc) {
+    detail::paras_update_host(acc);
+    return event{};
+  }
 
   void paras_set_async_handler(const async_handler &h) {
     if (h)

@@ -31,6 +31,11 @@ __attribute__((device)) __attribute__((noreturn)) inline void
 __glibcxx_assert_fail(const char *, int, const char *, const char *) noexcept {
   __builtin_trap();
 }
+
+__attribute__((device)) __attribute__((noreturn)) inline void
+__glibcxx_assert_fail() noexcept {
+  __builtin_trap();
+}
 }
 #endif
 

@@ -69,7 +69,10 @@ public:
   }
   friend bool operator!=(const threadpool &a, const threadpool &b) { return !(a == b); }
   bool is_in_order() const { return props_.has_in_order(); }
-  template <typename AccT> sycl::event update_host(AccT) { return sycl::event{}; }
+  template <typename AccT> sycl::event update_host(AccT acc) {
+    sycl::detail::paras_update_host(acc);
+    return sycl::event{};
+  }
 
   template <typename SrcT, typename DestT>
   auto copy(SrcT src, DestT dest)

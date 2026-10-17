@@ -88,6 +88,16 @@ template <typename Func> struct single_task_kernel {
 };
 }
 
+namespace detail {
+inline void buffer_mirror_update_host(const void *p);
+template <typename AccT> inline void paras_update_host(const AccT &acc) {
+  if constexpr (std::is_convertible_v<decltype(acc.get_pointer()), const void *>)
+    buffer_mirror_update_host(static_cast<const void *>(acc.get_pointer()));
+  else
+    buffer_mirror_update_host(static_cast<const void *>(acc.get_pointer().get()));
+}
+}
+
 class handler {
   threadpool *pool_;
   cuda_threadpool *gpu_pool_;
@@ -206,7 +216,14 @@ public:
   void mem_advise(const void *, std::size_t, int) {}
 
   template <typename AccessorT> void require(AccessorT &&) {}
-  template <typename AccessorT> void update_host(AccessorT &&) {}
+
+  template <typename AccessorT> void update_host(AccessorT &&acc) {
+#if !PARAS_DEVICE_PASS
+    detail::paras_update_host(acc);
+#else
+    (void)acc;
+#endif
+  }
 
   void use_kernel_bundle(const kernel_bundle<bundle_state::executable> &kb) {
     if (spec_const_set_)

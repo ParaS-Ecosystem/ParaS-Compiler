@@ -28,6 +28,7 @@
 #include <type_traits>
 #include <functional>
 #include <cstring>
+#include <map>
 #include <mutex>
 
 #include "kem_gpu/gpu_utilities.hpp"
@@ -84,6 +85,45 @@ struct buffer_mirror {
     char *storage();
 };
 
+inline std::mutex &buffer_mirror_registry_mutex() {
+    static std::mutex *m = new std::mutex;
+    return *m;
+}
+inline std::map<const char *, buffer_mirror *> &buffer_mirror_registry() {
+    static auto *r = new std::map<const char *, buffer_mirror *>;
+    return *r;
+}
+inline void buffer_mirror_register(buffer_mirror *m) {
+    std::lock_guard<std::mutex> lock(buffer_mirror_registry_mutex());
+    buffer_mirror_registry()[static_cast<const char *>(m->dev)] = m;
+}
+inline void buffer_mirror_unregister(buffer_mirror *m) {
+    std::lock_guard<std::mutex> lock(buffer_mirror_registry_mutex());
+    buffer_mirror_registry().erase(static_cast<const char *>(m->dev));
+}
+void buffer_mirror_sync_device();
+
+inline void buffer_mirror_update_host(const void *p) {
+    if (!p)
+        return;
+    buffer_mirror *m = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(buffer_mirror_registry_mutex());
+        auto &r = buffer_mirror_registry();
+        auto it = r.upper_bound(static_cast<const char *>(p));
+        if (it != r.begin()) {
+            --it;
+            if (static_cast<const char *>(p) < it->first + it->second->bytes)
+                m = it->second;
+        }
+    }
+    if (!m || !m->dst)
+        return;
+    wait_all_host_tasks();
+    buffer_mirror_sync_device();
+    std::memcpy(m->dst, m->dev, m->bytes);
+}
+
 #if PARAS_GPU_BACKEND && !PARAS_DEVICE_PASS
 inline bool buffer_mirror_wanted() {
     static const bool wanted = [] {
@@ -106,18 +146,21 @@ inline void *buffer_mirror_alloc(std::size_t bytes) {
                               "buffer: cannot allocate managed memory");
     return p;
 }
+inline void buffer_mirror_sync_device() { cudaDeviceSynchronize(); }
 inline char *buffer_mirror::storage() {
     std::lock_guard<std::mutex> lock(m);
     if (!dev) {
         dev = buffer_mirror_alloc(bytes);
         if (host_base)
             std::memcpy(dev, host_base, bytes);
+        buffer_mirror_register(this);
     }
     return static_cast<char *>(dev);
 }
 inline buffer_mirror::~buffer_mirror() {
     if (!dev)
         return;
+    buffer_mirror_unregister(this);
     wait_all_host_tasks();
     cudaDeviceSynchronize();
     if (write_back && dst)
@@ -136,18 +179,21 @@ inline bool buffer_mirror_wanted() {
 inline void *buffer_mirror_alloc(std::size_t bytes) {
     return std::calloc(bytes ? bytes : 1, 1);
 }
+inline void buffer_mirror_sync_device() {}
 inline char *buffer_mirror::storage() {
     std::lock_guard<std::mutex> lock(m);
     if (!dev) {
         dev = buffer_mirror_alloc(bytes);
         if (host_base)
             std::memcpy(dev, host_base, bytes);
+        buffer_mirror_register(this);
     }
     return static_cast<char *>(dev);
 }
 inline buffer_mirror::~buffer_mirror() {
     if (!dev)
         return;
+    buffer_mirror_unregister(this);
     wait_all_host_tasks();
     if (write_back && dst)
         std::memcpy(dst, dev, bytes);
@@ -156,6 +202,7 @@ inline buffer_mirror::~buffer_mirror() {
 #else
 inline bool buffer_mirror_wanted() { return false; }
 inline void *buffer_mirror_alloc(std::size_t) { return nullptr; }
+inline void buffer_mirror_sync_device() {}
 inline char *buffer_mirror::storage() { return host_base; }
 inline buffer_mirror::~buffer_mirror() {}
 #endif

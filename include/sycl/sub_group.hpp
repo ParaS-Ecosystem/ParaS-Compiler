@@ -145,7 +145,13 @@ public:
 
   PARAS_KERNEL_HD
   range_type get_max_local_range() const {
-    return get_local_range() ;
+
+#if PARAS_GPU_BACKEND
+    const linear_id_type wg = paras_block_size();
+    return range_type(wg < warp_size ? wg : warp_size);
+#else
+    return range_type(1);
+#endif
   }
 
   PARAS_KERNEL_HD
