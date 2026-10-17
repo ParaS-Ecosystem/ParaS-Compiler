@@ -23,19 +23,15 @@
 
 #if (defined(__HIP__) || defined(__CUDA__)) && defined(__cplusplus)
 #include <cstddef>
-#if defined(__GLIBCXX__) &&                                                    \
-    (defined(_GLIBCXX_ASSERTIONS) || defined(_GLIBCXX_PARALLEL) ||             \
-     defined(_GLIBCXX_PARALLEL_ASSERTIONS))
+#if defined(__GLIBCXX__)
 namespace std {
+
 __attribute__((device)) __attribute__((noreturn)) inline void
 __glibcxx_assert_fail(const char *, int, const char *, const char *) noexcept {
   __builtin_trap();
 }
 
-__attribute__((device)) __attribute__((noreturn)) inline void
-__glibcxx_assert_fail() noexcept {
-  __builtin_trap();
-}
+__attribute__((device)) inline void __glibcxx_assert_fail() noexcept {}
 }
 #endif
 
