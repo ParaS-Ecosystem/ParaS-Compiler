@@ -129,9 +129,9 @@ static std::string createVFSOverlay() {
   if (rewrittenHeaders.empty())
     return {};
 
-  std::string model = "/tmp/paras_vfs_%%%%%%%%.yaml";
   llvm::SmallString<128> overlayPath;
-  std::error_code EC = llvm::sys::fs::createUniqueFile(model, overlayPath);
+  std::error_code EC =
+      llvm::sys::fs::createTemporaryFile("paras_vfs", "yaml", overlayPath);
   if (EC) {
     llvm::errs() << "parascc: cannot create VFS overlay: " << EC.message()
                  << "\n";
@@ -319,10 +319,9 @@ public:
           !absolutePath.empty())
         originalPath = absolutePath;
 
-      std::string headerModel = "/tmp/paras_hdr_%%%%%%%%.hpp";
       llvm::SmallString<128> rewrittenPathSV;
-      std::error_code EC =
-          llvm::sys::fs::createUniqueFile(headerModel, rewrittenPathSV);
+      std::error_code EC = llvm::sys::fs::createTemporaryFile(
+          "paras_hdr", "hpp", rewrittenPathSV);
       if (EC) {
         llvm::errs() << "parascc: cannot create rewritten header for "
                      << originalPath << ": " << EC.message() << "\n";
@@ -384,9 +383,9 @@ public:
     std::error_code EC;
     std::string tempFile = transformedFileNameFor(getCurrentFile().str());
     if (tempFile.empty()) {
-      std::string tmpModel = "/tmp/paras_tmp_%%%%%%%%.cpp";
       llvm::SmallString<128> tempPathSV;
-      if ((EC = llvm::sys::fs::createUniqueFile(tmpModel, tempPathSV))) {
+      if ((EC = llvm::sys::fs::createTemporaryFile("paras_tmp", "cpp",
+                                                   tempPathSV))) {
         llvm::errs() << "Issue with creating temp file: " << EC.message()
                      << "\n";
         return;

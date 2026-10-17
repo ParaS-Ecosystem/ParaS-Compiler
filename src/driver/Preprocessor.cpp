@@ -26,9 +26,10 @@
 
 namespace preprocessor {
 std::string generate_output_filename() {
-  std::string model = "/tmp/paras_pp_%%%%%%%%.cpp";
   llvm::SmallString<128> result;
-  if (std::error_code EC = llvm::sys::fs::createUniqueFile(model, result)) {
+
+  if (std::error_code EC =
+          llvm::sys::fs::createTemporaryFile("paras_pp", "cpp", result)) {
     llvm::errs() << "paras: cannot create temp file: " << EC.message() << "\n";
     exit(EXIT_FAILURE);
   }
