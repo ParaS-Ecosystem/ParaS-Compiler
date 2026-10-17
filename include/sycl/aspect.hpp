@@ -54,6 +54,7 @@ struct any_device_has
           Aspect == aspect::cpu || Aspect == aspect::gpu ||
           Aspect == aspect::fp16 || Aspect == aspect::fp64 ||
           Aspect == aspect::atomic64 || Aspect == aspect::queue_profiling ||
+          Aspect == aspect::online_compiler || Aspect == aspect::online_linker ||
           Aspect == aspect::usm_device_allocations ||
           Aspect == aspect::usm_host_allocations ||
           Aspect == aspect::usm_shared_allocations> {};
@@ -63,6 +64,8 @@ inline constexpr bool any_device_has_v = any_device_has<Aspect>::value;
 template <aspect Aspect>
 struct all_devices_have
     : std::bool_constant<Aspect == aspect::atomic64 ||
+                         Aspect == aspect::online_compiler ||
+                         Aspect == aspect::online_linker ||
                          Aspect == aspect::usm_device_allocations ||
                          Aspect == aspect::usm_host_allocations ||
                          Aspect == aspect::usm_shared_allocations> {};
