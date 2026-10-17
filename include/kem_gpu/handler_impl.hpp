@@ -93,6 +93,29 @@ void handler::parallel_for(const nd_range<dim> &r, Func f) {
   paras_gpu_command_enqueued();
 }
 
+template <typename KernelName, int Dim, typename Func>
+void handler::paras_hierarchical_gpu(range<Dim> groups, range<Dim> local,
+                                     Func f) {
+  using K = detail::hierarchical_nd_kernel<Dim, Func>;
+  const K k{f, groups, local};
+
+  paras_launch_kernel<KernelName, K>();
+  paras_enqueue_dependencies();
+  range<Dim> one;
+  for (int d = 0; d < Dim; ++d)
+    one[d] = 1;
+  const nd_range<Dim> r(groups, one);
+  const std::size_t sharedMemoryBytes = local_memory_size();
+  if constexpr (Dim == 1) {
+    gpu_pool_->gpu_execute_nd_range_1D(r, k, sharedMemoryBytes);
+  } else if constexpr (Dim == 2) {
+    gpu_pool_->gpu_execute_nd_range_2D(r, k, sharedMemoryBytes);
+  } else {
+    gpu_pool_->gpu_execute_nd_range_3D(r, k, sharedMemoryBytes);
+  }
+  paras_gpu_command_enqueued();
+}
+
 }
 
 #endif

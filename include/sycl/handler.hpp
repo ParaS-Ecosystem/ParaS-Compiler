@@ -53,6 +53,15 @@ template <int D, typename Func> struct hierarchical_kernel;
 template <typename T> struct is_hierarchical_kernel : std::false_type {};
 template <int D, typename Func>
 struct is_hierarchical_kernel<hierarchical_kernel<D, Func>> : std::true_type {};
+
+template <int D, typename Func> struct hierarchical_kernel;
+template <int D, typename Func> struct hierarchical_nd_kernel {
+  using paras_inner = Func;
+  Func f;
+  range<D> groups;
+  range<D> local;
+  PARAS_KERNEL_HD void operator()(nd_item<D> it) const;
+};
 template <int D, typename Func> struct hierarchical_kernel {
   using paras_inner = Func;
   Func f;
@@ -75,6 +84,11 @@ template <int D, typename Func> struct hierarchical_kernel {
     invoke_with_kh(f, group<D>(g, groups, local));
   }
 };
+template <int D, typename Func>
+PARAS_KERNEL_HD void hierarchical_nd_kernel<D, Func>::operator()(nd_item<D> it) const {
+
+  hierarchical_kernel<D, Func>{f, groups, local}(it.get_global_id());
+}
 
 template <typename Func> struct single_task_kernel {
   using paras_inner = Func;
@@ -152,6 +166,12 @@ public:
   template <typename KernelName = void, int Dim, typename Func>
   void parallel_for_work_group(range<Dim> numWorkGroups,
                                range<Dim> workGroupSize, Func f) {
+#if PARAS_GPU_BACKEND
+    if (gpu_pool_ != nullptr) {
+      paras_hierarchical_gpu<KernelName>(numWorkGroups, workGroupSize, f);
+      return;
+    }
+#endif
     parallel_for<KernelName>(
         numWorkGroups,
         detail::hierarchical_kernel<Dim, Func>{f, numWorkGroups, workGroupSize});
@@ -237,6 +257,11 @@ public:
     }
   }
 
+#if PARAS_GPU_BACKEND
+
+  template <typename KernelName, int Dim, typename Func>
+  void paras_hierarchical_gpu(range<Dim> groups, range<Dim> local, Func f);
+#endif
   template <typename KernelName, typename Func, int D>
   void paras_launch_nd_kernel(const nd_range<D> &r) {
     paras_launch_kernel<KernelName, Func>();
