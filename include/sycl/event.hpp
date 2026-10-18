@@ -321,6 +321,8 @@ inline void wait_all_host_tasks() {
 }
 
 inline void buffer_host_access_sync();
+
+inline void gpu_device_sync();
 }
 
 }

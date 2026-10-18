@@ -158,6 +158,35 @@ inline void check_accessor_range(const range<D> &bufRange,
         };
     }
 
+    namespace detail {
+
+    template <typename T> struct paras_acc_ptr {
+        T *p = nullptr;
+        std::size_t local_off = static_cast<std::size_t>(-1);
+        paras_acc_ptr() = default;
+        PARAS_KERNEL_HD paras_acc_ptr(T *q) noexcept : p(q) {}
+        template <typename U>
+        PARAS_KERNEL_HD static paras_acc_ptr from(const paras_acc_ptr<U> &o) noexcept {
+            paras_acc_ptr r(const_cast<T *>(static_cast<const T *>(o.p)));
+            r.local_off = o.local_off;
+            return r;
+        }
+        PARAS_KERNEL_HD paras_acc_ptr &operator=(T *q) noexcept {
+            p = q;
+            local_off = static_cast<std::size_t>(-1);
+            return *this;
+        }
+        PARAS_KERNEL_HD T *get() const noexcept {
+    #if PARAS_DEVICE_PASS
+            if (local_off != static_cast<std::size_t>(-1))
+                return reinterpret_cast<T *>(paras_get_dynamic_shared_memory() + local_off);
+    #endif
+            return p;
+        }
+        PARAS_KERNEL_HD operator T *() const noexcept { return get(); }
+    };
+    }
+
     template <
     typename DataT,
     int Dimensions = 1,
@@ -166,7 +195,7 @@ inline void check_accessor_range(const range<D> &bufRange,
     access::placeholder IsPlaceholder = access::placeholder::false_t>
     class accessor
     {
-        mutable DataT *ptr_;
+        mutable detail::paras_acc_ptr<DataT> ptr_;
         range<Dimensions> r_;
         range<Dimensions> mem_r_{};
         id<Dimensions> offset_{};
@@ -192,7 +221,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                       (SrcMode == access::mode::read ||
                        (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
         accessor(const accessor<SrcT, Dimensions, SrcMode, AccessTarget, IsPlaceholder> &o)
-            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
+            : ptr_(detail::paras_acc_ptr<DataT>::from(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
     private:
 
     public:
@@ -216,11 +245,15 @@ inline void check_accessor_range(const range<D> &bufRange,
 
         accessor() : ptr_(nullptr), r_() {}
 
-        accessor(range<Dimensions> allocationSize, handler &,
+        accessor(range<Dimensions> allocationSize, handler &paras_cgh,
                  const property_list &propList = {})
             : ptr_(paras_raw_zeroed(allocationSize.size())), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = propList.has_no_init();
+#if PARAS_GPU_BACKEND
+            if constexpr (AccessTarget == target::local)
+                ptr_.local_off = paras_cgh.template local_alloc_offset<std::remove_const_t<DataT>>(allocationSize.size());
+#endif
         }
 
         static DataT *paras_raw_zeroed(size_t n)
@@ -265,11 +298,15 @@ inline void check_accessor_range(const range<D> &bufRange,
         }
 
         template <target T2 = AccessTarget, typename = std::enable_if_t<T2 == target::local>>
-        accessor(range<Dimensions> allocationSize, handler &,
+        accessor(range<Dimensions> allocationSize, handler &paras_cgh,
                  const property_list &props = {})
             : ptr_(new DataT[allocationSize.size()]()), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = props.has_no_init();
+#if PARAS_GPU_BACKEND
+            if constexpr (AccessTarget == target::local)
+                ptr_.local_off = paras_cgh.template local_alloc_offset<std::remove_const_t<DataT>>(allocationSize.size());
+#endif
             paras_check_no_init();
         }
 
@@ -444,10 +481,10 @@ inline void check_accessor_range(const range<D> &bufRange,
             using elem_t = std::remove_const_t<DataT>;
             if constexpr (AccessTarget == target::constant_buffer)
                 return multi_ptr<elem_t, access::address_space::constant_space,
-                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_.get()));
             else if constexpr (AccessTarget == target::local)
                 return multi_ptr<elem_t, access::address_space::local_space,
-                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_.get()));
             else if constexpr (AccessTarget == target::device)
                 return multi_ptr<value_type, access::address_space::global_space,
                                  access::decorated::legacy>(static_cast<value_type *>(ptr_));
@@ -625,7 +662,7 @@ inline void check_accessor_range(const range<D> &bufRange,
               target AccessTarget>
     class accessor<DataT, 2, AccessMode, AccessTarget>
     {
-        mutable DataT *ptr_;
+        mutable detail::paras_acc_ptr<DataT> ptr_;
         range<2> r_;
         range<2> mem_r_{};
         id<2> offset_{};
@@ -651,7 +688,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                       (SrcMode == access::mode::read ||
                        (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
         accessor(const accessor<SrcT, 2, SrcMode, AccessTarget, access::placeholder::false_t> &o)
-            : ptr_(const_cast<DataT *>(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
+            : ptr_(detail::paras_acc_ptr<DataT>::from(o.ptr_)), r_(o.r_), mem_r_(o.mem_r_), offset_(o.offset_), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
     private:
 
     public:
@@ -699,11 +736,15 @@ inline void check_accessor_range(const range<D> &bufRange,
         }
 
         template <target T2 = AccessTarget, typename = std::enable_if_t<T2 == target::local>>
-        accessor(range<2> allocationSize, handler &,
+        accessor(range<2> allocationSize, handler &paras_cgh,
                  const property_list &props = {})
             : ptr_(new DataT[allocationSize.size()]()), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = props.has_no_init();
+#if PARAS_GPU_BACKEND
+            if constexpr (AccessTarget == target::local)
+                ptr_.local_off = paras_cgh.template local_alloc_offset<std::remove_const_t<DataT>>(allocationSize.size());
+#endif
             paras_check_no_init();
         }
 
@@ -880,10 +921,10 @@ inline void check_accessor_range(const range<D> &bufRange,
             using elem_t = std::remove_const_t<DataT>;
             if constexpr (AccessTarget == target::constant_buffer)
                 return multi_ptr<elem_t, access::address_space::constant_space,
-                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_.get()));
             else if constexpr (AccessTarget == target::local)
                 return multi_ptr<elem_t, access::address_space::local_space,
-                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_.get()));
             else if constexpr (AccessTarget == target::device)
                 return multi_ptr<value_type, access::address_space::global_space,
                                  access::decorated::legacy>(static_cast<value_type *>(ptr_));
@@ -1012,7 +1053,7 @@ inline void check_accessor_range(const range<D> &bufRange,
               access::placeholder IsPlaceholder>
     class accessor<DataT, 0, AccessMode, AccessTarget, IsPlaceholder>
     {
-        mutable DataT *ptr_;
+        mutable detail::paras_acc_ptr<DataT> ptr_;
         bool no_init_ = false;
         bool placeholder_ = false;
 
@@ -1035,7 +1076,7 @@ inline void check_accessor_range(const range<D> &bufRange,
                       (SrcMode == access::mode::read ||
                        (SrcMode == access::mode::read_write && std::is_const_v<DataT>))>>
         accessor(const accessor<SrcT, 0, SrcMode, AccessTarget, IsPlaceholder> &o)
-            : ptr_(const_cast<DataT *>(o.ptr_)), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
+            : ptr_(detail::paras_acc_ptr<DataT>::from(o.ptr_)), no_init_(o.no_init_), placeholder_(o.placeholder_) {}
     private:
 
     public:
@@ -1080,10 +1121,14 @@ inline void check_accessor_range(const range<D> &bufRange,
         }
 
         template <target T2 = AccessTarget, typename = std::enable_if_t<T2 == target::local>>
-        accessor(handler &, const property_list &props = {})
+        accessor(handler &paras_cgh, const property_list &props = {})
             : ptr_(new DataT[1]())
         {
             no_init_ = props.has_no_init();
+#if PARAS_GPU_BACKEND
+            if constexpr (AccessTarget == target::local)
+                ptr_.local_off = paras_cgh.template local_alloc_offset<std::remove_const_t<DataT>>(1);
+#endif
             paras_check_no_init();
         }
 
@@ -1129,10 +1174,10 @@ inline void check_accessor_range(const range<D> &bufRange,
             using elem_t = std::remove_const_t<DataT>;
             if constexpr (AccessTarget == target::constant_buffer)
                 return multi_ptr<elem_t, access::address_space::constant_space,
-                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_.get()));
             else if constexpr (AccessTarget == target::local)
                 return multi_ptr<elem_t, access::address_space::local_space,
-                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_));
+                                 access::decorated::legacy>(const_cast<elem_t *>(ptr_.get()));
             else if constexpr (AccessTarget == target::device)
                 return multi_ptr<value_type, access::address_space::global_space,
                                  access::decorated::legacy>(static_cast<value_type *>(ptr_));

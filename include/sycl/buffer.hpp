@@ -210,6 +210,7 @@ inline void buffer_host_access_sync() {
     if (!tl_in_host_task)
         cudaDeviceSynchronize();
 }
+inline void gpu_device_sync() { cudaDeviceSynchronize(); }
 inline char *buffer_mirror::storage() {
     std::lock_guard<std::mutex> lock(m);
     if (!dev) {
@@ -244,6 +245,7 @@ inline void *buffer_mirror_alloc(std::size_t bytes) {
 }
 inline void buffer_mirror_sync_device() {}
 inline void buffer_host_access_sync() {}
+inline void gpu_device_sync() {}
 inline char *buffer_mirror::storage() {
     std::lock_guard<std::mutex> lock(m);
     if (!dev) {
@@ -268,6 +270,7 @@ inline bool buffer_mirror_wanted() { return false; }
 inline void *buffer_mirror_alloc(std::size_t) { return nullptr; }
 inline void buffer_mirror_sync_device() {}
 inline void buffer_host_access_sync() {}
+inline void gpu_device_sync() {}
 inline char *buffer_mirror::storage() { return host_base; }
 inline buffer_mirror::~buffer_mirror() {}
 #endif

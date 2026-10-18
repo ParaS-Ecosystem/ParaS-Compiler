@@ -185,19 +185,18 @@ public:
   template <typename FunctorT> void host_task(FunctorT &&hostFunction) {
     auto promise = std::make_shared<std::promise<void>>();
     std::vector<event> deps = deps_;
-#if PARAS_GPU_BACKEND
 
-    if (gpu_pool_ != nullptr)
-      deps.push_back(paras_gpu_queue_tail());
-#endif
+    const bool sync_gpu = gpu_pool_ != nullptr;
     result_ = event::paras_async(promise->get_future().share(), deps_);
     auto state = result_.paras_state();
     detail::all_host_tasks().add(result_);
-    std::thread([deps = std::move(deps), fn = std::decay_t<FunctorT>(
+    std::thread([deps = std::move(deps), sync_gpu, fn = std::decay_t<FunctorT>(
                                    std::forward<FunctorT>(hostFunction)),
                  promise, state, pool = static_cast<void *>(pool_)]() mutable {
       detail::tl_in_host_task = true;
       sycl::event::wait(deps);
+      if (sync_gpu)
+        detail::gpu_device_sync();
       try {
         if constexpr (std::is_invocable_v<std::decay_t<FunctorT> &,
                                           interop_handle>) {
