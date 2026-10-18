@@ -29,9 +29,9 @@
 #include <functional>
 #include <cstring>
 #include <map>
-#include <deque>
-#include <string>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "kem_gpu/gpu_utilities.hpp"
 #include "range.hpp"
@@ -150,7 +150,8 @@ inline bool buffer_mirror_wanted() {
 
 struct buffer_mirror_graveyard {
     std::mutex m;
-    std::deque<std::pair<void *, std::size_t>> q;
+
+    std::vector<std::pair<void *, std::size_t>> q;
     std::size_t bytes = 0;
     static constexpr std::size_t max_bytes = std::size_t(64) << 20;
     static constexpr std::size_t max_count = 256;
@@ -159,7 +160,7 @@ struct buffer_mirror_graveyard {
         while (!q.empty() && (bytes > keep_bytes || q.size() > keep_count)) {
             cudaFree(q.front().first);
             bytes -= q.front().second;
-            q.pop_front();
+            q.erase(q.begin());
         }
     }
     void bury(void *p, std::size_t n) {
