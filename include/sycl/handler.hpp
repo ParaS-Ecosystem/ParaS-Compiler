@@ -184,10 +184,16 @@ public:
 
   template <typename FunctorT> void host_task(FunctorT &&hostFunction) {
     auto promise = std::make_shared<std::promise<void>>();
-    result_ = event::paras_async(promise->get_future().share(), deps_);
+    std::vector<event> deps = deps_;
+#if PARAS_GPU_BACKEND
+
+    if (gpu_pool_ != nullptr)
+      deps.push_back(paras_gpu_queue_tail());
+#endif
+    result_ = event::paras_async(promise->get_future().share(), deps);
     auto state = result_.paras_state();
     detail::all_host_tasks().add(result_);
-    std::thread([deps = deps_, fn = std::decay_t<FunctorT>(
+    std::thread([deps = std::move(deps), fn = std::decay_t<FunctorT>(
                                    std::forward<FunctorT>(hostFunction)),
                  promise, state, pool = static_cast<void *>(pool_)]() mutable {
       detail::tl_in_host_task = true;
@@ -215,6 +221,8 @@ public:
 
   void paras_enqueue_dependencies();
   void paras_gpu_command_enqueued(bool by_interop = false);
+
+  event paras_gpu_queue_tail();
   void paras_request_native_event() { want_native_event_ = true; }
 
   template <auto &SpecName>
@@ -326,6 +334,7 @@ public:
   template <typename AccessorT, typename T,
             typename = decltype(std::declval<AccessorT &>().get_pointer())>
   void copy(const AccessorT &src, T *dest) {
+    detail::buffer_host_access_sync();
     const auto n = src.size();
     for (std::size_t i = 0; i < n; ++i)
       dest[i] = src.begin()[i];
@@ -333,6 +342,7 @@ public:
   template <typename T, typename AccessorT,
             typename = decltype(std::declval<AccessorT &>().get_pointer())>
   void copy(const T *src, const AccessorT &dest) {
+    detail::buffer_host_access_sync();
     const auto n = dest.size();
     for (std::size_t i = 0; i < n; ++i)
       dest.begin()[i] = src[i];
@@ -358,6 +368,7 @@ public:
       throw exception(make_error_code(errc::invalid),
                       "handler::copy: destination accessor is smaller than "
                       "the source accessor");
+    detail::buffer_host_access_sync();
     const auto n = src.size();
     for (std::size_t i = 0; i < n; ++i)
       dest.begin()[i] = src.begin()[i];
@@ -366,6 +377,7 @@ public:
   template <typename AccessorT, typename T,
             typename = decltype(std::declval<AccessorT &>().get_pointer())>
   void fill(const AccessorT &dest, const T &pattern) {
+    detail::buffer_host_access_sync();
     const auto n = dest.size();
     for (std::size_t i = 0; i < n; ++i)
       dest.begin()[i] = pattern;

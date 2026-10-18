@@ -27,6 +27,8 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Basic/SourceManager.h"
+#include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 const clang::FunctionDecl *
@@ -284,6 +286,9 @@ void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
 
   public:
     llvm::DenseSet<const clang::VarDecl *> staticConstexprCandidates;
+    llvm::DenseMap<const clang::VarDecl *,
+                   llvm::SmallVector<clang::SourceLocation, 4>>
+        staticRefs;
 
     explicit CalleeVisitor(ParaSDeviceCallGraph &g) : graph(g) {}
 
@@ -304,6 +309,7 @@ void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
         return true;
 
       staticConstexprCandidates.insert(var->getCanonicalDecl());
+      staticRefs[var->getCanonicalDecl()].push_back(expr->getLocation());
       return true;
     }
 
@@ -359,6 +365,14 @@ void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
     if (!VD)
       continue;
 
+    if (const auto *parent = llvm::dyn_cast_or_null<clang::FunctionDecl>(
+            VD->getParentFunctionOrMethod()))
+      if (parent->getCanonicalDecl() != definition->getCanonicalDecl() &&
+          !visited.count(normalize(parent))) {
+        hoistHostStatic(VD, parent, visitor.staticRefs.lookup(VD), context);
+        continue;
+      }
+
     clang::SourceLocation loc = SM.getSpellingLoc(VD->getBeginLoc());
     if (loc.isInvalid() || loc.isMacroID() || SM.isInSystemHeader(loc) ||
         SM.isInExternCSystemHeader(loc))
@@ -386,6 +400,105 @@ void ParaSDeviceCallGraph::process(const clang::FunctionDecl *FD,
       llvm::outs() << "[ParaS] device-visible static constexpr variable: "
                    << VD->getQualifiedNameAsString() << "\n";
   }
+}
+
+void ParaSDeviceCallGraph::hoistHostStatic(
+    const clang::VarDecl *VD, const clang::FunctionDecl *parent,
+    llvm::ArrayRef<clang::SourceLocation> refs, clang::ASTContext &context) {
+  clang::SourceManager &SM = context.getSourceManager();
+  if (parent->isTemplated() || parent->isTemplateInstantiation() ||
+      VD->getDeclContext()->isDependentContext())
+    return;
+  const clang::QualType type = VD->getType().getUnqualifiedType();
+  const auto *builtin = type->getAs<clang::BuiltinType>();
+  if (!builtin || !(type->isIntegerType() || type->isRealFloatingType()))
+    return;
+  const clang::APValue *value = VD->evaluateValue();
+  if (!value)
+    return;
+
+  std::string literal;
+  const std::string typeName = type.getAsString(context.getPrintingPolicy());
+  if (value->isInt()) {
+    const llvm::APSInt &v = value->getInt();
+    if (type->isBooleanType())
+      literal = v.getBoolValue() ? "true" : "false";
+    else
+      literal = "static_cast<" + typeName + ">(0x" +
+                llvm::toString(v.extOrTrunc(64), 16, false) + "ull)";
+  } else if (value->isFloat()) {
+    const llvm::APFloat &f = value->getFloat();
+    const llvm::APInt bits = f.bitcastToAPInt();
+    if (builtin->getKind() == clang::BuiltinType::Float)
+      literal = "__builtin_bit_cast(float, 0x" + llvm::toString(bits, 16, false) + "u)";
+    else if (builtin->getKind() == clang::BuiltinType::Double)
+      literal = "__builtin_bit_cast(double, 0x" + llvm::toString(bits, 16, false) + "ull)";
+  }
+  if (literal.empty())
+    return;
+
+  const clang::Decl *top = parent;
+  while (top && !top->getDeclContext()->isFileContext())
+    top = llvm::dyn_cast<clang::Decl>(top->getDeclContext());
+  if (!top)
+    return;
+  if (const auto *fd = llvm::dyn_cast<clang::FunctionDecl>(top))
+    if (const clang::FunctionTemplateDecl *ftd = fd->getDescribedFunctionTemplate())
+      top = ftd;
+  clang::SourceLocation at = SM.getExpansionLoc(top->getBeginLoc());
+  if (at.isInvalid() || SM.isInSystemHeader(at))
+    return;
+
+  llvm::SmallVector<clang::SourceLocation, 4> sites;
+  for (clang::SourceLocation ref : refs) {
+    if (ref.isMacroID()) {
+      if (!SM.isMacroArgExpansion(ref))
+        return;
+      ref = SM.getSpellingLoc(ref);
+    }
+    if (ref.isInvalid() || SM.isInSystemHeader(ref))
+      return;
+    sites.push_back(ref);
+  }
+
+  const clang::SourceLocation declLoc = SM.getSpellingLoc(VD->getLocation());
+  const std::string twin =
+      "paras_sv_" + std::to_string(SM.getFileOffset(declLoc)) + "_" +
+      llvm::utohexstr(llvm::hash_value(SM.getFilename(declLoc)) & 0xffffff);
+  const clang::CharSourceRange atRange =
+      clang::CharSourceRange::getTokenRange(at, at);
+  if (rewriter.getRewrittenText(atRange).find(twin) == std::string::npos) {
+    std::string text =
+        "\n#ifndef PARAS_SV\n"
+        "#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)\n"
+        "#define PARAS_SV(host, device) device\n"
+        "#else\n"
+        "#define PARAS_SV(host, device) host\n"
+        "#endif\n"
+        "#endif\n"
+        "__device__ const " + typeName + " " + twin + " = " + literal + ";\n";
+    if (rewriter.InsertTextBefore(at, text))
+      return;
+  }
+  const std::string name = VD->getName().str();
+  for (clang::SourceLocation ref : sites) {
+    const clang::CharSourceRange refRange = clang::CharSourceRange::getCharRange(
+        ref, ref.getLocWithOffset(static_cast<int>(name.size())));
+    if (rewriter.getRewrittenText(refRange) != name) {
+      if (parasVerbose())
+        llvm::outs() << "[ParaS]   ref " << ref.printToString(SM) << " is '"
+                     << rewriter.getRewrittenText(refRange) << "'\n";
+      continue;
+    }
+    const bool failed = rewriter.ReplaceText(ref, name.size(),
+                         "PARAS_SV(" + name + ", " + twin + ")");
+    if (parasVerbose())
+      llvm::outs() << "[ParaS]   ref " << ref.printToString(SM)
+                   << (failed ? " (not rewritable)" : "") << "\n";
+  }
+  if (parasVerbose())
+    llvm::outs() << "[ParaS] device twin " << twin << " for static "
+                 << VD->getQualifiedNameAsString() << "\n";
 }
 
 void ParaSDeviceCallGraph::run(clang::ASTContext &context) {

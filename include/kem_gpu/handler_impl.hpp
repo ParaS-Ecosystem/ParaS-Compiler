@@ -34,6 +34,11 @@ inline void handler::paras_enqueue_dependencies() {
   }
 }
 
+inline event handler::paras_gpu_queue_tail() {
+  return gpu_pool_ != nullptr ? gpu_pool_->paras_last_command_event(true)
+                              : event{};
+}
+
 inline void handler::paras_gpu_command_enqueued(bool by_interop) {
   if (gpu_pool_ != nullptr) {
     if (by_interop) {

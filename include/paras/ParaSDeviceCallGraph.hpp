@@ -48,6 +48,10 @@ private:
 
   void enqueueParameterClasses(const clang::FunctionDecl *FD);
   void enqueueRecordSpecialMembers(const clang::CXXRecordDecl *record);
+  void hoistHostStatic(const clang::VarDecl *VD,
+                       const clang::FunctionDecl *parent,
+                       llvm::ArrayRef<clang::SourceLocation> refs,
+                       clang::ASTContext &context);
 
 public:
   explicit ParaSDeviceCallGraph(clang::Rewriter &r) : rewriter(r) {}

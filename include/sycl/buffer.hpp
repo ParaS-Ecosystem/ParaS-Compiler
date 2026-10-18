@@ -29,6 +29,8 @@
 #include <functional>
 #include <cstring>
 #include <map>
+#include <deque>
+#include <string>
 #include <mutex>
 
 #include "kem_gpu/gpu_utilities.hpp"
@@ -127,7 +129,8 @@ inline void buffer_mirror_update_host(const void *p) {
 #if PARAS_GPU_BACKEND && !PARAS_DEVICE_PASS
 inline bool buffer_mirror_wanted() {
     static const bool wanted = [] {
-        if (const char *e = std::getenv("PARAS_BUFFER_MIRROR"))
+
+        if (const char *e = std::getenv("PARAS_BUFFER_MIRROR"); e && e[0])
             return e[0] == '1';
         int dev = 0;
         if (cudaGetDevice(&dev) != cudaSuccess)
@@ -144,11 +147,47 @@ inline bool buffer_mirror_wanted() {
     }();
     return wanted;
 }
+
+struct buffer_mirror_graveyard {
+    std::mutex m;
+    std::deque<std::pair<void *, std::size_t>> q;
+    std::size_t bytes = 0;
+    static constexpr std::size_t max_bytes = std::size_t(64) << 20;
+    static constexpr std::size_t max_count = 256;
+    void release(std::size_t keep_bytes, std::size_t keep_count) {
+        std::lock_guard<std::mutex> lock(m);
+        while (!q.empty() && (bytes > keep_bytes || q.size() > keep_count)) {
+            cudaFree(q.front().first);
+            bytes -= q.front().second;
+            q.pop_front();
+        }
+    }
+    void bury(void *p, std::size_t n) {
+        {
+            std::lock_guard<std::mutex> lock(m);
+            q.emplace_back(p, n);
+            bytes += n;
+        }
+        release(max_bytes, max_count);
+    }
+};
+inline buffer_mirror_graveyard &buffer_mirror_dead() {
+    static auto *g = new buffer_mirror_graveyard;
+    return *g;
+}
 inline void *buffer_mirror_alloc(std::size_t bytes) {
     void *p = nullptr;
-    if (cudaMallocManaged(&p, bytes ? bytes : 1) != cudaSuccess)
+    cudaError_t err = cudaMallocManaged(&p, bytes ? bytes : 1);
+    if (err != cudaSuccess) {
+        (void)cudaGetLastError();
+        buffer_mirror_dead().release(0, 0);
+        err = cudaMallocManaged(&p, bytes ? bytes : 1);
+    }
+    if (err != cudaSuccess)
         throw sycl::exception(make_error_code(errc::memory_allocation),
-                              "buffer: cannot allocate managed memory");
+                              std::string("buffer: cannot allocate managed memory (") +
+                                  std::to_string(bytes) + " bytes): " +
+                                  cudaGetErrorString(err));
     return p;
 }
 inline void buffer_mirror_sync_device() { cudaDeviceSynchronize(); }
@@ -175,7 +214,7 @@ inline buffer_mirror::~buffer_mirror() {
     cudaDeviceSynchronize();
     if (write_back && dst)
         std::memcpy(dst, dev, bytes);
-
+    buffer_mirror_dead().bury(dev, bytes);
 }
 #elif !PARAS_DEVICE_PASS
 
