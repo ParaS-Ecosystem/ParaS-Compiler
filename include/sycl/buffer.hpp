@@ -146,10 +146,10 @@ inline bool buffer_mirror_wanted() {
             return true;
 #if PARAS_HIP_BACKEND
 
-        const bool separate = std::strstr(prop.gcnArchName, "xnack+") == nullptr;
+        const bool separate = true;
         if (debug)
-            std::fprintf(stderr, "[ParaS] buffer storage: %s (%s)\n",
-                         separate ? "separate" : "host", prop.gcnArchName);
+            std::fprintf(stderr, "[ParaS] buffer storage: separate (%s)\n",
+                         prop.gcnArchName);
 #else
         const bool separate = prop.pageableMemoryAccess == 0;
         if (debug)
