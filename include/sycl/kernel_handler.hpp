@@ -194,9 +194,11 @@ inline void spec_const_fill_blob(spec_const_blob &b) {
 }
 
 #if PARAS_GPU_BACKEND
+namespace detail {
 namespace {
 
 __attribute__((device)) spec_const_blob paras_spec_const_table;
+}
 }
 #endif
 
