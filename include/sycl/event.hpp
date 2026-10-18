@@ -319,6 +319,8 @@ inline void wait_all_host_tasks() {
   if (!tl_in_host_task)
     all_host_tasks().wait_all();
 }
+
+inline void buffer_host_access_sync();
 }
 
 }

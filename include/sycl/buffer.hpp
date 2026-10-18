@@ -135,7 +135,12 @@ inline bool buffer_mirror_wanted() {
         cudaDeviceProp prop;
         if (cudaGetDeviceProperties(&prop, dev) != cudaSuccess)
             return false;
+#if PARAS_HIP_BACKEND
+
+        return std::strstr(prop.gcnArchName, "xnack+") == nullptr;
+#else
         return prop.pageableMemoryAccess == 0;
+#endif
     }();
     return wanted;
 }
@@ -147,6 +152,11 @@ inline void *buffer_mirror_alloc(std::size_t bytes) {
     return p;
 }
 inline void buffer_mirror_sync_device() { cudaDeviceSynchronize(); }
+
+inline void buffer_host_access_sync() {
+    if (!tl_in_host_task)
+        cudaDeviceSynchronize();
+}
 inline char *buffer_mirror::storage() {
     std::lock_guard<std::mutex> lock(m);
     if (!dev) {
@@ -180,6 +190,7 @@ inline void *buffer_mirror_alloc(std::size_t bytes) {
     return std::calloc(bytes ? bytes : 1, 1);
 }
 inline void buffer_mirror_sync_device() {}
+inline void buffer_host_access_sync() {}
 inline char *buffer_mirror::storage() {
     std::lock_guard<std::mutex> lock(m);
     if (!dev) {
@@ -203,6 +214,7 @@ inline buffer_mirror::~buffer_mirror() {
 inline bool buffer_mirror_wanted() { return false; }
 inline void *buffer_mirror_alloc(std::size_t) { return nullptr; }
 inline void buffer_mirror_sync_device() {}
+inline void buffer_host_access_sync() {}
 inline char *buffer_mirror::storage() { return host_base; }
 inline buffer_mirror::~buffer_mirror() {}
 #endif

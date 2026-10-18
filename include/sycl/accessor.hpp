@@ -249,6 +249,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             no_init_ = props.has_no_init();
             paras_check_no_init();
         }
@@ -277,6 +279,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
                 no_init_ = true;
@@ -310,6 +314,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
             paras_check_no_init();
@@ -352,6 +358,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
@@ -371,6 +379,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
@@ -402,6 +412,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
             paras_check_no_init();
@@ -670,6 +682,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             no_init_ = props.has_no_init();
             paras_check_no_init();
         }
@@ -700,6 +714,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
                 no_init_ = true;
@@ -734,6 +750,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             no_init_ = props.has_no_init();
             paras_check_no_init();
@@ -776,6 +794,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
@@ -795,6 +815,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange, accessOffset);
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
@@ -826,6 +848,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             ::sycl::detail::check_accessor_range(paras_buf.get_range(), accessRange);
             no_init_ = props.has_no_init();
             paras_check_no_init();
@@ -1039,6 +1063,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             no_init_ = props.has_no_init();
             paras_check_no_init();
         }
@@ -1068,6 +1094,8 @@ inline void check_accessor_range(const range<D> &bufRange,
         {
             placeholder_ = AccessTarget != target::host_buffer;
             ::sycl::detail::wait_all_host_tasks();
+            if constexpr (AccessTarget == target::host_buffer)
+                ::sycl::detail::buffer_host_access_sync();
             if constexpr (std::is_same_v<TagT, property::no_init>)
             {
                 no_init_ = true;

@@ -23,7 +23,12 @@
 
 #if (defined(__HIP__) || defined(__CUDA__)) && defined(__cplusplus)
 #include <cstddef>
-#if defined(__GLIBCXX__)
+
+#if defined(__CUDA__) && !defined(__HIP__) && __clang_major__ >= 21
+#define PARAS_CLANG_HAS_GLIBCXX_ASSERT_WRAPPER 1
+#endif
+#if defined(__GLIBCXX__) && !defined(__CLANG_CUDA_WRAPPERS_BITS_CPP_CONFIG) &&  \
+    !defined(PARAS_CLANG_HAS_GLIBCXX_ASSERT_WRAPPER)
 namespace std {
 
 __attribute__((device)) __attribute__((noreturn)) inline void
