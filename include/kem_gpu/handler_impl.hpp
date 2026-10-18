@@ -25,6 +25,37 @@
 #include "sycl/handler.hpp"
 
 namespace sycl {
+namespace detail {
+
+template <typename Kernel> inline void spec_const_upload(void *stream) {
+  static unsigned long long uploaded = ~0ull;
+  static void *uploaded_on = nullptr;
+  if (stream == nullptr)
+    return;
+  unsigned long long gen;
+  {
+    std::lock_guard<std::mutex> lock(spec_const_mutex());
+    gen = spec_const_generation();
+  }
+  if (gen == uploaded && stream == uploaded_on)
+    return;
+  static spec_const_blob staged;
+  spec_const_fill_blob(staged);
+  if (gen == 0 && staged.count == 0 && uploaded == ~0ull) {
+    uploaded = gen;
+    uploaded_on = stream;
+    return;
+  }
+  const std::size_t bytes =
+      offsetof(spec_const_blob, data) + staged.used;
+  if (cudaMemcpyToSymbolAsync(PARAS_GPU_SYMBOL(paras_spec_const_table), &staged, bytes, 0,
+                              cudaMemcpyHostToDevice,
+                              static_cast<cudaStream_t>(stream)) == cudaSuccess) {
+    uploaded = gen;
+    uploaded_on = stream;
+  }
+}
+}
 
 inline void handler::paras_enqueue_dependencies() {
   if (gpu_pool_ != nullptr) {
@@ -58,6 +89,7 @@ void handler::parallel_for(range<dim> r, Func f) {
   }
 
   paras_enqueue_dependencies();
+  detail::spec_const_upload<Func>(gpu_pool_->stream);
 
   if constexpr (dim == 1) {
     if (isAsyncEnabled()) {
@@ -83,6 +115,7 @@ void handler::parallel_for(const nd_range<dim> &r, Func f) {
   }
 
   paras_enqueue_dependencies();
+  detail::spec_const_upload<Func>(gpu_pool_->stream);
 
   const std::size_t sharedMemoryBytes = local_memory_size();
 
@@ -106,6 +139,7 @@ void handler::paras_hierarchical_gpu(range<Dim> groups, range<Dim> local,
 
   paras_launch_kernel<KernelName, K>();
   paras_enqueue_dependencies();
+  detail::spec_const_upload<Func>(gpu_pool_->stream);
   range<Dim> one;
   for (int d = 0; d < Dim; ++d)
     one[d] = 1;

@@ -66,6 +66,9 @@
 #define cudaFreeHost hipHostFree
 #define cudaMemcpyAsync hipMemcpyAsync
 #define cudaMemsetAsync hipMemsetAsync
+#define cudaMemcpyToSymbolAsync hipMemcpyToSymbolAsync
+#define cudaMemcpyHostToDevice hipMemcpyHostToDevice
+#define PARAS_GPU_SYMBOL(x) HIP_SYMBOL(x)
 #define cudaPointerGetAttributes hipPointerGetAttributes
 
 #ifndef CUDART_VERSION
@@ -73,6 +76,8 @@
 #endif
 
 #elif PARAS_CUDA_BACKEND
+
+#define PARAS_GPU_SYMBOL(x) x
 
 #include "kem_gpu/gpu_runtime_api.hpp"
 

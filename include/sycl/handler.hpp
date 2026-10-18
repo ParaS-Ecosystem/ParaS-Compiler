@@ -190,7 +190,7 @@ public:
     if (gpu_pool_ != nullptr)
       deps.push_back(paras_gpu_queue_tail());
 #endif
-    result_ = event::paras_async(promise->get_future().share(), deps);
+    result_ = event::paras_async(promise->get_future().share(), deps_);
     auto state = result_.paras_state();
     detail::all_host_tasks().add(result_);
     std::thread([deps = std::move(deps), fn = std::decay_t<FunctorT>(

@@ -129,21 +129,34 @@ inline void buffer_mirror_update_host(const void *p) {
 #if PARAS_GPU_BACKEND && !PARAS_DEVICE_PASS
 inline bool buffer_mirror_wanted() {
     static const bool wanted = [] {
+        const bool debug = std::getenv("PARAS_BUFFER_MIRROR_DEBUG") != nullptr;
 
-        if (const char *e = std::getenv("PARAS_BUFFER_MIRROR"); e && e[0])
+        if (const char *e = std::getenv("PARAS_BUFFER_MIRROR"); e && e[0]) {
+            if (debug)
+                std::fprintf(stderr, "[ParaS] buffer storage: forced %s\n",
+                             e[0] == '1' ? "separate" : "host");
             return e[0] == '1';
+        }
+
         int dev = 0;
         if (cudaGetDevice(&dev) != cudaSuccess)
-            return false;
+            return true;
         cudaDeviceProp prop;
         if (cudaGetDeviceProperties(&prop, dev) != cudaSuccess)
-            return false;
+            return true;
 #if PARAS_HIP_BACKEND
 
-        return std::strstr(prop.gcnArchName, "xnack+") == nullptr;
+        const bool separate = std::strstr(prop.gcnArchName, "xnack+") == nullptr;
+        if (debug)
+            std::fprintf(stderr, "[ParaS] buffer storage: %s (%s)\n",
+                         separate ? "separate" : "host", prop.gcnArchName);
 #else
-        return prop.pageableMemoryAccess == 0;
+        const bool separate = prop.pageableMemoryAccess == 0;
+        if (debug)
+            std::fprintf(stderr, "[ParaS] buffer storage: %s (pageableMemoryAccess=%d)\n",
+                         separate ? "separate" : "host", prop.pageableMemoryAccess);
 #endif
+        return separate;
     }();
     return wanted;
 }

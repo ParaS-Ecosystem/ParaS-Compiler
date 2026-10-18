@@ -21,6 +21,7 @@
 #ifndef __PARAS_KERNEL_HANDLER_HPP__
 #define __PARAS_KERNEL_HANDLER_HPP__
 
+#include <cstddef>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -55,6 +56,28 @@ private:
 
 namespace detail {
 
+template <auto &SpecName> PARAS_KERNEL_HD constexpr unsigned long long spec_const_hash() {
+  constexpr const char *s = __PRETTY_FUNCTION__;
+  unsigned long long h = 1469598103934665603ull;
+  for (const char *c = s; *c; ++c)
+    h = (h ^ static_cast<unsigned char>(*c)) * 1099511628211ull;
+  return h;
+}
+
+struct spec_const_blob {
+  static constexpr unsigned max_entries = 32;
+  static constexpr unsigned max_bytes = 2048;
+  struct entry {
+    unsigned long long hash;
+    unsigned offset;
+    unsigned size;
+  };
+  unsigned count;
+  unsigned used;
+  entry e[max_entries];
+  unsigned char data[max_bytes];
+};
+
 inline std::map<const void *, std::vector<unsigned char>> &spec_const_store() {
   static std::map<const void *, std::vector<unsigned char>> store;
   return store;
@@ -62,6 +85,19 @@ inline std::map<const void *, std::vector<unsigned char>> &spec_const_store() {
 inline std::mutex &spec_const_mutex() {
   static std::mutex m;
   return m;
+}
+
+inline std::map<const void *, unsigned long long> &spec_const_keys() {
+  static std::map<const void *, unsigned long long> keys;
+  return keys;
+}
+
+inline unsigned long long &spec_const_generation() {
+  static unsigned long long g = 0;
+  return g;
+}
+template <auto &SpecName> void spec_const_register_key() {
+  spec_const_keys()[&SpecName] = spec_const_hash<SpecName>();
 }
 
 template <auto &SpecName> auto spec_const_value_host() {
@@ -118,6 +154,7 @@ struct spec_const_restorer {
       else
         spec_const_store().erase(it->key);
     }
+    ++spec_const_generation();
     v.clear();
   }
 };
@@ -126,15 +163,42 @@ inline void spec_const_set_raw(const void *key,
                                const std::vector<unsigned char> &bytes) {
   std::lock_guard<std::mutex> lock(spec_const_mutex());
   spec_const_store()[key] = bytes;
+  ++spec_const_generation();
 }
 
 template <auto &SpecName, typename T> void spec_const_set_host(const T &v) {
   std::vector<unsigned char> bytes(sizeof(T));
   std::memcpy(bytes.data(), static_cast<const void *>(&v), sizeof(T));
   std::lock_guard<std::mutex> lock(spec_const_mutex());
+  spec_const_register_key<SpecName>();
   spec_const_store()[&SpecName] = std::move(bytes);
+  ++spec_const_generation();
+}
+
+inline void spec_const_fill_blob(spec_const_blob &b) {
+  b.count = 0;
+  b.used = 0;
+  std::lock_guard<std::mutex> lock(spec_const_mutex());
+  for (const auto &kv : spec_const_store()) {
+    auto key = spec_const_keys().find(kv.first);
+    const unsigned n = static_cast<unsigned>(kv.second.size());
+    if (key == spec_const_keys().end() || b.count == spec_const_blob::max_entries ||
+        b.used + n > spec_const_blob::max_bytes)
+      continue;
+    b.e[b.count] = {key->second, b.used, n};
+    std::memcpy(b.data + b.used, kv.second.data(), n);
+    b.used += (n + 7u) & ~7u;
+    ++b.count;
+  }
 }
 }
+
+#if PARAS_GPU_BACKEND
+namespace {
+
+__attribute__((device)) spec_const_blob paras_spec_const_table;
+}
+#endif
 
 class kernel_handler {
 public:
@@ -143,6 +207,16 @@ public:
       typename std::remove_reference_t<decltype(SpecName)>::value_type
       get_specialization_constant() const {
 #if PARAS_DEVICE_PASS
+    using T = typename std::remove_reference_t<decltype(SpecName)>::value_type;
+    constexpr unsigned long long key = detail::spec_const_hash<SpecName>();
+    const detail::spec_const_blob &b = detail::paras_spec_const_table;
+    for (unsigned i = 0; i < b.count && i < detail::spec_const_blob::max_entries; ++i)
+      if (b.e[i].hash == key && b.e[i].size == sizeof(T)) {
+        T value = SpecName.paras_default();
+        __builtin_memcpy(static_cast<void *>(&value), b.data + b.e[i].offset,
+                         sizeof(T));
+        return value;
+      }
     return SpecName.paras_default();
 #else
     return detail::spec_const_value_host<SpecName>();

@@ -481,6 +481,10 @@ public:
     std::vector<unsigned char> bytes(sizeof(T));
     std::memcpy(bytes.data(), static_cast<const void *>(&value), sizeof(T));
     b_->spec[&SpecName] = std::move(bytes);
+    {
+      std::lock_guard<std::mutex> lock(detail::spec_const_mutex());
+      detail::spec_const_register_key<SpecName>();
+    }
   }
 
   template <auto &SpecName>
