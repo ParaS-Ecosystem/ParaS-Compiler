@@ -199,6 +199,19 @@ namespace {
 
 __attribute__((device)) spec_const_blob paras_spec_const_table;
 }
+#ifdef __CLANG_RDC__
+
+inline std::vector<const void *> &spec_const_tables() {
+  static std::vector<const void *> tables;
+  return tables;
+}
+#if !PARAS_DEVICE_PASS
+namespace {
+[[maybe_unused]] const int paras_spec_const_table_registered =
+    (spec_const_tables().push_back(static_cast<const void *>(&paras_spec_const_table)), 0);
+}
+#endif
+#endif
 }
 #endif
 

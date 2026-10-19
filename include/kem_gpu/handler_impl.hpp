@@ -27,7 +27,38 @@
 namespace sycl {
 namespace detail {
 
+#ifdef __CLANG_RDC__
+
+inline void spec_const_upload_all(void *stream) {
+  static unsigned long long uploaded = ~0ull;
+  static void *uploaded_on = nullptr;
+  static spec_const_blob staged;
+  unsigned long long gen;
+  {
+    std::lock_guard<std::mutex> lock(spec_const_mutex());
+    gen = spec_const_generation();
+  }
+  if (gen == uploaded && stream == uploaded_on)
+    return;
+  spec_const_fill_blob(staged);
+  uploaded = gen;
+  uploaded_on = stream;
+  if (gen == 0 && staged.count == 0)
+    return;
+  const std::size_t bytes = offsetof(spec_const_blob, data) + staged.used;
+  for (const void *table : spec_const_tables())
+    if (cudaMemcpyToSymbolAsync(table, &staged, bytes, 0, cudaMemcpyHostToDevice,
+                                static_cast<cudaStream_t>(stream)) != cudaSuccess)
+      (void)cudaGetLastError();
+}
+#endif
+
 template <typename Kernel> inline void spec_const_upload(void *stream) {
+#ifdef __CLANG_RDC__
+  if (stream != nullptr)
+    spec_const_upload_all(stream);
+  return;
+#endif
   static unsigned long long uploaded = ~0ull;
   static void *uploaded_on = nullptr;
   if (stream == nullptr)
