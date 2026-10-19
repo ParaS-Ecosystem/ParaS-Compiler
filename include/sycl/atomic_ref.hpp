@@ -117,11 +117,27 @@ PARAS_KERNEL_HD inline U paras_atomic_cas(U *p, U expected, U desired) noexcept 
 }
 #endif
 
-PARAS_KERNEL_HD inline void atomic_fence(memory_order order, memory_scope) {
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-  (void)order;
-  __threadfence();
+PARAS_KERNEL_HD inline void atomic_fence(memory_order order, memory_scope scope) {
+#if defined(__HIP_DEVICE_COMPILE__)
+  if (order == memory_order::relaxed)
+    return;
+  if (scope == memory_scope::work_item || scope == memory_scope::sub_group ||
+      scope == memory_scope::work_group)
+    __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "workgroup");
+  else
+    __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "");
+#elif defined(__CUDA_ARCH__)
+  if (order == memory_order::relaxed)
+    return;
+  if (scope == memory_scope::work_item || scope == memory_scope::sub_group ||
+      scope == memory_scope::work_group)
+    __threadfence_block();
+  else if (scope == memory_scope::device)
+    __threadfence();
+  else
+    __threadfence_system();
 #else
+  (void)scope;
   switch (order) {
   case memory_order::relaxed:
     break;

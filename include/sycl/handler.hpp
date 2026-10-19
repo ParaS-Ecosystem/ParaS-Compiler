@@ -425,6 +425,13 @@ public:
     return aligned_offset;
   }
 
+  template <class T> std::size_t legacy_local_alloc_offset(std::size_t elements) {
+    const bool had = has_local_acc_;
+    const std::size_t off = local_alloc_offset<T>(elements);
+    has_local_acc_ = had;
+    return off;
+  }
+
   std::size_t local_memory_size() const noexcept { return local_memory_bytes_; }
 
   void depends_on(const event &e) { deps_.push_back(e); }
