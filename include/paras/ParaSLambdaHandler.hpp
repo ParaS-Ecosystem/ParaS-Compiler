@@ -40,6 +40,8 @@ private:
 
   llvm::DenseSet<const clang::CXXRecordDecl *> processedFunctors;
 
+  llvm::DenseSet<const clang::FunctionDecl *> processedDeviceFunctions;
+
 public:
   ParaSLambdaHandler(clang::Rewriter &r, std::vector<std::string> backend)
       : rewriter(r), backend_target(std::move(backend)) {}

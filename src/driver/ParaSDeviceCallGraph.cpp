@@ -95,6 +95,10 @@ void ParaSDeviceCallGraph::addKernel(const clang::CXXMethodDecl *callOperator) {
   enqueueParameterClasses(callOperator);
 }
 
+void ParaSDeviceCallGraph::addDeviceFunction(const clang::FunctionDecl *FD) {
+  enqueue(FD);
+}
+
 void ParaSDeviceCallGraph::enqueueRecordSpecialMembers(
     const clang::CXXRecordDecl *record) {
   if (!record || !record->hasDefinition() || record->isLambda())

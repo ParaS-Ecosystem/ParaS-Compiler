@@ -205,6 +205,12 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
                argumentCountAtLeast(1))
           .bind("paras-kernel-call"),
       &lambda_callback);
+
+  matchers.addMatcher(
+      functionDecl(isDefinition(), hasAttr(clang::attr::CUDADevice),
+                   unless(isImplicit()))
+          .bind("paras-device-function"),
+      &lambda_callback);
 }
 
 void ParaSConsumer::HandleTranslationUnit(clang::ASTContext &context) {

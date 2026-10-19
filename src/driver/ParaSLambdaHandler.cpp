@@ -189,6 +189,30 @@ void ParaSLambdaHandler::run(
       (backend_target[0] != "cuda" && backend_target[0] != "hip"))
     return;
 
+  if (const auto *deviceFn = result.Nodes.getNodeAs<clang::FunctionDecl>(
+          "paras-device-function")) {
+    const clang::SourceManager &SM = *result.SourceManager;
+    const clang::SourceLocation loc = SM.getSpellingLoc(deviceFn->getLocation());
+    if (deviceFn->isInlined() || deviceFn->isTemplated() ||
+        deviceFn->isTemplateInstantiation() ||
+        deviceFn->hasAttr<clang::CUDAGlobalAttr>() ||
+        !deviceFn->isExternallyVisible() || loc.isInvalid() ||
+        SM.isInSystemHeader(loc) || SM.isInExternCSystemHeader(loc))
+      return;
+    if (const auto *method = llvm::dyn_cast<clang::CXXMethodDecl>(deviceFn))
+      if (method->getParent() && method->getParent()->isLambda())
+        return;
+    if (!processedDeviceFunctions.insert(deviceFn->getCanonicalDecl()).second)
+      return;
+    if (parasVerbose())
+      llvm::outs() << "[ParaS] Device function: "
+                   << deviceFn->getQualifiedNameAsString() << "\n";
+    ParaSDeviceCallGraph deviceGraph(rewriter);
+    deviceGraph.addDeviceFunction(deviceFn);
+    deviceGraph.run(*result.Context);
+    return;
+  }
+
   const clang::Expr *kernelExpr =
       result.Nodes.getNodeAs<clang::Expr>("paras-kernel-callable");
   if (const auto *kernelCall =

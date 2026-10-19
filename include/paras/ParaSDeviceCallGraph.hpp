@@ -59,6 +59,8 @@ public:
   void addKernel(const clang::CXXMethodDecl *callOperator);
 
   void addFunctor(const clang::CXXRecordDecl *record);
+
+  void addDeviceFunction(const clang::FunctionDecl *FD);
   void enqueueDestructorOf(clang::QualType type);
   void enqueue(const clang::FunctionDecl *FD);
   void run(clang::ASTContext &context);
