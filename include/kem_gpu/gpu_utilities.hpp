@@ -22,6 +22,7 @@
 #define __GPU_UTILITIES_HPP__
 #include "kem/host_group_runtime.hpp"
 #include <cstddef>
+#include <cstdlib>
 #include <cstdint>
 #include <type_traits>
 
@@ -51,6 +52,34 @@ inline unsigned char *paras_get_dynamic_shared_memory() noexcept {
   return paras_dynamic_shared_memory;
 #else
   return nullptr;
+#endif
+}
+
+#if defined(__CUDA__) || defined(__HIP__)
+
+__device__ inline void paras_zero_local_memory(std::size_t bytes) {
+  if (bytes == 0)
+    return;
+  extern __shared__ unsigned char paras_dynamic_shared_memory[];
+  const std::size_t n = static_cast<std::size_t>(blockDim.x) * blockDim.y * blockDim.z;
+  const std::size_t t =
+      threadIdx.x + static_cast<std::size_t>(blockDim.x) *
+                        (threadIdx.y + static_cast<std::size_t>(blockDim.y) * threadIdx.z);
+  for (std::size_t i = t; i < bytes; i += n)
+    paras_dynamic_shared_memory[i] = 0;
+  __syncthreads();
+}
+#endif
+
+inline std::size_t paras_local_zero_bytes(std::size_t sharedMemoryBytes) {
+#if PARAS_DEVICE_PASS
+  return sharedMemoryBytes;
+#else
+  static const bool off = [] {
+    const char *e = std::getenv("PARAS_NO_LOCAL_ZERO");
+    return e != nullptr && e[0] == '1';
+  }();
+  return off ? 0 : sharedMemoryBytes;
 #endif
 }
 

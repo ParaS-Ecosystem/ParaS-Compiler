@@ -33,7 +33,8 @@
 #include <sycl/range.hpp>
 
 template <typename Func>
-__global__ void gpu_execute_nd_range_1D_kernel(std::size_t globalSize,
+__global__ void gpu_execute_nd_range_1D_kernel(std::size_t zeroLocalBytes,
+                                               std::size_t globalSize,
                                                sycl::range<1> globalRange,
                                                sycl::range<1> localRange,
                                                sycl::range<1> groupRange,
@@ -41,6 +42,7 @@ __global__ void gpu_execute_nd_range_1D_kernel(std::size_t globalSize,
   extern __shared__ unsigned char paras_dynamic_shared_memory[];
 
   (void)paras_dynamic_shared_memory;
+  paras_zero_local_memory(zeroLocalBytes);
 
   const std::size_t gid = static_cast<std::size_t>(blockIdx.x) *
                               static_cast<std::size_t>(blockDim.x) +
@@ -105,7 +107,8 @@ void cuda_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1> &r,
   gpu_execute_nd_range_1D_kernel<<<static_cast<unsigned int>(groups),
                                    static_cast<unsigned int>(localSize),
                                    sharedMemoryBytes, stream>>>(
-      globalSize, globalRange, localRange, launchedGroupRange, f);
+      paras_local_zero_bytes(sharedMemoryBytes), globalSize, globalRange,
+      localRange, launchedGroupRange, f);
 
   paras_cuda_detail::check(cudaGetLastError(),
                            "1D nd_range kernel launch failed");

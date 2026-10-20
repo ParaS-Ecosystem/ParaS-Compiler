@@ -37,11 +37,12 @@
 
 template <typename Func>
 __global__ void gpu_execute_nd_range_3D_kernel(
-    std::size_t globalSize0, std::size_t globalSize1, std::size_t globalSize2,
+    std::size_t zeroLocalBytes, std::size_t globalSize0, std::size_t globalSize1, std::size_t globalSize2,
     sycl::range<3> globalRange, sycl::range<3> localRange,
     sycl::range<3> groupRange, Func f) {
   extern __shared__ unsigned char paras_dynamic_shared_memory[];
   (void)paras_dynamic_shared_memory;
+  paras_zero_local_memory(zeroLocalBytes);
 
   const std::size_t globalId0 = static_cast<std::size_t>(blockIdx.z) *
                                     static_cast<std::size_t>(blockDim.z) +
@@ -160,7 +161,7 @@ void cuda_threadpool::gpu_execute_nd_range_3D(const sycl::nd_range<3> &r,
   (void)cudaGetLastError();
 
   gpu_execute_nd_range_3D_kernel<<<grid, block, sharedMemoryBytes, stream>>>(
-      globalSize0, globalSize1, globalSize2, globalRange, localRange,
+      paras_local_zero_bytes(sharedMemoryBytes), globalSize0, globalSize1, globalSize2, globalRange, localRange,
       launchedGroupRange, f);
 
   err = cudaGetLastError();

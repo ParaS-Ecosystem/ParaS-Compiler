@@ -32,10 +32,11 @@
 
 template <typename Func>
 __global__ void gpu_execute_nd_range_2D_kernel(
-    std::size_t global0, std::size_t global1, sycl::range<2> globalRange,
+    std::size_t zeroLocalBytes, std::size_t global0, std::size_t global1, sycl::range<2> globalRange,
     sycl::range<2> localRange, sycl::range<2> groupRange, Func f) {
   extern __shared__ unsigned char paras_dynamic_shared_memory[];
   (void)paras_dynamic_shared_memory;
+  paras_zero_local_memory(zeroLocalBytes);
 
   const std::size_t gid0 = blockIdx.y * blockDim.y + threadIdx.y;
   const std::size_t gid1 = blockIdx.x * blockDim.x + threadIdx.x;
@@ -93,7 +94,7 @@ void cuda_threadpool::gpu_execute_nd_range_2D(const sycl::nd_range<2> &r,
 
   (void)cudaGetLastError();
   gpu_execute_nd_range_2D_kernel<<<grid, block, sharedMemoryBytes, stream>>>(
-      global0, global1, globalRange, localRange, launchedGroupRange, f);
+      paras_local_zero_bytes(sharedMemoryBytes), global0, global1, globalRange, localRange, launchedGroupRange, f);
 
   paras_cuda_detail::check(cudaGetLastError(),
                            "2D nd_range kernel launch failed");
