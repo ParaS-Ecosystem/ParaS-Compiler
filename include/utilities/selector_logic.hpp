@@ -101,7 +101,10 @@ inline sycl::device select_device_with_selector(const SelectorV &selector_v) {
     return *best;
   }
 
-  return best ? *best : sycl::device{};
+  if (!best || best_score < 0)
+    throw sycl::exception(sycl::make_error_code(sycl::errc::runtime),
+                          "no device satisfies the selector");
+  return *best;
 }
 
 inline sycl::device select_device_no_selector() {

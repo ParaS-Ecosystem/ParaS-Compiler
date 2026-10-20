@@ -58,7 +58,8 @@ private:
 namespace detail {
 
 #if PARAS_GPU_BACKEND
-template <auto &SpecName> __attribute__((device)) char paras_spec_const_tag;
+
+template <auto &SpecName> __attribute__((device, used)) char paras_spec_const_tag;
 template <auto &SpecName> PARAS_KERNEL_HD inline unsigned long long spec_const_hash() {
   const char *s =
       __builtin_get_device_side_mangled_name(paras_spec_const_tag<SpecName>);
