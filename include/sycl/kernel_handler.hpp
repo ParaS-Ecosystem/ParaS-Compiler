@@ -57,6 +57,17 @@ private:
 
 namespace detail {
 
+#if PARAS_GPU_BACKEND
+template <auto &SpecName> __attribute__((device)) char paras_spec_const_tag;
+template <auto &SpecName> PARAS_KERNEL_HD inline unsigned long long spec_const_hash() {
+  const char *s =
+      __builtin_get_device_side_mangled_name(paras_spec_const_tag<SpecName>);
+  unsigned long long h = 1469598103934665603ull;
+  for (const char *c = s; *c; ++c)
+    h = (h ^ static_cast<unsigned char>(*c)) * 1099511628211ull;
+  return h;
+}
+#else
 template <auto &SpecName> PARAS_KERNEL_HD constexpr unsigned long long spec_const_hash() {
   constexpr const char *s = __PRETTY_FUNCTION__;
   unsigned long long h = 1469598103934665603ull;
@@ -64,6 +75,7 @@ template <auto &SpecName> PARAS_KERNEL_HD constexpr unsigned long long spec_cons
     h = (h ^ static_cast<unsigned char>(*c)) * 1099511628211ull;
   return h;
 }
+#endif
 
 struct spec_const_blob {
   static constexpr unsigned max_entries = 64;
@@ -246,7 +258,7 @@ public:
       get_specialization_constant() const {
 #if PARAS_DEVICE_PASS
     using T = typename std::remove_reference_t<decltype(SpecName)>::value_type;
-    constexpr unsigned long long key = detail::spec_const_hash<SpecName>();
+    const unsigned long long key = detail::spec_const_hash<SpecName>();
     const detail::spec_const_blob &b = detail::paras_spec_const_table;
     for (unsigned i = 0; i < b.count && i < detail::spec_const_blob::max_entries; ++i)
       if (b.e[i].hash == key && b.e[i].size == sizeof(T)) {
