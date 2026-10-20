@@ -325,11 +325,29 @@ public:
     return is_always_lock_free;
   }
 
+  PARAS_KERNEL_HD static constexpr int paras_load_order(memory_order o) {
+    return o == memory_order::relaxed ? __ATOMIC_RELAXED
+           : (o == memory_order::acquire || o == memory_order::acq_rel)
+               ? __ATOMIC_ACQUIRE
+               : __ATOMIC_SEQ_CST;
+  }
+  PARAS_KERNEL_HD static constexpr int paras_store_order(memory_order o) {
+    return o == memory_order::relaxed ? __ATOMIC_RELAXED
+           : (o == memory_order::release || o == memory_order::acq_rel)
+               ? __ATOMIC_RELEASE
+               : __ATOMIC_SEQ_CST;
+  }
+
   PARAS_KERNEL_HD
   void store(T v, memory_order o = default_write_order,
-             memory_scope = default_scope) const noexcept {
+             memory_scope scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
-    *ptr = v;
+
+    if (paras_store_order(o) != __ATOMIC_RELAXED)
+      ::sycl::atomic_fence(memory_order::seq_cst, scope);
+    __atomic_store(ptr, &v, __ATOMIC_RELAXED);
+    if (paras_store_order(o) == __ATOMIC_SEQ_CST)
+      ::sycl::atomic_fence(memory_order::seq_cst, scope);
 #else
     atomic_ptr()->store(v, to_std(o));
 #endif
@@ -337,9 +355,15 @@ public:
 
   PARAS_KERNEL_HD
   T load(memory_order o = default_read_order,
-         memory_scope = default_scope) const noexcept {
+         memory_scope scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
-    return *ptr;
+    T r{};
+    if (paras_load_order(o) == __ATOMIC_SEQ_CST)
+      ::sycl::atomic_fence(memory_order::seq_cst, scope);
+    __atomic_load(ptr, &r, __ATOMIC_RELAXED);
+    if (paras_load_order(o) != __ATOMIC_RELAXED)
+      ::sycl::atomic_fence(memory_order::seq_cst, scope);
+    return r;
 #else
     return atomic_ptr()->load(to_std(o));
 #endif
