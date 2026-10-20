@@ -21,6 +21,7 @@
 #ifndef __PARAS_KERNEL_HANDLER_HPP__
 #define __PARAS_KERNEL_HANDLER_HPP__
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <map>
@@ -65,8 +66,8 @@ template <auto &SpecName> PARAS_KERNEL_HD constexpr unsigned long long spec_cons
 }
 
 struct spec_const_blob {
-  static constexpr unsigned max_entries = 32;
-  static constexpr unsigned max_bytes = 2048;
+  static constexpr unsigned max_entries = 64;
+  static constexpr unsigned max_bytes = 4096;
   struct entry {
     unsigned long long hash;
     unsigned offset;
@@ -95,6 +96,11 @@ inline std::map<const void *, unsigned long long> &spec_const_keys() {
 inline unsigned long long &spec_const_generation() {
   static unsigned long long g = 0;
   return g;
+}
+
+inline std::map<const void *, unsigned long long> &spec_const_seq() {
+  static std::map<const void *, unsigned long long> seq;
+  return seq;
 }
 template <auto &SpecName> void spec_const_register_key() {
   spec_const_keys()[&SpecName] = spec_const_hash<SpecName>();
@@ -163,7 +169,7 @@ inline void spec_const_set_raw(const void *key,
                                const std::vector<unsigned char> &bytes) {
   std::lock_guard<std::mutex> lock(spec_const_mutex());
   spec_const_store()[key] = bytes;
-  ++spec_const_generation();
+  spec_const_seq()[key] = ++spec_const_generation();
 }
 
 template <auto &SpecName, typename T> void spec_const_set_host(const T &v) {
@@ -172,14 +178,26 @@ template <auto &SpecName, typename T> void spec_const_set_host(const T &v) {
   std::lock_guard<std::mutex> lock(spec_const_mutex());
   spec_const_register_key<SpecName>();
   spec_const_store()[&SpecName] = std::move(bytes);
-  ++spec_const_generation();
+  spec_const_seq()[&SpecName] = ++spec_const_generation();
 }
 
 inline void spec_const_fill_blob(spec_const_blob &b) {
   b.count = 0;
   b.used = 0;
   std::lock_guard<std::mutex> lock(spec_const_mutex());
-  for (const auto &kv : spec_const_store()) {
+  std::vector<const std::pair<const void *const, std::vector<unsigned char>> *> order;
+  order.reserve(spec_const_store().size());
+  for (const auto &kv : spec_const_store())
+    order.push_back(&kv);
+  auto seqOf = [](const void *key) {
+    auto it = spec_const_seq().find(key);
+    return it == spec_const_seq().end() ? 0ull : it->second;
+  };
+  std::stable_sort(order.begin(), order.end(), [&](auto *a, auto *b) {
+    return seqOf(a->first) > seqOf(b->first);
+  });
+  for (const auto *kvp : order) {
+    const auto &kv = *kvp;
     auto key = spec_const_keys().find(kv.first);
     const unsigned n = static_cast<unsigned>(kv.second.size());
     if (key == spec_const_keys().end() || b.count == spec_const_blob::max_entries ||
@@ -205,12 +223,17 @@ inline std::vector<const void *> &spec_const_tables() {
   static std::vector<const void *> tables;
   return tables;
 }
-#if !PARAS_DEVICE_PASS
-namespace {
-[[maybe_unused]] const int paras_spec_const_table_registered =
-    (spec_const_tables().push_back(static_cast<const void *>(&paras_spec_const_table)), 0);
+
+inline void spec_const_add_table(const void *table) {
+  auto &t = spec_const_tables();
+  if (std::find(t.begin(), t.end(), table) == t.end())
+    t.push_back(table);
 }
-#endif
+namespace {
+template <auto &SpecName>
+[[maybe_unused]] const int paras_spec_const_table_registered =
+    (spec_const_add_table(static_cast<const void *>(&paras_spec_const_table)), 0);
+}
 #endif
 }
 #endif
@@ -234,6 +257,9 @@ public:
       }
     return SpecName.paras_default();
 #else
+#if PARAS_GPU_BACKEND && defined(__CLANG_RDC__)
+    (void)detail::paras_spec_const_table_registered<SpecName>;
+#endif
     return detail::spec_const_value_host<SpecName>();
 #endif
   }
