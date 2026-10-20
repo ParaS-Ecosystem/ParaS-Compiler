@@ -63,6 +63,8 @@ template <typename Kernel> inline void spec_const_upload(void *stream) {
   static void *uploaded_on = nullptr;
   if (stream == nullptr)
     return;
+  if (!paras_spec_const_table_read)
+    return;
   unsigned long long gen;
   {
     std::lock_guard<std::mutex> lock(spec_const_mutex());

@@ -228,7 +228,9 @@ inline void spec_const_fill_blob(spec_const_blob &b) {
 namespace detail {
 namespace {
 
-__attribute__((device, used)) spec_const_blob paras_spec_const_table;
+__attribute__((device)) spec_const_blob paras_spec_const_table;
+
+bool paras_spec_const_table_read = false;
 }
 #ifdef __CLANG_RDC__
 
@@ -236,18 +238,24 @@ inline std::vector<const void *> &spec_const_tables() {
   static std::vector<const void *> tables;
   return tables;
 }
-
 inline void spec_const_add_table(const void *table) {
   auto &t = spec_const_tables();
   if (std::find(t.begin(), t.end(), table) == t.end())
     t.push_back(table);
 }
+#endif
 namespace {
+inline int paras_spec_const_table_note_reader() {
+  paras_spec_const_table_read = true;
+#ifdef __CLANG_RDC__
+  spec_const_add_table(static_cast<const void *>(&paras_spec_const_table));
+#endif
+  return 0;
+}
 template <auto &SpecName>
 [[maybe_unused]] const int paras_spec_const_table_registered =
-    (spec_const_add_table(static_cast<const void *>(&paras_spec_const_table)), 0);
+    paras_spec_const_table_note_reader();
 }
-#endif
 }
 #endif
 
@@ -270,7 +278,7 @@ public:
       }
     return SpecName.paras_default();
 #else
-#if PARAS_GPU_BACKEND && defined(__CLANG_RDC__)
+#if PARAS_GPU_BACKEND
     (void)detail::paras_spec_const_table_registered<SpecName>;
 #endif
     return detail::spec_const_value_host<SpecName>();
