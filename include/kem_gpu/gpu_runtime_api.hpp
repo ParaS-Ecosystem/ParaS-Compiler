@@ -65,6 +65,7 @@
 #define cudaFree hipFree
 #define cudaFreeHost hipHostFree
 #define cudaMemcpyAsync hipMemcpyAsync
+#define cudaMemcpy hipMemcpy
 #define cudaMemsetAsync hipMemsetAsync
 #define cudaMemcpyToSymbolAsync hipMemcpyToSymbolAsync
 #define cudaMemcpyHostToDevice hipMemcpyHostToDevice

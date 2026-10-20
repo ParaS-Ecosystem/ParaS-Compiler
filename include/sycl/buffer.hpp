@@ -211,12 +211,26 @@ inline void buffer_host_access_sync() {
         cudaDeviceSynchronize();
 }
 inline void gpu_device_sync() { cudaDeviceSynchronize(); }
+
+inline void buffer_mirror_copy(void *to, const void *from, std::size_t n) {
+#if PARAS_HIP_BACKEND
+    static const bool runtime = [] {
+        const char *e = std::getenv("PARAS_BUFFER_RUNTIME_COPY");
+        return e != nullptr && e[0] == '1';
+    }();
+    if (runtime && n != 0 &&
+        cudaMemcpy(to, from, n, cudaMemcpyDefault) == cudaSuccess)
+        return;
+    (void)cudaGetLastError();
+#endif
+    std::memcpy(to, from, n);
+}
 inline char *buffer_mirror::storage() {
     std::lock_guard<std::mutex> lock(m);
     if (!dev) {
         dev = buffer_mirror_alloc(bytes);
         if (host_base)
-            std::memcpy(dev, host_base, bytes);
+            buffer_mirror_copy(dev, host_base, bytes);
         buffer_mirror_register(this);
     }
     return static_cast<char *>(dev);
@@ -228,7 +242,7 @@ inline buffer_mirror::~buffer_mirror() {
     wait_all_host_tasks();
     cudaDeviceSynchronize();
     if (write_back && dst)
-        std::memcpy(dst, dev, bytes);
+        buffer_mirror_copy(dst, dev, bytes);
     buffer_mirror_dead().bury(dev, bytes);
 }
 #elif !PARAS_DEVICE_PASS
