@@ -69,12 +69,20 @@ struct vector_size<vec<T, N>>
     #if PARAS_GPU_BACKEND
         PARAS_KERNEL_HD
         inline double rsqrt(double x) {
+        #if PARAS_DEVICE_PASS
             return ::rsqrt(x) ;
+        #else
+            return 1.0 / std::sqrt(x) ;
+        #endif
         }
 
         PARAS_KERNEL_HD
         inline float rsqrt(float x) {
+        #if PARAS_DEVICE_PASS
             return ::rsqrtf(x);
+        #else
+            return 1.0f / std::sqrt(x);
+        #endif
         }
     #else
         PARAS_KERNEL_HD inline double rsqrt(double x) {

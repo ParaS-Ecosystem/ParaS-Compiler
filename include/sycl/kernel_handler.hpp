@@ -197,7 +197,7 @@ inline void spec_const_fill_blob(spec_const_blob &b) {
 namespace detail {
 namespace {
 
-__attribute__((device)) spec_const_blob paras_spec_const_table;
+__attribute__((device, used)) spec_const_blob paras_spec_const_table;
 }
 #ifdef __CLANG_RDC__
 
