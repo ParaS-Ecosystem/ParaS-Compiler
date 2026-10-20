@@ -372,7 +372,28 @@ PARAS_SYCL_BINARY_MATH(powr, S, a, b, static_cast<S>(std::pow(static_cast<detail
     }                                                                    \
   }
 
-PARAS_SYCL_BINARY_MATH_HALF_ONLY(nextafter, S, a, b, static_cast<S>(std::nextafter(static_cast<double>(a), static_cast<double>(b))))
+namespace detail {
+PARAS_KERNEL_HD inline half half_nextafter(half a, half b) {
+  if (a != a || b != b)
+    return half(static_cast<float>(a) + static_cast<float>(b));
+  if (a == b)
+    return b;
+  unsigned short bits;
+  __builtin_memcpy(&bits, &a, sizeof bits);
+  if ((bits & 0x7fffu) == 0) {
+    bits = (static_cast<float>(b) > 0.0f) ? 0x0001u : 0x8001u;
+  } else if ((static_cast<float>(a) < static_cast<float>(b)) ==
+             (static_cast<float>(a) > 0.0f)) {
+    ++bits;
+  } else {
+    --bits;
+  }
+  half r;
+  __builtin_memcpy(&r, &bits, sizeof bits);
+  return r;
+}
+}
+PARAS_SYCL_BINARY_MATH_HALF_ONLY(nextafter, S, a, b, detail::half_nextafter(a, b))
 PARAS_SYCL_BINARY_MATH_HALF_ONLY(pow, S, a, b, static_cast<S>(std::pow(static_cast<double>(a), static_cast<double>(b))))
 
 #undef PARAS_SYCL_BINARY_MATH_HALF_ONLY
@@ -560,8 +581,12 @@ PARAS_KERNEL_HD inline auto nan(T nancode) {
   }
 }
 
-PARAS_KERNEL_HD inline float fdim(float x, float y) { return std::fdim(x, y); }
-PARAS_KERNEL_HD inline half fdim(half x, half y) { return static_cast<half>(std::fdim(static_cast<float>(x), static_cast<float>(y))); }
+PARAS_KERNEL_HD inline float fdim(float x, float y) {
+  if (x != x || y != y)
+    return x + y;
+  return (x > y) ? x - y : 0.0f;
+}
+PARAS_KERNEL_HD inline half fdim(half x, half y) { return static_cast<half>(fdim(static_cast<float>(x), static_cast<float>(y))); }
 
 template <typename T1, typename T2,
           typename = std::enable_if_t<detail::is_valid_math_arg_v<T1>>>
@@ -692,10 +717,11 @@ PARAS_KERNEL_HD inline double smoothstep(double edge0, double edge1, double x) {
 
 template <typename H, std::enable_if_t<std::is_same_v<H, half>, int> = 0>
 PARAS_KERNEL_HD inline half smoothstep(H edge0, H edge1, H x) {
-  float e0 = edge0, e1 = edge1, xf = x;
-  float t = (xf - e0) / (e1 - e0);
-  t = (t < 0.0f) ? 0.0f : ((t > 1.0f) ? 1.0f : t);
-  return static_cast<half>(t * t * (3.0f - 2.0f * t));
+
+  const half zero(0.0f), one(1.0f);
+  half t = (x - edge0) / (edge1 - edge0);
+  t = (t < zero) ? zero : ((t > one) ? one : t);
+  return t * t * (half(3.0f) - half(2.0f) * t);
 }
 PARAS_KERNEL_HD inline float step(float edge, float x) { return (x < edge) ? 0.0f : 1.0f; }
 PARAS_KERNEL_HD inline double step(double edge, double x) { return (x < edge) ? 0.0 : 1.0; }

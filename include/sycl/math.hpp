@@ -135,7 +135,9 @@ struct vector_size<vec<T, N>>
 
     PARAS_KERNEL_HD
     inline double fdim(double x, double y) {
-        return ::fdim(x, y) ;
+        if (x != x || y != y)
+            return x + y;
+        return (x > y) ? x - y : 0.0;
     }
 
     PARAS_KERNEL_HD
