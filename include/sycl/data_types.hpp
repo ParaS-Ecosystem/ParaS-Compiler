@@ -128,13 +128,23 @@ private:
 public:
 
     template <typename... Args,
-              typename = std::enable_if_t<(sizeof...(Args) >= 1) &&
+              typename = std::enable_if_t<(sizeof...(Args) >= 2) &&
                   ((paras_arg_count<Args>::value + ...) == N) &&
                   ((paras_arg_count<Args>::value > 0) && ...)>>
     PARAS_KERNEL_HD
-    explicit constexpr vec(Args... args) noexcept : data{} {
+    constexpr vec(Args... args) noexcept : data{} {
         int idx = 0;
         ((idx = paras_fill_component(data, idx, args)), ...);
+    }
+
+    template <typename Arg,
+              typename = std::enable_if_t<
+                  (paras_arg_count<Arg>::value == N) &&
+                  (paras_arg_count<Arg>::value > 0)>,
+              typename = void>
+    PARAS_KERNEL_HD
+    explicit constexpr vec(Arg arg) noexcept : data{} {
+        paras_fill_component(data, 0, arg);
     }
 
     PARAS_KERNEL_HD

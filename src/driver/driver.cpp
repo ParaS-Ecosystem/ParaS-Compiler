@@ -683,6 +683,11 @@ int main(int argc, const char **argv) {
                    << LLVM_VERSION_STRING << ")\n";
       return 0;
     }
+
+    if (a == "--print-base-compiler" || a == "-print-base-compiler") {
+      llvm::outs() << executor::base_compiler() << "\n";
+      return 0;
+    }
   }
   std::vector<std::vector<std::string>> compilerFlags =
       parseCommandLineArgs(argc, argv);

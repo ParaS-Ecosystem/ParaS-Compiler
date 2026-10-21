@@ -27,6 +27,8 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/TemplateBase.h"
+#include "clang/AST/DeclTemplate.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/Basic/FileEntry.h"
@@ -213,8 +215,72 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter &r,
       &lambda_callback);
 }
 
+namespace {
+
+class ExplicitHostInstantiations
+    : public clang::RecursiveASTVisitor<ExplicitHostInstantiations> {
+public:
+  ExplicitHostInstantiations(clang::Rewriter &r, clang::ASTContext &c)
+      : rewriter(r), context(c), SM(c.getSourceManager()) {}
+
+  bool shouldVisitTemplateInstantiations() const { return true; }
+
+  bool VisitFunctionDecl(clang::FunctionDecl *FD) {
+    if (!FD || FD->getTemplateSpecializationKind() !=
+                   clang::TSK_ExplicitInstantiationDefinition)
+      return true;
+
+    if (const auto *method = llvm::dyn_cast<clang::CXXMethodDecl>(FD))
+      if (!method->isStatic())
+        return true;
+    const clang::FunctionTemplateDecl *FTD = FD->getPrimaryTemplate();
+    if (!FTD)
+      return true;
+    const clang::FunctionDecl *primary = FTD->getTemplatedDecl();
+    if (!primary || primary->isConstexpr() || primary->isConsteval() ||
+        primary->hasAttr<clang::CUDAHostAttr>() ||
+        primary->hasAttr<clang::CUDADeviceAttr>() ||
+        primary->hasAttr<clang::CUDAGlobalAttr>())
+      return true;
+    if (!done.insert(primary->getCanonicalDecl()).second)
+      return true;
+
+    llvm::SmallVector<clang::SourceLocation, 4> sites;
+    for (const clang::FunctionDecl *redecl : primary->redecls()) {
+      clang::SourceLocation loc = SM.getSpellingLoc(redecl->getInnerLocStart());
+      clang::SourceLocation nameLoc = SM.getSpellingLoc(redecl->getLocation());
+      if (loc.isInvalid() || loc.isMacroID() || nameLoc.isInvalid() ||
+          SM.isInSystemHeader(loc) || SM.isInExternCSystemHeader(loc) ||
+          SM.getFileID(loc) != SM.getFileID(nameLoc))
+        return true;
+      const std::string prefix = rewriter.getRewrittenText(
+          clang::CharSourceRange::getTokenRange(loc, nameLoc));
+
+      if (prefix.find("__device__") != std::string::npos ||
+          prefix.find("__host__") != std::string::npos)
+        return true;
+      sites.push_back(loc);
+    }
+    for (clang::SourceLocation loc : sites)
+      rewriter.InsertTextBefore(loc, "__host__ ");
+    return true;
+  }
+
+private:
+  clang::Rewriter &rewriter;
+  clang::ASTContext &context;
+  clang::SourceManager &SM;
+  llvm::DenseSet<const clang::FunctionDecl *> done;
+};
+
+}
+
 void ParaSConsumer::HandleTranslationUnit(clang::ASTContext &context) {
   matchers.matchAST(context);
 
   paras::rewriteKernelAttributes(context, rewriter, gpuBuild);
+  if (gpuBuild && !std::getenv("PARAS_NO_IMPLICIT_HD_TEMPLATES")) {
+    ExplicitHostInstantiations pass(rewriter, context);
+    pass.TraverseDecl(context.getTranslationUnitDecl());
+  }
 }
