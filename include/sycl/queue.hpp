@@ -68,16 +68,6 @@ public:
     explicit queue(const DeviceSelector& selector, const async_handler&, const property_list& = {})
         : dev_(selector) {}
 
-    template <typename QueueLike,
-              typename = std::enable_if_t<
-                  !std::is_invocable_r_v<int, const QueueLike&, const device&> &&
-                  std::is_convertible_v<decltype(std::declval<const QueueLike&>().get_device()),
-                                        device> &&
-                  std::is_convertible_v<decltype(std::declval<const QueueLike&>().get_context()),
-                                        context>>>
-    explicit queue(const QueueLike& other)
-        : ctx_(other.get_context()), dev_(other.get_device()) {}
-
     explicit queue(const property_list& props)
         : dev_(::paras_extension::select_device_no_selector()), props_(props) {}
 
