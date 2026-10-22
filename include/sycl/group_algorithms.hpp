@@ -40,7 +40,7 @@ inline T shift_group_left(Group g,
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>)
     {
 
-        return paras_shfl_down(paras_active_mask(), x, delta);
+        return paras_shfl_down(paras_sub_group_mask(), x, delta);
     }
     else
     {
@@ -63,7 +63,7 @@ inline T shift_group_right(Group g,
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>)
     {
 
-        return paras_shfl(paras_active_mask(), x, g.get_local_linear_id() - delta);
+        return paras_shfl(paras_sub_group_mask(), x, g.get_local_linear_id() - delta);
     }
     else
     {
@@ -171,7 +171,7 @@ inline T group_broadcast(Group g, T x, typename Group::id_type local_id)
 {
 #if PARAS_GPU_BACKEND
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>)
-        return paras_shfl(paras_active_mask(), x, static_cast<int>(local_id[0]));
+        return paras_shfl(paras_sub_group_mask(), x, static_cast<int>(local_id[0]));
     else
         return detail::wg_broadcast(g, x, detail::wg_linearize(g, local_id));
 #else
@@ -188,7 +188,7 @@ inline T group_broadcast(Group g, T x, typename Group::linear_id_type linear_loc
 {
 #if PARAS_GPU_BACKEND
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>)
-        return paras_shfl(paras_active_mask(), x, static_cast<int>(linear_local_id));
+        return paras_shfl(paras_sub_group_mask(), x, static_cast<int>(linear_local_id));
     else
         return detail::wg_broadcast(g, x, linear_local_id);
 #else
@@ -212,7 +212,7 @@ inline bool all_of_group(Group g, bool pred)
 {
 #if PARAS_GPU_BACKEND
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>)
-        return !paras_any_sync(paras_active_mask(), !pred);
+        return !paras_any_sync(paras_sub_group_mask(), !pred);
     else
         return detail::wg_all(g, pred);
 #else
@@ -251,7 +251,7 @@ inline V inclusive_scan_over_group(Group g, V x, BinaryOperation binary_op)
 #if PARAS_GPU_BACKEND
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>)
     {
-        const std::uint64_t mask = paras_active_mask();
+        const std::uint64_t mask = paras_sub_group_mask();
         const auto lane = g.get_local_linear_id();
         for (typename Group::linear_id_type offset = 1;
              offset < g.get_local_linear_range();
@@ -290,7 +290,7 @@ inline T exclusive_scan_over_group(Group g, T x, T init, BinaryOperation binary_
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>)
     {
         T inclusive = inclusive_scan_over_group(g, x, binary_op);
-        T shifted = paras_shfl_up(paras_active_mask(), inclusive, 1);
+        T shifted = paras_shfl_up(paras_sub_group_mask(), inclusive, 1);
 
         return (g.get_local_linear_id() == 0) ? init : binary_op(init, shifted);
     }
@@ -417,7 +417,7 @@ inline T permute_group_by_xor(Group g, T x, typename Group::linear_id_type mask_
 {
 #if PARAS_GPU_BACKEND
     if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>)
-        return paras_shfl_xor(paras_active_mask(), x, static_cast<int>(mask_xor));
+        return paras_shfl_xor(paras_sub_group_mask(), x, static_cast<int>(mask_xor));
     else
         return x;
 #else

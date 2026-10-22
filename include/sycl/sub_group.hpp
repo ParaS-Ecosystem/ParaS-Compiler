@@ -167,7 +167,7 @@ namespace detail {
 template <typename T, typename BinaryOperation>
 PARAS_KERNEL_D inline T sub_group_reduce(const sub_group &g, T value,
                                          BinaryOperation binary_op) {
-  const std::uint64_t mask = paras_active_mask();
+  const std::uint64_t mask = paras_sub_group_mask();
   const auto lane = g.get_local_linear_id();
   const auto size = g.get_local_linear_range();
   for (unsigned offset = sub_group::warp_size / 2; offset > 0; offset >>= 1) {
@@ -184,7 +184,7 @@ PARAS_KERNEL_HD
 inline bool any_of_group(Group g, bool pred)
 {
   if constexpr (std::is_same_v<Group, sub_group>)
-    return paras_any_sync(paras_active_mask(), pred);
+    return paras_any_sync(paras_sub_group_mask(), pred);
   else
     return detail::wg_any(g, pred);
 }
@@ -226,7 +226,7 @@ inline T select_from_group(Group g,
 {
   if constexpr (std::is_same_v<Group, sub_group>)
   {
-    return paras_shfl(paras_active_mask(),
+    return paras_shfl(paras_sub_group_mask(),
                       value,
                       remote_local_id[0]);
   }

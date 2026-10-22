@@ -32,7 +32,7 @@ group_barrier(Group, memory_scope scope = Group::fence_scope) {
 #if PARAS_GPU_BACKEND
 
   if constexpr (std::is_same_v<std::decay_t<Group>, sub_group>) {
-    paras_syncwarp(paras_active_mask());
+    paras_syncwarp(paras_sub_group_mask());
   } else {
     paras_syncthreads();
   }

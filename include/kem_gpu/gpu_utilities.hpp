@@ -314,6 +314,21 @@ inline std::uint64_t paras_active_mask() {
 }
 
 PARAS_KERNEL_HD
+inline std::uint64_t paras_sub_group_mask() {
+#if defined(__CUDA_ARCH__) || \
+    (defined(__HIP_DEVICE_COMPILE__) && defined(__HIP_PLATFORM_NVIDIA__))
+  const unsigned lin =
+      threadIdx.x + blockDim.x * (threadIdx.y + blockDim.y * threadIdx.z);
+  const unsigned total = blockDim.x * blockDim.y * blockDim.z;
+  const unsigned n = total - (lin & ~31u);
+  return n >= 32u ? 0xffffffffull
+                  : static_cast<std::uint64_t>((1u << n) - 1u);
+#else
+  return paras_active_mask();
+#endif
+}
+
+PARAS_KERNEL_HD
 inline void paras_syncwarp(std::uint64_t mask = 0xffffffffu) {
 #if defined(__CUDA_ARCH__)
   __syncwarp(static_cast<unsigned>(mask));
