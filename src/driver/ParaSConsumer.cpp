@@ -172,6 +172,26 @@ ParaSConsumer::ParaSConsumer(clang::Rewriter& r, clang::Rewriter& headerRewriter
                                  hasArgument(1, expr().bind("paras-kernel-callable")))
                             .bind("paras-parallel-for"),
                         &lambda_callback);
+
+    const auto syclVecType = qualType(hasCanonicalType(
+        recordType(hasDeclaration(classTemplateSpecializationDecl(hasName("::sycl::vec"))))));
+    matchers.addMatcher(
+        returnStmt(forFunction(functionDecl(returns(syclVecType)).bind("vec-braced-fn")))
+            .bind("vec-braced-return"),
+        &vdr_callback);
+    matchers.addMatcher(varDecl(hasType(syclVecType), hasInitializer(expr())).bind("vec-braced-var"),
+                        &vdr_callback);
+
+    matchers.addMatcher(
+        cxxMemberCallExpr(
+            callee(cxxMethodDecl(hasAnyName("wait", "wait_and_throw"),
+                                 ofClass(cxxRecordDecl(hasName("::sycl::event"))))),
+            onImplicitObjectArgument(ignoringImplicit(ignoringParens(
+                cxxMemberCallExpr(callee(cxxMethodDecl(
+                                      hasName("submit"), ofClass(cxxRecordDecl(hasName("::sycl::queue"))))))
+                    .bind("submit-result-call")))))
+            .bind("submit-result-wait"),
+        &s_callback);
 }
 
 void ParaSConsumer::HandleTranslationUnit(clang::ASTContext& context) {

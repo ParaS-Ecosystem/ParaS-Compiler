@@ -20,6 +20,7 @@
 
 #include <system_error>
 #include "paras/ParaSVarDeclHandler.hpp"
+#include "paras/ParaSLog.hpp"
 
 #include "clang/AST/Decl.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
@@ -27,6 +28,10 @@
 #include "clang/Basic/SourceManager.h"
 #include <iostream>
 #include "clang/Lex/Lexer.h"
+#include "clang/AST/DeclTemplate.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/AST/PrettyPrinter.h"
+#include <set>
 
 namespace {
 
@@ -58,9 +63,62 @@ bool isInitializedWithNewQueue(const clang::VarDecl* VD) {
     return Record && Record->getQualifiedNameAsString() == "sycl::queue";
 }
 
+const clang::InitListExpr* failedBracedInit(const clang::Expr* E) {
+    if (!E)
+        return nullptr;
+    const auto* RE = llvm::dyn_cast<clang::RecoveryExpr>(E->IgnoreImplicit());
+    if (!RE)
+        return nullptr;
+    for (const clang::Expr* sub : RE->subExpressions()) {
+        const auto* ILE =
+            llvm::dyn_cast_or_null<clang::InitListExpr>(sub ? sub->IgnoreImplicit() : nullptr);
+        if (ILE && ILE->getLBraceLoc() == RE->getBeginLoc())
+            return ILE;
+    }
+    return nullptr;
+}
+
+void makeVecDirectListInit(clang::Rewriter& rewriter, const clang::InitListExpr* ILE,
+                           clang::QualType target, const clang::ASTContext& ctx) {
+    static std::set<unsigned> done; // instantiations share the pattern's location
+    const clang::SourceManager& SM = ctx.getSourceManager();
+    const clang::SourceLocation lbrace = ILE->getLBraceLoc();
+    if (lbrace.isInvalid() || lbrace.isMacroID() || SM.isInSystemHeader(lbrace) ||
+        !done.insert(lbrace.getRawEncoding()).second)
+        return;
+
+    clang::PrintingPolicy PP(ctx.getLangOpts());
+    PP.FullyQualifiedName = true;
+    PP.SuppressScope = false;
+    PP.SuppressTagKeyword = true;
+    const std::string typeName =
+        target.getNonReferenceType().getCanonicalType().getUnqualifiedType().getAsString(PP);
+    if (rewriter.InsertTextBefore(lbrace, typeName)) {
+        parasLog() << "[ParaS] failed to rewrite braced sycl::vec initialization\n";
+        return;
+    }
+    parasLog() << "[ParaS] braced init of " << typeName
+               << " made direct-list-initialization at " << lbrace.printToString(SM) << "\n";
+}
+
 } // namespace
 
 void VarDeclReplacer::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
+    if (const auto* RS = result.Nodes.getNodeAs<clang::ReturnStmt>("vec-braced-return")) {
+        const auto* FD = result.Nodes.getNodeAs<clang::FunctionDecl>("vec-braced-fn");
+        if (FD && result.Context)
+            if (const clang::InitListExpr* ILE = failedBracedInit(RS->getRetValue()))
+                makeVecDirectListInit(rewriter, ILE, FD->getReturnType(), *result.Context);
+        return;
+    }
+    if (const auto* VD = result.Nodes.getNodeAs<clang::VarDecl>("vec-braced-var")) {
+        if (result.Context && VD->getInitStyle() == clang::VarDecl::CInit &&
+            !VD->getType()->isReferenceType())
+            if (const clang::InitListExpr* ILE = failedBracedInit(VD->getInit()))
+                makeVecDirectListInit(rewriter, ILE, VD->getType(), *result.Context);
+        return;
+    }
+
     if (const clang::CXXNewExpr* NE = result.Nodes.getNodeAs<clang::CXXNewExpr>("new-queue")) {
         const clang::CXXRecordDecl* Record = NE->getAllocatedType()->getAsCXXRecordDecl();
         if (!Record || Record->getQualifiedNameAsString() != "sycl::queue")
@@ -131,12 +189,9 @@ void VarDeclReplacer::run(const clang::ast_matchers::MatchFinder::MatchResult& r
         const std::string replacement = "(" + argSource.str() + ")";
 
         if (rewriter.ReplaceText(constructRange, replacement)) {
-            llvm::errs() << "[ParaS] failed to lower explicit sycl::queue copy\n";
             return;
         }
 
-        llvm::errs() << "[ParaS] lowered explicit sycl::queue copy to underlying "
-                        "queue expression\n";
         return;
     }
 

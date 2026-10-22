@@ -102,13 +102,11 @@ static std::string createVFSOverlay() {
     llvm::SmallString<128> overlayPath;
     std::error_code EC = llvm::sys::fs::createUniqueFile(model, overlayPath);
     if (EC) {
-        llvm::errs() << "parascc: cannot create VFS overlay: " << EC.message() << "\n";
         return {};
     }
 
     llvm::raw_fd_ostream out(overlayPath, EC);
     if (EC) {
-        llvm::errs() << "parascc: cannot write VFS overlay: " << EC.message() << "\n";
         return {};
     }
 
@@ -174,8 +172,6 @@ static void writeRewrittenHeaders(clang::Rewriter& rewriter, clang::SourceManage
         llvm::SmallString<128> rewrittenPathSV;
         std::error_code EC = llvm::sys::fs::createUniqueFile(headerModel, rewrittenPathSV);
         if (EC) {
-            llvm::errs() << "parascc: cannot create rewritten header for " << originalPath << ": "
-                         << EC.message() << "\n";
             continue;
         }
 
@@ -186,8 +182,6 @@ static void writeRewrittenHeaders(clang::Rewriter& rewriter, clang::SourceManage
 
         llvm::raw_fd_ostream rewrittenFile(rewrittenPathSV, EC);
         if (EC) {
-            llvm::errs() << "parascc: cannot write rewritten header for " << originalPath << ": "
-                         << EC.message() << "\n";
             continue;
         }
         rewrittenFile << rewrittenContents;
@@ -224,7 +218,6 @@ static llvm::cl::opt<std::string> WriteToFile("outfile", llvm::cl::desc("Specify
 class ParasFrontendAction : public clang::ASTFrontendAction {
 private:
     clang::Rewriter rewriter;
-    clang::Rewriter headerRewriter;
     std::vector<std::string> compilerFlags;
     std::vector<std::string> bkend_target;
 
@@ -268,7 +261,6 @@ public:
         llvm::SmallString<128> tempPathSV;
         std::error_code EC;
         if ((EC = llvm::sys::fs::createUniqueFile(tmpModel, tempPathSV))) {
-            llvm::errs() << "Issue with creating temp file: " << EC.message() << "\n";
             return;
         }
 
@@ -276,7 +268,6 @@ public:
         llvm::raw_fd_ostream outFile(tempFile, EC);
 
         if (EC) {
-            llvm::errs() << "Issue with creating " << tempFile << "\n";
             llvm::errs() << "Exited with error code: " << EC.message() << "\n";
             return;
         }
@@ -287,7 +278,7 @@ public:
         std::vector<std::string> command = compilerFlags;
         command.push_back(tempFile);
 
-        writeRewrittenHeaders(headerRewriter, SM, mainID);
+        writeRewrittenHeaders(rewriter, SM, mainID);
         std::string overlayPath = createVFSOverlay();
         if (!overlayPath.empty()) {
             command.push_back("-ivfsoverlay");
@@ -304,8 +295,7 @@ public:
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance& CI,
                                                           llvm::StringRef infile) override {
         rewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-        headerRewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-        return std::make_unique<ParaSConsumer>(rewriter, headerRewriter, bkend_target);
+        return std::make_unique<ParaSConsumer>(rewriter, rewriter, bkend_target);
     }
 };
 
@@ -508,6 +498,8 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc, const char*
         row0.push_back("-x");
         row0.push_back(bkend_target[0]);
         row0.push_back("--offload-arch=" + bkend_target[1]);
+
+        row0.push_back("--cuda-host-only");
     }
 
     if (!llvmResDirFound) {

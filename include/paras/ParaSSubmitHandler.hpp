@@ -38,12 +38,21 @@ private:
     static std::unordered_set<std::string> ProcessedCallSites;
     std::vector<std::string> bkend_target;
 
+    struct PendingSubmitWait {
+        clang::SourceRange waitRange;   
+        clang::SourceRange submitRange; 
+        clang::SourceRange queueRange;  
+        std::string waitName;           
+    };
+    std::vector<PendingSubmitWait> pendingSubmitWaits;
+
 public:
     SubmitFunctionCallback(clang::Rewriter& r) : rewriter(r) {}
     SubmitFunctionCallback(clang::Rewriter& r, std::vector<std::string> bk)
         : rewriter(r), bkend_target(bk) {}
 
     void run(const clang::ast_matchers::MatchFinder::MatchResult& result) override;
+    void onEndOfTranslationUnit() override;
 
     void HandleHeaders(const clang::SourceManager& SM);
 };

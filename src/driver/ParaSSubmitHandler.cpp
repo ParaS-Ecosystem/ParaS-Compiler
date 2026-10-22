@@ -23,6 +23,7 @@
 
 #include <clang/Lex/Lexer.h>
 #include <clang/AST/AST.h>
+#include <algorithm>
 
 static bool isAssignedToSyclEvent(const clang::CallExpr* CE, const clang::SourceManager& SM) {
     if (!CE)
@@ -51,6 +52,41 @@ static bool isAssignedToSyclEvent(const clang::CallExpr* CE, const clang::Source
 }
 
 void SubmitFunctionCallback::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
+    if (const auto* waitCall =
+            result.Nodes.getNodeAs<clang::CXXMemberCallExpr>("submit-result-wait")) {
+        const auto* submitCall =
+            result.Nodes.getNodeAs<clang::CXXMemberCallExpr>("submit-result-call");
+        const bool gpuTarget = std::find(bkend_target.begin(), bkend_target.end(), "cuda") !=
+                                   bkend_target.end() ||
+                               std::find(bkend_target.begin(), bkend_target.end(), "hip") !=
+                                   bkend_target.end();
+        if (!gpuTarget || !submitCall || !result.SourceManager)
+            return;
+
+        const clang::SourceManager& SM = *result.SourceManager;
+        const clang::Expr* queueExpr = submitCall->getImplicitObjectArgument();
+        const clang::CXXMethodDecl* waitFn = waitCall->getMethodDecl();
+        if (!queueExpr || queueExpr->isImplicitCXXThis() || !waitFn)
+            return;
+
+        const clang::SourceRange waitRange = waitCall->getSourceRange();
+        const clang::SourceRange submitRange = submitCall->getSourceRange();
+        const clang::SourceRange queueRange = queueExpr->getSourceRange();
+        for (clang::SourceLocation L : {waitRange.getBegin(), waitRange.getEnd(),
+                                        submitRange.getEnd(), queueRange.getEnd()})
+            if (L.isInvalid() || L.isMacroID() || SM.isInSystemHeader(L))
+                return;
+        if (!SM.isWrittenInSameFile(waitRange.getBegin(), waitRange.getEnd()))
+            return;
+
+        for (const PendingSubmitWait& P : pendingSubmitWaits)
+            if (P.waitRange == waitRange)
+                return;
+        pendingSubmitWaits.push_back({waitRange, submitRange, queueRange,
+                                      waitFn->getNameAsString()});
+        return;
+    }
+
     std::string tpool_func_Call = "";
 
     if (const clang::TemplateArgument* DimArg =
@@ -167,6 +203,27 @@ void SubmitFunctionCallback::run(const clang::ast_matchers::MatchFinder::MatchRe
         ProcessedCallSites.insert(callSiteKey);
         HandleHeaders(*SM);
     }
+}
+
+void SubmitFunctionCallback::onEndOfTranslationUnit() {
+
+    for (const PendingSubmitWait& P : pendingSubmitWaits) {
+        const std::string submitText = rewriter.getRewrittenText(P.submitRange);
+        const std::string queueText = rewriter.getRewrittenText(P.queueRange);
+        if (submitText.empty() || queueText.empty())
+            continue;
+        const std::string replacement =
+            "(" + submitText + ", " + queueText + "." + P.waitName + "())";
+        if (rewriter.ReplaceText(P.waitRange, replacement)) {
+            parasLog() << "[ParaS] failed to rewrite " << P.waitName
+                         << "() on submit() result\n";
+            continue;
+        }
+        parasLog() << "[ParaS] " << P.waitName
+                   << "() on submit() result rewritten to queue-level wait at "
+                   << P.waitRange.getBegin().printToString(rewriter.getSourceMgr()) << "\n";
+    }
+    pendingSubmitWaits.clear();
 }
 
 void SubmitFunctionCallback::HandleHeaders(const clang::SourceManager& SM) {
