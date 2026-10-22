@@ -533,14 +533,6 @@ void VarDeclReplacer::run(const clang::ast_matchers::MatchFinder::MatchResult& r
 
         if (!FTL)
             return;
-        clang::QualType ReturnType = FD->getReturnType();
-        const clang::CXXRecordDecl* ReturnRecord =
-            ReturnType.getCanonicalType()->getAsCXXRecordDecl();
-
-        if (ReturnRecord &&
-            ReturnRecord->getQualifiedNameAsString() == "sycl::queue") {
-            return;
-        }
 
         clang::TypeLoc ReturnTL = FTL.getReturnLoc();
 
