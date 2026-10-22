@@ -26,6 +26,8 @@
 #include <stdexcept>
 #include <mutex>
 #include <memory>
+#include <type_traits>
+#include <utility>
 #include <vector>
 #include "../kem_gpu/gpu_utilities.hpp"
 #include "context.hpp"
@@ -54,10 +56,15 @@ public:
     explicit queue(const decltype(default_selector_v)& selector, const property_list& = {})
         : dev_(selector) {}
 
-    template <typename DeviceSelector>
+  
+    template <typename DeviceSelector,
+              typename = std::enable_if_t<std::is_invocable_r_v<
+                  int, const DeviceSelector&, const device&>>>
     explicit queue(const DeviceSelector& selector, const property_list& = {}) : dev_(selector) {}
 
-    template <typename DeviceSelector>
+    template <typename DeviceSelector,
+              typename = std::enable_if_t<std::is_invocable_r_v<
+                  int, const DeviceSelector&, const device&>>>
     explicit queue(const DeviceSelector& selector, const async_handler&, const property_list& = {})
         : dev_(selector) {}
 
@@ -68,7 +75,9 @@ public:
                    const property_list& = {})
         : ctx_(ctx), dev_(dev) {}
 
-    template <typename DeviceSelector>
+    template <typename DeviceSelector,
+              typename = std::enable_if_t<std::is_invocable_r_v<
+                  int, const DeviceSelector&, const device&>>>
     explicit queue(const context& ctx, const DeviceSelector& selector, const async_handler&,
                    const property_list& = {})
         : ctx_(ctx), dev_(selector) {}
@@ -92,6 +101,12 @@ public:
         }
 
         return event{get_backend()};
+    }
+
+    template <typename CGF>
+    event submit(CGF cgf, const property_list& propList) {
+        (void)propList;
+        return submit(cgf);
     }
 
     template <typename KernelName = void, typename Func>
@@ -124,9 +139,9 @@ public:
         return fill(ptr, pattern, count);
     }
 
-    void wait();
+    void wait() const;
 
-    void wait_and_throw();
+    void wait_and_throw() const;
 
     device get_device() const { return dev_; }
     context get_context() const { return ctx_; }
@@ -259,7 +274,7 @@ private:
     };
 
     inline void rec_async_exceptn(std::exception_ptr excp);
-    inline void throw_async_exceptns();
+    inline void throw_async_exceptns() const;
 
     std::shared_ptr<async_state> async_state_ = std::make_shared<async_state>();
 };
@@ -277,10 +292,10 @@ inline void sycl::queue::rec_async_exceptn(std::exception_ptr ex) {
 }
 
 #if !PARAS_GPU_BACKEND
-inline void sycl::queue::wait() {}
+inline void sycl::queue::wait() const {}
 #endif
 
-inline void sycl::queue::throw_async_exceptns() {
+inline void sycl::queue::throw_async_exceptns() const {
     std::vector<std::exception_ptr> excps;
 
     {
@@ -294,7 +309,7 @@ inline void sycl::queue::throw_async_exceptns() {
 }
 
 #if !PARAS_GPU_BACKEND
-inline void sycl::queue::wait_and_throw() {
+inline void sycl::queue::wait_and_throw() const {
     wait();
     throw_async_exceptns();
 }

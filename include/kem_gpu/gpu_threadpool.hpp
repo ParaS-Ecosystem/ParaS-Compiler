@@ -1013,7 +1013,7 @@ void rocm_threadpool::spawn_ND(Func f) {
 
 #include "kem_gpu/handler_impl.hpp"
 
-inline void sycl::queue::wait() {
+inline void sycl::queue::wait() const {
 #if (PARAS_CUDA_BACKEND)
     if (gpu_pool_) {
         gpu_pool_->wait();
@@ -1025,7 +1025,7 @@ inline void sycl::queue::wait() {
 #endif
 }
 
-inline void sycl::queue::wait_and_throw() {
+inline void sycl::queue::wait_and_throw() const {
 #if (PARAS_CUDA_BACKEND)
     if (gpu_pool_) {
         gpu_pool_->wait_and_throw();

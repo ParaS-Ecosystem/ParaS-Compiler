@@ -28,6 +28,10 @@ namespace sycl {
 
 namespace property {
 
+namespace command_group {
+struct profile_command_group {};
+} // namespace command_group
+
 namespace queue {
 
 struct in_order {};
