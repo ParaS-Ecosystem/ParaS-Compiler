@@ -156,6 +156,99 @@ PARAS_KERNEL_HD inline void atomic_fence(memory_order order, memory_scope scope)
 #endif
 }
 
+#if PARAS_GPU_BACKEND
+
+namespace paras_atomic_native {
+enum class op { add, sub, min, max, bit_and, bit_or, bit_xor, exchange };
+
+template <op O, typename T>
+inline constexpr bool supported =
+    !std::is_pointer_v<T> && !std::is_same_v<T, bool> &&
+    (sizeof(T) == 4 || sizeof(T) == 8) &&
+    (std::is_integral_v<T> ||
+     (std::is_floating_point_v<T> &&
+      (O == op::add || O == op::sub || O == op::exchange)));
+
+template <op O, typename T>
+PARAS_KERNEL_HD inline bool apply(T *p, T v, T &old) noexcept {
+#if defined(__CUDA_ARCH__)
+  if (__nvvm_isspacep_local(p))
+    return false;
+  if constexpr (std::is_floating_point_v<T>) {
+    if constexpr (std::is_same_v<T, double> && __CUDA_ARCH__ < 600) {
+      return false;
+    } else if constexpr (O == op::add) {
+      old = atomicAdd(p, v);
+      return true;
+    } else if constexpr (O == op::sub) {
+      old = atomicAdd(p, -v);
+      return true;
+    } else if constexpr (O == op::exchange && sizeof(T) == 4) {
+      old = atomicExch(p, v);
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+
+    using S = std::conditional_t<sizeof(T) == 4, int, long long>;
+    using U = std::conditional_t<sizeof(T) == 4, unsigned int,
+                                 unsigned long long>;
+    U *up = reinterpret_cast<U *>(p);
+    const U uv = static_cast<U>(v);
+    if constexpr (O == op::add) {
+      old = static_cast<T>(atomicAdd(up, uv));
+    } else if constexpr (O == op::sub) {
+      old = static_cast<T>(atomicAdd(up, static_cast<U>(0) - uv));
+    } else if constexpr (O == op::bit_and) {
+      old = static_cast<T>(atomicAnd(up, uv));
+    } else if constexpr (O == op::bit_or) {
+      old = static_cast<T>(atomicOr(up, uv));
+    } else if constexpr (O == op::bit_xor) {
+      old = static_cast<T>(atomicXor(up, uv));
+    } else if constexpr (O == op::exchange) {
+      old = static_cast<T>(atomicExch(up, uv));
+    } else if constexpr (std::is_signed_v<T>) {
+      S *sp = reinterpret_cast<S *>(p);
+      old = static_cast<T>(O == op::min ? atomicMin(sp, static_cast<S>(v))
+                                        : atomicMax(sp, static_cast<S>(v)));
+    } else {
+      old = static_cast<T>(O == op::min ? atomicMin(up, uv) : atomicMax(up, uv));
+    }
+    return true;
+  }
+#elif defined(__HIP_DEVICE_COMPILE__)
+
+  constexpr int mo = __ATOMIC_RELAXED;
+  constexpr int sc = __HIP_MEMORY_SCOPE_AGENT;
+  if constexpr (O == op::add) {
+    old = __hip_atomic_fetch_add(p, v, mo, sc);
+  } else if constexpr (O == op::sub) {
+    old = __hip_atomic_fetch_add(p, static_cast<T>(T(0) - v), mo, sc);
+  } else if constexpr (O == op::min) {
+    old = __hip_atomic_fetch_min(p, v, mo, sc);
+  } else if constexpr (O == op::max) {
+    old = __hip_atomic_fetch_max(p, v, mo, sc);
+  } else if constexpr (O == op::bit_and) {
+    old = __hip_atomic_fetch_and(p, v, mo, sc);
+  } else if constexpr (O == op::bit_or) {
+    old = __hip_atomic_fetch_or(p, v, mo, sc);
+  } else if constexpr (O == op::bit_xor) {
+    old = __hip_atomic_fetch_xor(p, v, mo, sc);
+  } else {
+    old = __hip_atomic_exchange(p, v, mo, sc);
+  }
+  return true;
+#else
+  (void)p;
+  (void)v;
+  (void)old;
+  return false;
+#endif
+}
+}
+#endif
+
 template <typename T, memory_order DefaultOrder = memory_order::relaxed,
           memory_scope DefaultScope = memory_scope::device,
           access::address_space AddressSpace =
@@ -383,6 +476,11 @@ public:
              memory_scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
     (void)o;
+    if constexpr (paras_atomic_native::supported<paras_atomic_native::op::exchange, T>) {
+      T old;
+      if (paras_atomic_native::apply<paras_atomic_native::op::exchange>(ptr, static_cast<T>(v), old))
+        return old;
+    }
     return cas_loop(v, [] PARAS_KERNEL_HD(T, T b) { return b; });
 #else
     return atomic_ptr()->exchange(v, to_std(o));
@@ -449,6 +547,11 @@ return compare_exchange_weak(expected, desired, order, failure, scope);
               memory_order o = default_read_modify_write_order,
               memory_scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
+    if constexpr (paras_atomic_native::supported<paras_atomic_native::op::add, T>) {
+      T old;
+      if (paras_atomic_native::apply<paras_atomic_native::op::add>(ptr, static_cast<T>(v), old))
+        return old;
+    }
     return cas_loop(v, [] PARAS_KERNEL_HD(T a, difference_type b) {
       return static_cast<T>(a + b);
     });
@@ -470,6 +573,11 @@ return compare_exchange_weak(expected, desired, order, failure, scope);
               memory_order o = default_read_modify_write_order,
               memory_scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
+    if constexpr (paras_atomic_native::supported<paras_atomic_native::op::sub, T>) {
+      T old;
+      if (paras_atomic_native::apply<paras_atomic_native::op::sub>(ptr, static_cast<T>(v), old))
+        return old;
+    }
     return cas_loop(v, [] PARAS_KERNEL_HD(T a, difference_type b) {
       return static_cast<T>(a - b);
     });
@@ -490,6 +598,11 @@ return compare_exchange_weak(expected, desired, order, failure, scope);
   T fetch_or(T v, memory_order o = default_read_modify_write_order,
              memory_scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
+    if constexpr (paras_atomic_native::supported<paras_atomic_native::op::bit_or, T>) {
+      T old;
+      if (paras_atomic_native::apply<paras_atomic_native::op::bit_or>(ptr, static_cast<T>(v), old))
+        return old;
+    }
     return cas_loop(v, [] PARAS_KERNEL_HD(T a, T b) {
       return static_cast<T>(a | b);
     });
@@ -502,6 +615,11 @@ return compare_exchange_weak(expected, desired, order, failure, scope);
   T fetch_xor(T v, memory_order o = default_read_modify_write_order,
               memory_scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
+    if constexpr (paras_atomic_native::supported<paras_atomic_native::op::bit_xor, T>) {
+      T old;
+      if (paras_atomic_native::apply<paras_atomic_native::op::bit_xor>(ptr, static_cast<T>(v), old))
+        return old;
+    }
     return cas_loop(v, [] PARAS_KERNEL_HD(T a, T b) {
       return static_cast<T>(a ^ b);
     });
@@ -514,6 +632,11 @@ return compare_exchange_weak(expected, desired, order, failure, scope);
   T fetch_and(T v, memory_order o = default_read_modify_write_order,
               memory_scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
+    if constexpr (paras_atomic_native::supported<paras_atomic_native::op::bit_and, T>) {
+      T old;
+      if (paras_atomic_native::apply<paras_atomic_native::op::bit_and>(ptr, static_cast<T>(v), old))
+        return old;
+    }
     return cas_loop(v, [] PARAS_KERNEL_HD(T a, T b) {
       return static_cast<T>(a & b);
     });
@@ -526,6 +649,11 @@ return compare_exchange_weak(expected, desired, order, failure, scope);
   T fetch_min(T v, memory_order o = default_read_modify_write_order,
               memory_scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
+    if constexpr (paras_atomic_native::supported<paras_atomic_native::op::min, T>) {
+      T old;
+      if (paras_atomic_native::apply<paras_atomic_native::op::min>(ptr, static_cast<T>(v), old))
+        return old;
+    }
     return cas_loop(v, [] PARAS_KERNEL_HD(T a, T b) {
       return b < a ? b : a;
     });
@@ -542,6 +670,11 @@ return compare_exchange_weak(expected, desired, order, failure, scope);
   T fetch_max(T v, memory_order o = default_read_modify_write_order,
               memory_scope = default_scope) const noexcept {
 #if PARAS_GPU_BACKEND
+    if constexpr (paras_atomic_native::supported<paras_atomic_native::op::max, T>) {
+      T old;
+      if (paras_atomic_native::apply<paras_atomic_native::op::max>(ptr, static_cast<T>(v), old))
+        return old;
+    }
     return cas_loop(v, [] PARAS_KERNEL_HD(T a, T b) {
       return b > a ? b : a;
     });
