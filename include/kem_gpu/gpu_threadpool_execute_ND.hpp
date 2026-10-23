@@ -34,12 +34,18 @@
 template <typename Func>
 __global__ void gpu_execute_2D_grid_kernel(std::size_t rows, std::size_t cols,
                                            Func f) {
-  const std::size_t row = blockIdx.y * blockDim.y + threadIdx.y;
-  const std::size_t col = blockIdx.x * blockDim.x + threadIdx.x;
 
-  if (row < rows && col < cols) {
-    sycl::detail::invoke_range_kernel<2>(f, sycl::id<2>(row, col),
-                                         sycl::range<2>(rows, cols));
+  const std::size_t rowStride = static_cast<std::size_t>(gridDim.y) * blockDim.y;
+  const std::size_t colStride = static_cast<std::size_t>(gridDim.x) * blockDim.x;
+  for (std::size_t row =
+           static_cast<std::size_t>(blockIdx.y) * blockDim.y + threadIdx.y;
+       row < rows; row += rowStride) {
+    for (std::size_t col =
+             static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+         col < cols; col += colStride) {
+      sycl::detail::invoke_range_kernel<2>(f, sycl::id<2>(row, col),
+                                           sycl::range<2>(rows, cols));
+    }
   }
 }
 
@@ -72,8 +78,11 @@ void cuda_threadpool::gpu_execute_2D(const sycl::range<2> &r, Func f) {
                                 "cudaSetDevice before 2D kernel");
 
   const dim3 block(16, 16);
-  const dim3 grid(static_cast<unsigned int>((cols + block.x - 1) / block.x),
-                  static_cast<unsigned int>((rows + block.y - 1) / block.y));
+  const std::size_t gx = (cols + block.x - 1) / block.x;
+  const std::size_t gy = (rows + block.y - 1) / block.y;
+  constexpr std::size_t maxGx = std::size_t(1) << 20, maxGy = 65535;
+  const dim3 grid(static_cast<unsigned int>(gx < maxGx ? gx : maxGx),
+                  static_cast<unsigned int>(gy < maxGy ? gy : maxGy));
 
   (void)cudaGetLastError();
   gpu_execute_2D_grid_kernel<<<grid, block, 0, stream>>>(rows, cols, f);

@@ -40,8 +40,10 @@ inline void check(cudaError_t err, const char *where) {
 
 template <typename Func>
 __global__ void gpu_execute_1D_kernel(std::size_t n, Func f) {
-  const std::size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < n) {
+  const std::size_t stride = static_cast<std::size_t>(gridDim.x) * blockDim.x;
+  for (std::size_t i =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       i < n; i += stride) {
     sycl::detail::invoke_range_kernel<1>(f, sycl::id<1>(i), sycl::range<1>(n));
   }
 }
@@ -58,8 +60,11 @@ void cuda_threadpool::gpu_execute_1D(const sycl::range<1> &r, Func f) {
                                 "cudaSetDevice before 1D kernel");
 
   constexpr unsigned int threadsPerBlock = 256;
+
+  constexpr std::size_t maxBlocks = std::size_t(1) << 22;
+  const std::size_t wanted = (n + threadsPerBlock - 1) / threadsPerBlock;
   const unsigned int blocks =
-      static_cast<unsigned int>((n + threadsPerBlock - 1) / threadsPerBlock);
+      static_cast<unsigned int>(wanted < maxBlocks ? wanted : maxBlocks);
 
   (void)cudaGetLastError();
   gpu_execute_1D_kernel<<<blocks, threadsPerBlock, 0, stream>>>(n, f);
