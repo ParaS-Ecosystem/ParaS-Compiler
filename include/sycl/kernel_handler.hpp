@@ -267,16 +267,18 @@ public:
       get_specialization_constant() const {
 #if PARAS_DEVICE_PASS
     using T = typename std::remove_reference_t<decltype(SpecName)>::value_type;
+
+    constexpr T dflt = SpecName.paras_default();
     const unsigned long long key = detail::spec_const_hash<SpecName>();
     const detail::spec_const_blob &b = detail::paras_spec_const_table;
     for (unsigned i = 0; i < b.count && i < detail::spec_const_blob::max_entries; ++i)
       if (b.e[i].hash == key && b.e[i].size == sizeof(T)) {
-        T value = SpecName.paras_default();
+        T value = dflt;
         __builtin_memcpy(static_cast<void *>(&value), b.data + b.e[i].offset,
                          sizeof(T));
         return value;
       }
-    return SpecName.paras_default();
+    return dflt;
 #else
 #if PARAS_GPU_BACKEND
     (void)detail::paras_spec_const_table_registered<SpecName>;
