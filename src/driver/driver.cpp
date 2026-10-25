@@ -673,6 +673,7 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
 
 int main(int argc, const char **argv) {
 
+  executor::remember_ignored_signals();
   llvm::sys::PrintStackTraceOnErrorSignal(argv[0]);
   std::atexit(cleanupTempFiles);
 

@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
+#include <csignal>
 #include <sys/wait.h>
 
 namespace executor {
@@ -57,6 +58,26 @@ std::string find_clangxx(const char *argv0) {
     return "/usr/local/bin/clang++";
 
   return "clang++";
+}
+
+namespace {
+
+constexpr int kJobSignals[] = {SIGHUP, SIGINT, SIGQUIT};
+bool ignoredAtStart[sizeof(kJobSignals) / sizeof(kJobSignals[0])] = {};
+}
+
+void remember_ignored_signals() {
+  for (unsigned i = 0; i < sizeof(kJobSignals) / sizeof(kJobSignals[0]); ++i) {
+    struct sigaction sa;
+    if (sigaction(kJobSignals[i], nullptr, &sa) == 0)
+      ignoredAtStart[i] = (sa.sa_handler == SIG_IGN);
+  }
+}
+
+static void restore_ignored_signals() {
+  for (unsigned i = 0; i < sizeof(kJobSignals) / sizeof(kJobSignals[0]); ++i)
+    if (ignoredAtStart[i])
+      std::signal(kJobSignals[i], SIG_IGN);
 }
 
 std::string base_compiler() {
@@ -137,6 +158,7 @@ int executor(std::vector<std::string> command,
 
   args.push_back(nullptr);
 
+  restore_ignored_signals();
   pid_t pid = fork();
   if (pid < 0) {
     perror("parascc: fork failed");

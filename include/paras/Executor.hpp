@@ -31,6 +31,8 @@ std::string find_clangxx(const char *argv0);
 
 std::string base_compiler();
 
+void remember_ignored_signals();
+
 int executor(std::vector<std::string> command,
              std::vector<std::string> bkend_target);
 }
