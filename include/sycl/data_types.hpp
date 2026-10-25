@@ -2563,13 +2563,41 @@ using opencl::cl_short; using opencl::cl_ushort; using opencl::cl_int;
 using opencl::cl_uint; using opencl::cl_long; using opencl::cl_ulong;
 using opencl::cl_half; using opencl::cl_float; using opencl::cl_double;
 
+namespace detail {
+#if defined(__HIP_DEVICE_COMPILE__)
+
+template <typename To> struct bit_cast_mem_result : To {
+  PARAS_KERNEL_HD bit_cast_mem_result() {}
+  PARAS_KERNEL_HD bit_cast_mem_result(const bit_cast_mem_result &o) : To() {
+    __builtin_memcpy(static_cast<void *>(static_cast<To *>(this)),
+                     static_cast<const To *>(&o), sizeof(To));
+  }
+  PARAS_KERNEL_HD bit_cast_mem_result &operator=(const bit_cast_mem_result &o) {
+    __builtin_memcpy(static_cast<void *>(static_cast<To *>(this)),
+                     static_cast<const To *>(&o), sizeof(To));
+    return *this;
+  }
+};
+template <typename To>
+inline constexpr bool bit_cast_via_memory =
+    std::is_class_v<To> && !std::is_final_v<To> && sizeof(To) == 1 &&
+    std::is_default_constructible_v<To>;
+template <typename To>
+using bit_cast_result_t =
+    std::conditional_t<bit_cast_via_memory<To>, bit_cast_mem_result<To>, To>;
+#else
+template <typename To> using bit_cast_result_t = To;
+#endif
+}
+
 template <typename To, typename From>
 PARAS_KERNEL_HD
-To bit_cast(const From& from) noexcept {
+detail::bit_cast_result_t<To> bit_cast(const From& from) noexcept {
     static_assert(sizeof(To) == sizeof(From),
                   "sycl::bit_cast requires equally-sized types");
-    To to;
-    __builtin_memcpy(&to, &from, sizeof(To));
+    detail::bit_cast_result_t<To> to;
+    __builtin_memcpy(static_cast<void *>(static_cast<To *>(&to)), &from,
+                     sizeof(To));
     return to;
 }
 
