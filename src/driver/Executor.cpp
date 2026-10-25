@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
 #include <sys/wait.h>
 
 namespace executor {
@@ -146,11 +147,18 @@ int executor(std::vector<std::string> command,
     perror("parascc: execvp failed");
     _exit(127);
   }
+
   int status = 0;
-  if (waitpid(pid, &status, 0) < 0) {
+  pid_t r;
+  do {
+    r = waitpid(pid, &status, 0);
+  } while (r < 0 && errno == EINTR);
+  if (r < 0) {
     perror("parascc: waitpid failed");
     return 1;
   }
+  if (WIFSIGNALED(status))
+    return 128 + WTERMSIG(status);
   return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
 }
 }
