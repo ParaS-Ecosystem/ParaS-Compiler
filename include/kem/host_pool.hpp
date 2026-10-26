@@ -93,67 +93,32 @@ public:
       fn(std::size_t(0));
       return;
     }
-    std::lock_guard<std::mutex> one_job(submit_);
-
-    grow(slots - 1);
-    auto j = std::make_shared<job>();
-    j->fn = [&fn](std::size_t s) { fn(s); };
-    j->slots = slots;
-    j->next.store(1, std::memory_order_relaxed);
-    j->remaining.store(slots - 1, std::memory_order_relaxed);
-    {
-      std::lock_guard<std::mutex> lk(m_);
-      cur_ = j;
-      ++gen_;
-      agen_.store(gen_, std::memory_order_release);
-    }
-    cv_.notify_all();
-    std::exception_ptr own;
-    {
-      in_pool_scope scope;
-      try {
-        fn(std::size_t(0));
-      } catch (...) {
-        own = std::current_exception();
-      }
-    }
-
-    const int spin = host_spin_count();
-    for (int i = 0; i < spin; ++i) {
-      if (j->remaining.load(std::memory_order_acquire) == 0)
-        break;
-      cpu_relax();
-    }
-    {
-      std::unique_lock<std::mutex> lk(m_);
-      done_cv_.wait(lk, [&] {
-        return j->remaining.load(std::memory_order_acquire) == 0;
-      });
-      if (cur_ == j)
-        cur_.reset();
-    }
-    if (own)
-      std::rethrow_exception(own);
-    if (j->err)
-      std::rethrow_exception(j->err);
+    post_and_wait(fn, slots,  true, slots - 1);
   }
 
-  std::size_t size() {
-    std::lock_guard<std::mutex> lk(m_);
-    return nthreads_;
+  template <typename F>
+  void run_blocks(std::size_t blocks, std::size_t threads, F &&fn) {
+    if (blocks == 0)
+      return;
+    if (threads > blocks)
+      threads = blocks;
+    if (threads <= 1 || tl_in_host_pool) {
+      in_pool_scope scope;
+      for (std::size_t b = 0; b < blocks; ++b)
+        fn(b);
+      return;
+    }
+    post_and_wait(fn, blocks,  false, threads - 1);
   }
 
 private:
-  struct job {
-    std::function<void(std::size_t)> fn;
-    std::size_t slots = 0;
-    std::atomic<std::size_t> next{0};
-    std::atomic<std::size_t> remaining{0};
-    std::mutex err_m;
-    std::exception_ptr err;
-  };
 
-  host_pool() = default;
+  static constexpr unsigned kNextBits = 20, kLimitBits = 20;
+  static constexpr std::uint64_t kField = (std::uint64_t(1) << 20) - 1;
+  static constexpr std::uint64_t kGenMask = (std::uint64_t(1) << 24) - 1;
+  static std::uint64_t gen_of(std::uint64_t v) { return v >> (kNextBits + kLimitBits); }
+  static std::uint64_t limit_of(std::uint64_t v) { return (v >> kNextBits) & kField; }
+  static std::uint64_t next_of(std::uint64_t v) { return v & kField; }
 
   struct in_pool_scope {
     bool prev = tl_in_host_pool;
@@ -161,8 +126,90 @@ private:
     ~in_pool_scope() { tl_in_host_pool = prev; }
   };
 
+  host_pool() = default;
+
+  template <typename F>
+  void post_and_wait(F &fn, std::size_t total, bool distinct,
+                     std::size_t helpers) {
+
+    std::lock_guard<std::mutex> one_job(submit_);
+    grow(helpers);
+    call_ = [](void *ctx, std::size_t i) { (*static_cast<F *>(ctx))(i); };
+    ctx_ = static_cast<void *>(&fn);
+    distinct_ = distinct;
+    total_ = total;
+    err_ = nullptr;
+    done_.store(0, std::memory_order_relaxed);
+    gen_ = (gen_ + 1) & kGenMask;
+    const std::uint64_t start = distinct ? 1 : 0;
+    ticket_.store((gen_ << (kNextBits + kLimitBits)) |
+                      (std::uint64_t(total) << kNextBits) | start,
+                  std::memory_order_seq_cst);
+
+    const std::size_t sleeping = sleepers_.load(std::memory_order_seq_cst);
+    if (sleeping) {
+      { std::lock_guard<std::mutex> lk(m_); }
+      if (helpers >= sleeping)
+        cv_.notify_all();
+      else
+        for (std::size_t k = 0; k < helpers; ++k)
+          cv_.notify_one();
+    }
+    {
+      in_pool_scope scope;
+      if (distinct) {
+        execute(0);
+      } else {
+        std::uint64_t idx;
+        while (claim(gen_, idx))
+          execute(static_cast<std::size_t>(idx));
+      }
+    }
+
+    const int spin = host_spin_count();
+    for (int i = 0; i < spin && done_.load(std::memory_order_acquire) != total_; ++i)
+      cpu_relax();
+    if (done_.load(std::memory_order_acquire) != total_) {
+      std::unique_lock<std::mutex> lk(m_);
+      caller_waiting_.store(true, std::memory_order_seq_cst);
+      done_cv_.wait(lk, [&] { return done_.load(std::memory_order_seq_cst) == total_; });
+      caller_waiting_.store(false, std::memory_order_relaxed);
+    }
+    if (err_)
+      std::rethrow_exception(err_);
+  }
+
+  bool claim(std::uint64_t gen, std::uint64_t &idx) {
+    std::uint64_t v = ticket_.load(std::memory_order_acquire);
+    for (;;) {
+      if (gen_of(v) != gen || next_of(v) >= limit_of(v))
+        return false;
+      if (ticket_.compare_exchange_weak(v, v + 1, std::memory_order_acq_rel,
+                                        std::memory_order_acquire)) {
+        idx = next_of(v);
+        return true;
+      }
+    }
+  }
+
+  void execute(std::size_t i) {
+
+    const std::size_t total = total_;
+    try {
+      call_(ctx_, i);
+    } catch (...) {
+      std::lock_guard<std::mutex> g(err_m_);
+      if (!err_)
+        err_ = std::current_exception();
+    }
+    if (done_.fetch_add(1, std::memory_order_acq_rel) + 1 == total &&
+        caller_waiting_.load(std::memory_order_seq_cst)) {
+      std::lock_guard<std::mutex> lk(m_);
+      done_cv_.notify_all();
+    }
+  }
+
   void grow(std::size_t want) {
-    std::lock_guard<std::mutex> lk(m_);
     while (nthreads_ < want) {
       std::thread([this] { loop(); }).detach();
       ++nthreads_;
@@ -171,43 +218,38 @@ private:
 
   void loop() {
     tl_in_host_pool = true;
-    std::uint64_t seen = 0;
-    {
 
-      std::lock_guard<std::mutex> lk(m_);
-      seen = cur_ ? gen_ - 1 : gen_;
-    }
+    std::uint64_t seen = ~std::uint64_t(0);
     const int spin = host_spin_count();
     for (;;) {
+      std::uint64_t v = ticket_.load(std::memory_order_acquire);
+      const std::uint64_t g = gen_of(v);
+      if (g != seen) {
+        std::uint64_t idx;
+        if (claim(g, idx)) {
+
+          const bool distinct = distinct_;
+          execute(static_cast<std::size_t>(idx));
+          if (distinct)
+            seen = g;
+          continue;
+        }
+        seen = g;
+        continue;
+      }
       for (int i = 0; i < spin; ++i) {
-        if (agen_.load(std::memory_order_acquire) != seen)
+        if (gen_of(ticket_.load(std::memory_order_acquire)) != seen)
           break;
         cpu_relax();
       }
-      std::shared_ptr<job> j;
-      {
-        std::unique_lock<std::mutex> lk(m_);
-        cv_.wait(lk, [&] { return gen_ != seen; });
-        seen = gen_;
-        j = cur_;
-      }
-      if (!j)
+      if (gen_of(ticket_.load(std::memory_order_acquire)) != seen)
         continue;
-
-      const std::size_t s = j->next.fetch_add(1, std::memory_order_relaxed);
-      if (s >= j->slots)
-        continue;
-      try {
-        j->fn(s);
-      } catch (...) {
-        std::lock_guard<std::mutex> g(j->err_m);
-        if (!j->err)
-          j->err = std::current_exception();
-      }
-      if (j->remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        std::lock_guard<std::mutex> lk(m_);
-        done_cv_.notify_all();
-      }
+      std::unique_lock<std::mutex> lk(m_);
+      sleepers_.fetch_add(1, std::memory_order_seq_cst);
+      cv_.wait(lk, [&] {
+        return gen_of(ticket_.load(std::memory_order_seq_cst)) != seen;
+      });
+      sleepers_.fetch_sub(1, std::memory_order_relaxed);
     }
   }
 
@@ -237,27 +279,35 @@ private:
   std::mutex submit_;
   std::mutex m_;
   std::condition_variable cv_, done_cv_;
-  std::shared_ptr<job> cur_;
+  std::atomic<std::uint64_t> ticket_{0};
+  std::atomic<std::size_t> done_{0};
+  std::atomic<std::size_t> sleepers_{0};
+  std::atomic<bool> caller_waiting_{false};
+  void (*call_)(void *, std::size_t) = nullptr;
+  void *ctx_ = nullptr;
+  bool distinct_ = false;
+  std::size_t total_ = 0;
   std::uint64_t gen_ = 0;
-  std::atomic<std::uint64_t> agen_{0};
   std::size_t nthreads_ = 0;
+  std::mutex err_m_;
+  std::exception_ptr err_;
 };
 
 template <typename F> void host_parallel_chunks(std::size_t n, F &&fn) {
   if (n == 0)
     return;
   const std::size_t nt = host_core_count();
-  const std::size_t chunks = n < nt ? n : nt;
-  const std::size_t chunk = (n + chunks - 1) / chunks;
-  const std::size_t used = (n + chunk - 1) / chunk;
-  if (used == 1) {
-    fn(std::size_t(0), n);
-    return;
-  }
-  host_pool::instance().run(used, [&](std::size_t c) {
-    const std::size_t b = c * chunk;
-    const std::size_t e = b + chunk < n ? b + chunk : n;
-    fn(b, e);
+  const std::size_t threads = n < nt ? n : nt;
+
+  std::size_t blocks = threads * 4 < n ? threads * 4 : n;
+  if (blocks > ((std::size_t(1) << 20) - 1))
+    blocks = (std::size_t(1) << 20) - 1;
+  const std::size_t bsize = (n + blocks - 1) / blocks;
+  blocks = (n + bsize - 1) / bsize;
+  host_pool::instance().run_blocks(blocks, threads, [&](std::size_t b) {
+    const std::size_t s = b * bsize;
+    const std::size_t e = s + bsize < n ? s + bsize : n;
+    fn(s, e);
   });
 }
 
