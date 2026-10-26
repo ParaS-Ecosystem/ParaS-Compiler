@@ -23,8 +23,9 @@
 
 #include <thread>
 
+#include "kem/host_pool.hpp"
+
 inline unsigned threadpool::get_num_threads() {
-  unsigned n = std::thread::hardware_concurrency();
-  return (n == 0 ? 4 : n);
+  return paras_host_detail::host_core_count();
 }
 #endif

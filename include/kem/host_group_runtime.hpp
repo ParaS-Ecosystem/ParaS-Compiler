@@ -34,31 +34,44 @@
 #include <thread>
 #include <vector>
 
+#include "kem/host_pool.hpp"
+
 namespace paras_host_detail {
 
 class group_barrier_t {
 public:
-    explicit group_barrier_t(std::size_t count) : count_(count) {}
+    explicit group_barrier_t(std::size_t count, int spin = 0)
+        : count_(count), spin_(spin) {}
     std::size_t size() const noexcept { return count_; }
 
     void arrive_and_wait() {
-        std::unique_lock<std::mutex> lk(m_);
-        const std::size_t gen = generation_;
-        if (++waiting_ == count_) {
-            waiting_ = 0;
-            ++generation_;
+        const unsigned phase = phase_.load(std::memory_order_acquire);
+        if (arrived_.fetch_add(1, std::memory_order_acq_rel) + 1 == count_) {
+            arrived_.store(0, std::memory_order_relaxed);
+            {
+                std::lock_guard<std::mutex> lk(m_);
+                phase_.fetch_add(1, std::memory_order_release);
+            }
             cv_.notify_all();
-        } else {
-            cv_.wait(lk, [&] { return generation_ != gen; });
+            return;
         }
+        for (int i = 0; i < spin_; ++i) {
+            if (phase_.load(std::memory_order_acquire) != phase) return;
+            cpu_relax();
+        }
+        std::unique_lock<std::mutex> lk(m_);
+        cv_.wait(lk, [&] {
+            return phase_.load(std::memory_order_acquire) != phase;
+        });
     }
 
 private:
     std::mutex m_;
     std::condition_variable cv_;
     std::size_t count_;
-    std::size_t waiting_ = 0;
-    std::size_t generation_ = 0;
+    int spin_;
+    std::atomic<std::size_t> arrived_{0};
+    std::atomic<unsigned> phase_{0};
 };
 
 inline thread_local group_barrier_t* tl_barrier   = nullptr;
@@ -78,75 +91,50 @@ void run_work_groups(std::size_t num_groups, std::size_t local_size,
                      RunItem run_item) {
     if (num_groups == 0 || local_size == 0) return;
 
-    std::size_t hw = std::thread::hardware_concurrency();
-    if (const char* e = std::getenv("PARAS_HOST_THREADS")) {
-        const long v = std::atol(e);
-        if (v > 0) hw = static_cast<std::size_t>(v);
-    }
-    hw = std::max<std::size_t>(1, hw);
+    const std::size_t hw = host_core_count();
 
     const std::size_t teams =
         std::max<std::size_t>(1, std::min(num_groups, (hw + local_size - 1) / local_size));
 
-    std::atomic<std::size_t> next_group{0};
-    std::exception_ptr first_error;
-    std::mutex error_mutex;
+    const int spin = teams * local_size <= hw ? host_spin_count() : 0;
 
     struct team_state {
         group_barrier_t barrier;
         std::unique_ptr<unsigned char[]> local_mem;
         std::unique_ptr<unsigned char[]> group_scratch;
-        std::size_t current_group = 0;
-        bool abort = false;
-        explicit team_state(std::size_t L)
-            : barrier(L), local_mem(new unsigned char[kHostLocalMemBytes]),
+        team_state(std::size_t L, int spin)
+            : barrier(L, spin), local_mem(new unsigned char[kHostLocalMemBytes]),
               group_scratch(new unsigned char[kHostLocalMemBytes]) {}
     };
     std::vector<std::unique_ptr<team_state>> states;
     for (std::size_t t = 0; t < teams; ++t)
-        states.emplace_back(new team_state(local_size));
+        states.emplace_back(new team_state(local_size, spin));
 
-    std::vector<std::thread> threads;
-    threads.reserve(teams * local_size);
+    std::exception_ptr first_error;
+    std::mutex error_mutex;
 
-    for (std::size_t t = 0; t < teams; ++t) {
+    host_pool::instance().run(teams * local_size, [&](std::size_t slot) {
+        const std::size_t t = slot / local_size;
+        const std::size_t lid = slot % local_size;
         team_state* ts = states[t].get();
-        for (std::size_t lid = 0; lid < local_size; ++lid) {
-            threads.emplace_back([&, ts, lid]() {
-                tl_barrier   = &ts->barrier;
-                tl_local_mem = ts->local_mem.get();
-                tl_group_scratch   = ts->group_scratch.get();
-                tl_local_linear_id = lid;
-                for (;;) {
+        tl_barrier   = &ts->barrier;
+        tl_local_mem = ts->local_mem.get();
+        tl_group_scratch   = ts->group_scratch.get();
+        tl_local_linear_id = lid;
+        for (std::size_t grp = t; grp < num_groups; grp += teams) {
+            try {
+                run_item(grp, lid);
+            } catch (...) {
+                std::lock_guard<std::mutex> g(error_mutex);
+                if (!first_error) first_error = std::current_exception();
+            }
 
-                    if (lid == 0) {
-                        ts->current_group = next_group.fetch_add(1);
-                        std::lock_guard<std::mutex> g(error_mutex);
-                        if (first_error) ts->abort = true;
-                    }
-                    ts->barrier.arrive_and_wait();
-                    const std::size_t grp = ts->current_group;
-                    const bool stop = ts->abort || grp >= num_groups;
-
-                    ts->barrier.arrive_and_wait();
-                    if (stop) break;
-
-                    try {
-                        run_item(grp, lid);
-                    } catch (...) {
-                        std::lock_guard<std::mutex> g(error_mutex);
-                        if (!first_error) first_error = std::current_exception();
-                    }
-
-                    ts->barrier.arrive_and_wait();
-                }
-                tl_barrier   = nullptr;
-                tl_local_mem = nullptr;
-                tl_group_scratch = nullptr;
-            });
+            ts->barrier.arrive_and_wait();
         }
-    }
-    for (auto& th : threads) th.join();
+        tl_barrier   = nullptr;
+        tl_local_mem = nullptr;
+        tl_group_scratch = nullptr;
+    });
     if (first_error) std::rethrow_exception(first_error);
 }
 

@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <thread>
 #include <vector>
+#include "kem/host_pool.hpp"
 
 #include "sycl/id.hpp"
 #include "sycl/item.hpp"
@@ -31,34 +32,12 @@
 
 template <typename Func>
 void threadpool::execute_2D(const sycl::range<2> &r, Func f) {
-  size_t R = r[0];
-  size_t C = r[1];
-  size_t total = R * C;
-
-  unsigned NT = get_num_threads();
-
-  std::vector<std::thread> threads;
-  threads.reserve(NT);
-
-  size_t chunk = (total + NT - 1) / NT;
-
-  for (unsigned t = 0; t < NT; t++) {
-    size_t start = t * chunk;
-    size_t end = std::min(start + chunk, total);
-    if (start >= end)
-      break;
-
-    threads.emplace_back([=]() {
-      for (size_t idx = start; idx < end; idx++) {
-        size_t i = idx / C;
-        size_t j = idx % C;
-
-        sycl::detail::invoke_range_kernel<2>(f, sycl::id<2>(i, j), r);
-      }
-    });
-  }
-
-  for (auto &th : threads)
-    th.join();
+  const size_t C = r[1];
+  paras_host_detail::host_parallel_chunks(
+      r[0] * C, [&](std::size_t start, std::size_t end) {
+        for (std::size_t idx = start; idx < end; idx++)
+          sycl::detail::invoke_range_kernel<2>(
+              f, sycl::id<2>(idx / C, idx % C), r);
+      });
 }
 #endif
