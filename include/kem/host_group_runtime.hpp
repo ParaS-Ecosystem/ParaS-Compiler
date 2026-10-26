@@ -70,8 +70,9 @@ private:
     std::condition_variable cv_;
     std::size_t count_;
     int spin_;
-    std::atomic<std::size_t> arrived_{0};
-    std::atomic<unsigned> phase_{0};
+
+    alignas(64) std::atomic<std::size_t> arrived_{0};
+    alignas(64) std::atomic<unsigned> phase_{0};
 };
 
 inline thread_local group_barrier_t* tl_barrier   = nullptr;
