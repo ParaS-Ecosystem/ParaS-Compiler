@@ -87,11 +87,11 @@ template <typename Pred> inline bool spin_until(Pred pred, long us) {
     cpu_relax();
     if (pred())
       return true;
-    if ((i & 255) == 0) {
-      if (std::chrono::steady_clock::now() >= deadline)
-        return pred();
+    if ((i & 15) == 0) {
 
       std::this_thread::yield();
+      if ((i & 255) == 0 && std::chrono::steady_clock::now() >= deadline)
+        return pred();
     }
   }
 }

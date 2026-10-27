@@ -98,7 +98,7 @@ void run_work_groups(std::size_t num_groups, std::size_t local_size,
     const std::size_t teams =
         std::max<std::size_t>(1, std::min(num_groups, (hw + local_size - 1) / local_size));
 
-    const long spin = teams * local_size <= hw ? host_spin_us() : 2;
+    const long spin = teams * local_size <= hw ? host_spin_us() : 200;
 
     struct team_state {
         group_barrier_t barrier;
