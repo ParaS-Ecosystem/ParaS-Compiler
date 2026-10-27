@@ -151,6 +151,8 @@ public:
   device paras_reduction_device() const;
   void paras_reduction_wait();
 
+  template <typename Func> void paras_internal_range(std::size_t n, Func f);
+
   template <typename KernelName = void, typename Func>
   void single_task(Func f) {
     parallel_for<KernelName>(range<1>(1), detail::single_task_kernel<Func>{f});

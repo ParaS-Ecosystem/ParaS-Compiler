@@ -1086,6 +1086,11 @@ inline void sycl::handler::paras_reduction_wait() {
   if (gpu_pool_)
     gpu_pool_->wait();
 }
+template <typename Func>
+void sycl::handler::paras_internal_range(std::size_t n, Func f) {
+  if (gpu_pool_ && n != 0)
+    gpu_pool_->gpu_execute_1D(sycl::range<1>(n), f);
+}
 
 #ifdef PARAS_HD_REGION_OWNER_GPU_THREADPOOL
 PARAS_HD_REGION_CLOSE

@@ -100,6 +100,8 @@ class reducer;
 
 template <typename T, typename BinaryOperation>
 class reducer<T, BinaryOperation, 0> {
+  T acc_;
+  bool have_ = false;
   T *val_;
   bool *touched_;
   BinaryOperation op_;
@@ -111,7 +113,12 @@ public:
   static constexpr int dimensions = 0;
 
   PARAS_KERNEL_HD reducer(T *val, bool *touched, BinaryOperation op, T identity)
-      : val_(val), touched_(touched), op_(op), identity_(identity) {}
+      : acc_(identity), val_(val), touched_(touched), op_(op), identity_(identity) {}
+
+  PARAS_KERNEL_HD reducer(BinaryOperation op, T identity)
+      : acc_(identity), val_(&acc_), touched_(&have_), op_(op), identity_(identity) {}
+  PARAS_KERNEL_HD const T &paras_value() const { return *val_; }
+  PARAS_KERNEL_HD bool paras_touched() const { return *touched_; }
 
   reducer(const reducer &) = delete;
   reducer(reducer &&) = delete;
@@ -119,7 +126,9 @@ public:
   reducer &operator=(reducer &&) = delete;
 
   PARAS_KERNEL_HD reducer &combine(const T &partial) {
-    if (*touched_) {
+    if (touched_ == nullptr) {
+      *val_ = op_(*val_, partial);
+    } else if (*touched_) {
       *val_ = op_(*val_, partial);
     } else {
       *val_ = partial;
@@ -180,7 +189,8 @@ public:
   reducer &operator=(reducer &&) = delete;
 
   PARAS_KERNEL_HD reducer<T, BinaryOperation, 0> operator[](std::size_t i) const {
-    return reducer<T, BinaryOperation, 0>(row_ + i, touched_ + i, op_, identity_);
+    return reducer<T, BinaryOperation, 0>(row_ + i, touched_ ? touched_ + i : nullptr, op_,
+                                          identity_);
   }
   PARAS_KERNEL_HD T identity() const { return identity_; }
 };
@@ -193,7 +203,7 @@ struct reduction_desc {
   using binary_operation = BinaryOperation;
   T *target = nullptr;
   std::size_t count = 1;
-  BinaryOperation op{};
+  BinaryOperation op;
   T identity{};
   bool has_identity = false;
   bool init_to_identity = false;
@@ -201,13 +211,28 @@ struct reduction_desc {
   T *slots = nullptr;
   bool *touched = nullptr;
 
+  reduction_desc(T *t, std::size_t c, BinaryOperation o) : target(t), count(c), op(o) {}
+
   PARAS_KERNEL_HD auto make_reducer(std::size_t work_item) const {
     if constexpr (IsSpan)
-      return reducer<T, BinaryOperation, 1>(slots + work_item * count,
-                                            touched + work_item * count, op, identity);
+      return reducer<T, BinaryOperation, 1>(
+          slots + work_item * count, touched ? touched + work_item * count : nullptr, op,
+          identity);
     else
-      return reducer<T, BinaryOperation, 0>(slots + work_item, touched + work_item,
-                                            op, identity);
+      return reducer<T, BinaryOperation, 0>(op, identity);
+  }
+
+  template <typename R>
+  PARAS_KERNEL_HD void store(std::size_t work_item, const R &r) const {
+    if constexpr (!IsSpan) {
+      if (touched != nullptr) {
+        touched[work_item] = r.paras_touched();
+        if (r.paras_touched())
+          slots[work_item] = r.paras_value();
+      } else {
+        slots[work_item] = r.paras_value();
+      }
+    }
   }
 };
 
@@ -220,10 +245,7 @@ inline constexpr bool is_reduction_v = is_reduction<std::decay_t<T>>::value;
 template <typename T, typename Op, bool S>
 reduction_desc<T, Op, S> make_reduction(T *target, std::size_t count, Op op,
                                         const T *identity, const property_list &props) {
-  reduction_desc<T, Op, S> d;
-  d.target = target;
-  d.count = count;
-  d.op = op;
+  reduction_desc<T, Op, S> d(target, count, op);
   if (identity != nullptr) {
     d.identity = *identity;
     d.has_identity = true;

@@ -512,6 +512,11 @@ inline threadpool &sycl::queue::get_or_create_host_pool() const {
   return *host_pool_;
 }
 inline void sycl::handler::paras_reduction_wait() {}
+template <typename Func>
+void sycl::handler::paras_internal_range(std::size_t n, Func f) {
+  if (pool_ && n != 0)
+    pool_->execute_1D(sycl::range<1>(n), f);
+}
 #endif
 
 #endif
