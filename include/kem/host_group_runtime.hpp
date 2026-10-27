@@ -40,39 +40,40 @@ namespace paras_host_detail {
 
 class group_barrier_t {
 public:
-    explicit group_barrier_t(std::size_t count, int spin = 0)
-        : count_(count), spin_(spin) {}
+    explicit group_barrier_t(std::size_t count, long spin_us = 0)
+        : count_(count), spin_us_(spin_us) {}
     std::size_t size() const noexcept { return count_; }
 
     void arrive_and_wait() {
         const unsigned phase = phase_.load(std::memory_order_acquire);
         if (arrived_.fetch_add(1, std::memory_order_acq_rel) + 1 == count_) {
             arrived_.store(0, std::memory_order_relaxed);
-            {
-                std::lock_guard<std::mutex> lk(m_);
-                phase_.fetch_add(1, std::memory_order_release);
+            phase_.fetch_add(1, std::memory_order_seq_cst);
+            if (sleepers_.load(std::memory_order_seq_cst)) {
+                { std::lock_guard<std::mutex> lk(m_); }
+                cv_.notify_all();
             }
-            cv_.notify_all();
             return;
         }
-        for (int i = 0; i < spin_; ++i) {
-            if (phase_.load(std::memory_order_acquire) != phase) return;
-            cpu_relax();
-        }
+        auto passed = [&] { return phase_.load(std::memory_order_acquire) != phase; };
+        if (spin_until(passed, spin_us_)) return;
         std::unique_lock<std::mutex> lk(m_);
+        sleepers_.fetch_add(1, std::memory_order_seq_cst);
         cv_.wait(lk, [&] {
-            return phase_.load(std::memory_order_acquire) != phase;
+            return phase_.load(std::memory_order_seq_cst) != phase;
         });
+        sleepers_.fetch_sub(1, std::memory_order_relaxed);
     }
 
 private:
     std::mutex m_;
     std::condition_variable cv_;
     std::size_t count_;
-    int spin_;
+    long spin_us_;
 
     alignas(64) std::atomic<std::size_t> arrived_{0};
     alignas(64) std::atomic<unsigned> phase_{0};
+    alignas(64) std::atomic<std::size_t> sleepers_{0};
 };
 
 inline thread_local group_barrier_t* tl_barrier   = nullptr;
@@ -97,13 +98,13 @@ void run_work_groups(std::size_t num_groups, std::size_t local_size,
     const std::size_t teams =
         std::max<std::size_t>(1, std::min(num_groups, (hw + local_size - 1) / local_size));
 
-    const int spin = teams * local_size <= hw ? host_spin_count() : 0;
+    const long spin = teams * local_size <= hw ? host_spin_us() : 2;
 
     struct team_state {
         group_barrier_t barrier;
         std::unique_ptr<unsigned char[]> local_mem;
         std::unique_ptr<unsigned char[]> group_scratch;
-        team_state(std::size_t L, int spin)
+        team_state(std::size_t L, long spin)
             : barrier(L, spin), local_mem(new unsigned char[kHostLocalMemBytes]),
               group_scratch(new unsigned char[kHostLocalMemBytes]) {}
     };

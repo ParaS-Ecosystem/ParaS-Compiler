@@ -23,7 +23,9 @@
 
 #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -59,16 +61,39 @@ inline unsigned host_core_count() noexcept {
   return n;
 }
 
-inline int host_spin_count() noexcept {
-  static const int n = [] {
-    if (const char *e = std::getenv("PARAS_HOST_SPIN")) {
+inline long host_spin_us() noexcept {
+  static const long n = [] {
+    if (const char *e = std::getenv("PARAS_HOST_SPIN_US")) {
       const long v = std::atol(e);
       if (v >= 0)
-        return static_cast<int>(v);
+        return v;
     }
-    return 4000;
+    if (const char *e = std::getenv("PARAS_HOST_SPIN"))
+      if (std::atol(e) == 0)
+        return 0L;
+    return 1000L;
   }();
   return n;
+}
+
+template <typename Pred> inline bool spin_until(Pred pred, long us) {
+  if (pred())
+    return true;
+  if (us <= 0)
+    return false;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::microseconds(us);
+  for (unsigned i = 1;; ++i) {
+    cpu_relax();
+    if (pred())
+      return true;
+    if ((i & 255) == 0) {
+      if (std::chrono::steady_clock::now() >= deadline)
+        return pred();
+
+      std::this_thread::yield();
+    }
+  }
 }
 
 inline thread_local bool tl_in_host_pool = false;
@@ -117,6 +142,19 @@ private:
     std::atomic<std::uint64_t> gen{0};
   };
 
+  struct alignas(64) parking {
+    std::atomic<bool> asleep{false};
+    std::mutex m;
+    std::condition_variable cv;
+  };
+
+  struct job {
+    void (*call)(void *, std::size_t);
+    void *ctx;
+    bool distinct;
+    std::size_t total;
+  };
+
   struct in_pool_scope {
     bool prev = tl_in_host_pool;
     in_pool_scope() { tl_in_host_pool = true; }
@@ -139,23 +177,24 @@ private:
     done_.store(0, std::memory_order_relaxed);
     err_ = nullptr;
     gen_.store(g, std::memory_order_seq_cst);
-    if (sleepers_.load(std::memory_order_seq_cst)) {
-      { std::lock_guard<std::mutex> lk(m_); }
-      cv_.notify_all();
-    }
+
+    wake(1, total);
+    const job j{call_.load(std::memory_order_relaxed), &fn, distinct, total};
     {
       in_pool_scope scope;
-      const job j{call_.load(std::memory_order_relaxed), &fn, distinct, total};
-      if (distinct)
-        execute(j, 0);
-      else
-        work_chunks(j, g, 0);
+      execute(j, 0);
+      if (!distinct) {
+
+        auto all_done = [&] { return done_.load(std::memory_order_acquire) == total; };
+        if (!spin_until(all_done, 20))
+          for (std::size_t c = 1; c < total; ++c)
+            if (claim(c, g))
+              execute(j, c);
+      }
     }
 
-    const int spin = host_spin_count();
-    for (int i = 0; i < spin && done_.load(std::memory_order_acquire) != total; ++i)
-      cpu_relax();
-    if (done_.load(std::memory_order_acquire) != total) {
+    auto all_done = [&] { return done_.load(std::memory_order_acquire) == total; };
+    if (!spin_until(all_done, host_spin_us())) {
       std::unique_lock<std::mutex> lk(m_);
       caller_waiting_.store(true, std::memory_order_seq_cst);
       done_cv_.wait(lk, [&] { return done_.load(std::memory_order_seq_cst) == total; });
@@ -165,21 +204,21 @@ private:
       std::rethrow_exception(err_);
   }
 
-  struct job {
-    void (*call)(void *, std::size_t);
-    void *ctx;
-    bool distinct;
-    std::size_t total;
-  };
+  bool claim(std::size_t c, std::uint64_t g) {
+    std::uint64_t v = claims_[c].gen.load(std::memory_order_relaxed);
+    return v < g &&
+           claims_[c].gen.compare_exchange_strong(v, g, std::memory_order_acq_rel);
+  }
 
-  void work_chunks(const job &j, std::uint64_t g, std::size_t rank) {
-    for (std::size_t k = 0; k < j.total; ++k) {
-      const std::size_t c = (rank + k) % j.total;
-      std::uint64_t v = claims_[c].gen.load(std::memory_order_relaxed);
-      if (v >= g)
-        continue;
-      if (claims_[c].gen.compare_exchange_strong(v, g, std::memory_order_acq_rel))
-        execute(j, c);
+  void wake(std::size_t r, std::size_t total) {
+    if (r >= total || r > parks_.size())
+      return;
+    parking &p = *parks_[r - 1];
+    if (p.asleep.load(std::memory_order_seq_cst)) {
+      { std::lock_guard<std::mutex> lk(p.m); }
+      p.cv.notify_one();
+    } else {
+
     }
   }
 
@@ -200,15 +239,16 @@ private:
 
   void grow(std::size_t want) {
     const std::uint64_t now = gen_.load(std::memory_order_relaxed);
-    while (nthreads_ < want) {
-      const std::size_t rank = ++nthreads_;
-      std::thread([this, rank, now] { loop(rank, now); }).detach();
+    while (parks_.size() < want) {
+      parks_.emplace_back(new parking());
+      const std::size_t rank = parks_.size();
+      parking *p = parks_.back().get();
+      std::thread([this, rank, p, now] { loop(rank, p, now); }).detach();
     }
   }
 
-  void loop(std::size_t rank, std::uint64_t seen) {
+  void loop(std::size_t rank, parking *park, std::uint64_t seen) {
     tl_in_host_pool = true;
-    const int spin = host_spin_count();
     for (;;) {
       const std::uint64_t g = gen_.load(std::memory_order_acquire);
       if (g != seen) {
@@ -223,25 +263,26 @@ private:
           continue;
         }
         if (rank < j.total) {
+          wake(2 * rank, j.total);
+          wake(2 * rank + 1, j.total);
 
           if (j.distinct)
             execute(j, rank);
-          else
-            work_chunks(j, g, rank);
+          else if (claim(rank, g))
+            execute(j, rank);
         }
         continue;
       }
-      for (int i = 0; i < spin; ++i) {
-        if (gen_.load(std::memory_order_acquire) != seen)
-          break;
-        cpu_relax();
-      }
-      if (gen_.load(std::memory_order_acquire) != seen)
+      auto new_job = [&] { return gen_.load(std::memory_order_acquire) != seen; };
+
+      const long spin = rank < host_core_count() ? host_spin_us()
+                                                 : std::min(host_spin_us(), 20L);
+      if (spin_until(new_job, spin))
         continue;
-      std::unique_lock<std::mutex> lk(m_);
-      sleepers_.fetch_add(1, std::memory_order_seq_cst);
-      cv_.wait(lk, [&] { return gen_.load(std::memory_order_seq_cst) != seen; });
-      sleepers_.fetch_sub(1, std::memory_order_relaxed);
+      std::unique_lock<std::mutex> lk(park->m);
+      park->asleep.store(true, std::memory_order_seq_cst);
+      park->cv.wait(lk, [&] { return gen_.load(std::memory_order_seq_cst) != seen; });
+      park->asleep.store(false, std::memory_order_relaxed);
     }
   }
 
@@ -270,17 +311,16 @@ private:
 
   std::mutex submit_;
   std::mutex m_;
-  std::condition_variable cv_, done_cv_;
+  std::condition_variable done_cv_;
   alignas(64) std::atomic<std::uint64_t> gen_{0};
   alignas(64) std::atomic<std::size_t> done_{0};
-  alignas(64) std::atomic<std::size_t> sleepers_{0};
-  std::atomic<bool> caller_waiting_{false};
+  alignas(64) std::atomic<bool> caller_waiting_{false};
   std::atomic<void (*)(void *, std::size_t)> call_{nullptr};
   std::atomic<void *> ctx_{nullptr};
   std::atomic<bool> distinct_{false};
   std::atomic<std::size_t> total_{0};
   std::unique_ptr<claim_slot[]> claims_;
-  std::size_t nthreads_ = 0;
+  std::vector<std::unique_ptr<parking>> parks_;
   std::mutex err_m_;
   std::exception_ptr err_;
 };
