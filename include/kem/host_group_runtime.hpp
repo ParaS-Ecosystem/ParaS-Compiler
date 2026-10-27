@@ -115,8 +115,9 @@ struct fiber_team {
         void* sp = nullptr;
         bool done = true;
     };
-    std::size_t L = 0, cur = 0, grp = 0;
+    std::size_t L = 0, cur = 0, grp = 0, live = 0;
     bool direct = false;
+    bool probing = false;
     std::vector<item> items;
     void* sched_sp = nullptr;
     void (*run)(void*, std::size_t, std::size_t) = nullptr;
@@ -124,9 +125,15 @@ struct fiber_team {
     std::exception_ptr* err = nullptr;
     std::mutex* err_m = nullptr;
 
-    void yield() {
-        if (!direct) paras_fiber_switch(&items[cur].sp, sched_sp);
+    std::size_t next_live(std::size_t from) const {
+        for (std::size_t l = from + 1; l < L; ++l)
+            if (!items[l].done) return l;
+        for (std::size_t l = 0; l <= from; ++l)
+            if (!items[l].done) return l;
+        return L;
     }
+
+    void yield();
 };
 inline thread_local fiber_team* tl_fibers = nullptr;
 #endif
@@ -136,6 +143,22 @@ inline thread_local unsigned char*    tl_local_mem = nullptr;
 
 inline thread_local unsigned char*    tl_group_scratch = nullptr;
 inline thread_local std::size_t       tl_local_linear_id = 0;
+
+#if PARAS_HOST_FIBERS
+inline void fiber_team::yield() {
+    if (direct) return;
+    const std::size_t me = cur;
+    if (probing) {
+        paras_fiber_switch(&items[me].sp, sched_sp);
+        return;
+    }
+    const std::size_t n = next_live(me);
+    if (n == me) return;
+    cur = n;
+    tl_local_linear_id = n;
+    paras_fiber_switch(&items[me].sp, items[n].sp);
+}
+#endif
 
 inline void work_group_barrier() {
 #if PARAS_HOST_FIBERS
@@ -207,7 +230,16 @@ inline void fiber_main(void* arg) {
         if (!*t->err) *t->err = std::current_exception();
     }
     t->items[lid].done = true;
-    paras_fiber_switch(&t->items[lid].sp, t->sched_sp);
+    --t->live;
+
+    const std::size_t n = t->probing ? t->L : t->next_live(lid);
+    if (n == t->L) {
+        paras_fiber_switch(&t->items[lid].sp, t->sched_sp);
+    } else {
+        t->cur = n;
+        tl_local_linear_id = n;
+        paras_fiber_switch(&t->items[lid].sp, t->items[n].sp);
+    }
     __builtin_trap();
 }
 
@@ -275,11 +307,15 @@ bool run_work_groups_fibers(std::size_t num_groups, std::size_t local_size,
             tl_fibers = &team;
 
             team.direct = false;
+            team.probing = true;
+            team.live = 1;
             team.items[0].done = false;
             team.items[0].sp = fiber_init(st.top(0), &team);
+            for (std::size_t l = 1; l < local_size; ++l) team.items[l].done = true;
             team.cur = 0;
             tl_local_linear_id = 0;
             paras_fiber_switch(&team.sched_sp, team.items[0].sp);
+            team.probing = false;
             if (team.items[0].done) {
                 team.direct = true;
                 for (std::size_t l = 1; l < local_size; ++l) {
@@ -296,24 +332,14 @@ bool run_work_groups_fibers(std::size_t num_groups, std::size_t local_size,
                 continue;
             }
 
-            std::size_t live = local_size;
             for (std::size_t l = 1; l < local_size; ++l) {
                 team.items[l].done = false;
                 team.items[l].sp = fiber_init(st.top(l), &team);
-                team.cur = l;
-                tl_local_linear_id = l;
-                paras_fiber_switch(&team.sched_sp, team.items[l].sp);
-                if (team.items[l].done) --live;
             }
-            while (live) {
-                for (std::size_t l = 0; l < local_size; ++l) {
-                    if (team.items[l].done) continue;
-                    team.cur = l;
-                    tl_local_linear_id = l;
-                    paras_fiber_switch(&team.sched_sp, team.items[l].sp);
-                    if (team.items[l].done) --live;
-                }
-            }
+            team.live = local_size;
+            team.cur = 1;
+            tl_local_linear_id = 1;
+            paras_fiber_switch(&team.sched_sp, team.items[1].sp);
             tl_fibers = nullptr;
         }
         tl_barrier = nullptr;
