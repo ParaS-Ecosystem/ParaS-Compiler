@@ -22,6 +22,7 @@
 #define __PARAS_WORK_GROUP_ALGORITHMS_DETAIL_HPP__
 
 #include <cstddef>
+#include <cstdint>
 #include "kem_gpu/gpu_utilities.hpp"
 
 namespace sycl {
@@ -50,21 +51,57 @@ PARAS_KERNEL_HD inline T* wg_scratch() {
 #endif
 }
 
+#if PARAS_DEVICE_PASS
+
+#if defined(__AMDGCN__)
+constexpr unsigned kWgWarp = PARAS_AMDGCN_WAVE_SIZE;
+#else
+constexpr unsigned kWgWarp = 32;
+#endif
+#endif
+
 template <typename Group, typename T, typename Op>
 PARAS_KERNEL_HD T wg_reduce(const Group& g, T x, Op op) {
     T* s = wg_scratch<T>();
     const std::size_t lid = wg_local_linear_id();
     const std::size_t n = g.get_local_linear_range();
+#if PARAS_DEVICE_PASS
+    const std::size_t warp = lid / kWgWarp, lane = lid % kWgWarp;
+    const std::size_t nwarps = (n + kWgWarp - 1) / kWgWarp;
+    const std::size_t wsize = (n - warp * kWgWarp) < kWgWarp ? (n - warp * kWgWarp) : kWgWarp;
+    const std::uint64_t mask = paras_sub_group_mask();
+    T v = x;
+    for (unsigned off = kWgWarp / 2; off > 0; off >>= 1) {
+        const T o = paras_shfl_down(mask, v, static_cast<int>(off));
+        if (lane + off < wsize) v = op(v, o);
+    }
+    if (lane == 0) s[warp] = v;
+    paras_syncthreads();
+    if (warp == 0) {
+        T w = lane < nwarps ? s[lane] : v;
+        for (unsigned off = kWgWarp / 2; off > 0; off >>= 1) {
+            const T o = paras_shfl_down(mask, w, static_cast<int>(off));
+            if (lane + off < nwarps) w = op(w, o);
+        }
+        if (lane == 0) s[kWgWarp] = w;
+    }
+    paras_syncthreads();
+    const T r = s[kWgWarp];
+    paras_syncthreads();
+    return r;
+#else
     s[lid] = x;
     paras_syncthreads();
-    for (std::size_t stride = 1; stride < n; stride <<= 1) {
-        if (lid % (2 * stride) == 0 && lid + stride < n)
-            s[lid] = op(s[lid], s[lid + stride]);
-        paras_syncthreads();
+    if (lid == 0) {
+        T r = s[0];
+        for (std::size_t i = 1; i < n; ++i) r = op(r, s[i]);
+        s[0] = r;
     }
+    paras_syncthreads();
     const T r = s[0];
     paras_syncthreads();
     return r;
+#endif
 }
 
 template <typename Group, typename T, typename Op>
@@ -72,17 +109,42 @@ PARAS_KERNEL_HD T wg_inclusive_scan(const Group& g, T x, Op op) {
     T* s = wg_scratch<T>();
     const std::size_t lid = wg_local_linear_id();
     const std::size_t n = g.get_local_linear_range();
+#if PARAS_DEVICE_PASS
+    const std::size_t warp = lid / kWgWarp, lane = lid % kWgWarp;
+    const std::size_t nwarps = (n + kWgWarp - 1) / kWgWarp;
+    const std::size_t wsize = (n - warp * kWgWarp) < kWgWarp ? (n - warp * kWgWarp) : kWgWarp;
+    const std::uint64_t mask = paras_sub_group_mask();
+    T v = x;
+    for (unsigned off = 1; off < kWgWarp; off <<= 1) {
+        const T o = paras_shfl_up(mask, v, static_cast<int>(off));
+        if (lane >= off) v = op(o, v);
+    }
+    if (lane == wsize - 1) s[warp] = v;
+    paras_syncthreads();
+    if (warp == 0) {
+        T t = lane < nwarps ? s[lane] : v;
+        for (unsigned off = 1; off < kWgWarp; off <<= 1) {
+            const T o = paras_shfl_up(mask, t, static_cast<int>(off));
+            if (lane >= off) t = op(o, t);
+        }
+        if (lane < nwarps) s[lane] = t;
+    }
+    paras_syncthreads();
+    if (warp > 0) v = op(s[warp - 1], v);
+    paras_syncthreads();
+    s[lid] = v;
+    paras_syncthreads();
+    return v;
+#else
     s[lid] = x;
     paras_syncthreads();
-    for (std::size_t off = 1; off < n; off <<= 1) {
-        const T v = (lid >= off) ? op(s[lid - off], s[lid]) : s[lid];
-        paras_syncthreads();
-        s[lid] = v;
-        paras_syncthreads();
-    }
+    if (lid == 0)
+        for (std::size_t i = 1; i < n; ++i) s[i] = op(s[i - 1], s[i]);
+    paras_syncthreads();
     const T r = s[lid];
     paras_syncthreads();
     return r;
+#endif
 }
 
 template <typename Group, typename T, typename Op>
