@@ -129,6 +129,20 @@ int executor(std::vector<std::string> command,
       prefix.push_back(back_end);
       prefix.push_back("--offload-arch=" + tar_arch);
 
+      if (back_end == "cuda") {
+        bool user_set = false;
+        for (const std::string &a : command)
+          if (a.find("maxrregcount") != std::string::npos)
+            user_set = true;
+        long regs = 64;
+        if (const char *e = std::getenv("PARAS_CUDA_MAXRREGCOUNT"))
+          regs = std::strtol(e, nullptr, 10);
+        if (!user_set && regs > 0) {
+          prefix.push_back("-Xcuda-ptxas");
+          prefix.push_back("--maxrregcount=" + std::to_string(regs));
+        }
+      }
+
       if (!std::getenv("PARAS_NO_IMPLICIT_HD_TEMPLATES"))
         prefix.push_back("-foffload-implicit-host-device-templates");
 
