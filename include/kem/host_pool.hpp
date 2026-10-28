@@ -168,14 +168,18 @@ private:
     std::lock_guard<std::mutex> one_job(submit_);
     grow(total - 1);
     const std::uint64_t g = gen_.load(std::memory_order_relaxed) + 1;
+    done_.store(0, std::memory_order_relaxed);
+    err_ = nullptr;
 
+    seq_.fetch_add(1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    job_id_.store(g, std::memory_order_relaxed);
     call_.store(+[](void *ctx, std::size_t i) { (*static_cast<F *>(ctx))(i); },
                 std::memory_order_relaxed);
     ctx_.store(static_cast<void *>(&fn), std::memory_order_relaxed);
     distinct_.store(distinct, std::memory_order_relaxed);
     total_.store(total, std::memory_order_relaxed);
-    done_.store(0, std::memory_order_relaxed);
-    err_ = nullptr;
+    seq_.fetch_add(1, std::memory_order_release);
     gen_.store(g, std::memory_order_seq_cst);
 
     wake(1, total);
@@ -204,6 +208,19 @@ private:
       std::rethrow_exception(err_);
   }
 
+  bool read_job(job &j, std::uint64_t &id) const {
+    const std::uint64_t s1 = seq_.load(std::memory_order_acquire);
+    if (s1 & 1)
+      return false;
+    id = job_id_.load(std::memory_order_relaxed);
+    j.call = call_.load(std::memory_order_relaxed);
+    j.ctx = ctx_.load(std::memory_order_relaxed);
+    j.distinct = distinct_.load(std::memory_order_relaxed);
+    j.total = total_.load(std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return seq_.load(std::memory_order_relaxed) == s1;
+  }
+
   bool claim(std::size_t c, std::uint64_t g) {
     std::uint64_t v = claims_[c].gen.load(std::memory_order_relaxed);
     return v < g &&
@@ -211,7 +228,7 @@ private:
   }
 
   void wake(std::size_t r, std::size_t total) {
-    if (r >= total || r > parks_.size())
+    if (r >= total || r > nparks_.load(std::memory_order_acquire))
       return;
     parking &p = *parks_[r - 1];
     if (p.asleep.load(std::memory_order_seq_cst)) {
@@ -239,10 +256,13 @@ private:
 
   void grow(std::size_t want) {
     const std::uint64_t now = gen_.load(std::memory_order_relaxed);
-    while (parks_.size() < want) {
-      parks_.emplace_back(new parking());
-      const std::size_t rank = parks_.size();
-      parking *p = parks_.back().get();
+    if (want > kMaxThreads)
+      want = kMaxThreads;
+    for (std::size_t n = nparks_.load(std::memory_order_relaxed); n < want; ++n) {
+      parks_[n].reset(new parking());
+      nparks_.store(n + 1, std::memory_order_release);
+      const std::size_t rank = n + 1;
+      parking *p = parks_[n].get();
       std::thread([this, rank, p, now] { loop(rank, p, now); }).detach();
     }
   }
@@ -250,18 +270,16 @@ private:
   void loop(std::size_t rank, parking *park, std::uint64_t seen) {
     tl_in_host_pool = true;
     for (;;) {
-      const std::uint64_t g = gen_.load(std::memory_order_acquire);
+      std::uint64_t g = gen_.load(std::memory_order_acquire);
       if (g != seen) {
-        seen = g;
-        const job j{call_.load(std::memory_order_relaxed),
-                    ctx_.load(std::memory_order_relaxed),
-                    distinct_.load(std::memory_order_relaxed),
-                    total_.load(std::memory_order_relaxed)};
-
-        if (gen_.load(std::memory_order_acquire) != g) {
-          seen = g - 1;
+        job j;
+        std::uint64_t id;
+        if (!read_job(j, id))
           continue;
-        }
+        if (id <= seen)
+          continue;
+        g = id;
+        seen = id;
         if (rank < j.total) {
           wake(2 * rank, j.total);
           wake(2 * rank + 1, j.total);
@@ -315,12 +333,18 @@ private:
   alignas(64) std::atomic<std::uint64_t> gen_{0};
   alignas(64) std::atomic<std::size_t> done_{0};
   alignas(64) std::atomic<bool> caller_waiting_{false};
+  alignas(64) std::atomic<std::uint64_t> seq_{0};
+  std::atomic<std::uint64_t> job_id_{0};
   std::atomic<void (*)(void *, std::size_t)> call_{nullptr};
   std::atomic<void *> ctx_{nullptr};
   std::atomic<bool> distinct_{false};
   std::atomic<std::size_t> total_{0};
   std::unique_ptr<claim_slot[]> claims_;
-  std::vector<std::unique_ptr<parking>> parks_;
+
+  static constexpr std::size_t kMaxThreads = 16384;
+  std::unique_ptr<std::unique_ptr<parking>[]> parks_{
+      new std::unique_ptr<parking>[kMaxThreads]};
+  std::atomic<std::size_t> nparks_{0};
   std::mutex err_m_;
   std::exception_ptr err_;
 };
