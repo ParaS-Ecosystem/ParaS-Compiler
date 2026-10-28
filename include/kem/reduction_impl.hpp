@@ -175,6 +175,11 @@ inline red_scratch_block &red_scratch_slot(std::size_t which) {
 
 constexpr std::size_t red_align_up(std::size_t v) { return (v + 255) & ~std::size_t(255); }
 
+inline bool red_never() {
+  static volatile bool never = false;
+  return never;
+}
+
 template <typename Handler, typename T, typename Op, bool S>
 void red_prepare(Handler &h, reduction_desc<T, Op, S> &d, std::size_t idx,
                  std::size_t items, const device &dev) {
@@ -186,8 +191,12 @@ void red_prepare(Handler &h, reduction_desc<T, Op, S> &d, std::size_t idx,
       vbytes + (need_touched ? red_align_up(n) : 0), dev));
   d.slots = reinterpret_cast<T *>(base);
   d.touched = need_touched ? reinterpret_cast<bool *>(base + vbytes) : nullptr;
-  if constexpr (S)
+  if constexpr (S) {
+    if (red_never())
+      h.template parallel_for<void>(range<1>(1),
+                                    red_init_kernel<T>{d.slots, d.touched, d.identity});
     h.paras_internal_range(n, red_init_kernel<T>{d.slots, d.touched, d.identity});
+  }
 }
 
 template <typename T, typename Op, bool S>
@@ -232,6 +241,10 @@ void red_finish(Handler &h, reduction_desc<T, Op, S> &d, std::size_t idx,
                                                 rbytes + red_align_up(count), dev));
   T *res = reinterpret_cast<T *>(rbase);
   bool *rest = reinterpret_cast<bool *>(rbase + rbytes);
+  if (red_never())
+    h.template parallel_for<void>(range<1>(1),
+                                  red_fold_kernel<T, Op>{a, at, res, rest, 1, 1, count, d.op,
+                                                         d.identity});
   std::size_t n = items;
   bool in_a = true;
   for (;;) {
@@ -272,13 +285,15 @@ template <int D> inline id<D> red_delinear(std::size_t lin, const range<D> &r) {
 }
 
 template <typename T> struct red_host_part {
-  std::vector<T> vals;
+  std::unique_ptr<T[]> vals;
   std::unique_ptr<bool[]> touched;
 };
 template <typename T, typename Op, bool S>
 red_host_part<T> red_host_part_for(const reduction_desc<T, Op, S> &d, std::size_t chunks) {
   red_host_part<T> p;
-  p.vals.assign(chunks * d.count, d.identity);
+  p.vals.reset(new T[chunks * d.count]);
+  for (std::size_t k = 0; k < chunks * d.count; ++k)
+    p.vals[k] = d.identity;
   p.touched.reset(new bool[chunks * d.count]());
   return p;
 }
@@ -302,7 +317,7 @@ void red_host_chunk(const Func &f, const range<D> &r, const Descs &ds, Parts &ps
     using T = typename DT::value_type;
     using Op = typename DT::binary_operation;
     if constexpr (std::is_same_v<decltype(d.make_reducer(0)), reducer<T, Op, 1>>) {
-      reducer<T, Op, 1> rr(p.vals.data() + c * d.count,
+      reducer<T, Op, 1> rr(p.vals.get() + c * d.count,
                            d.has_identity ? nullptr : p.touched.get() + c * d.count, d.op,
                            d.identity);
       red_host_chunk<I + 1>(f, r, ds, ps, c, s, e, rs..., rr);
@@ -320,7 +335,9 @@ void red_host_chunk(const Func &f, const range<D> &r, const Descs &ds, Parts &ps
 
 template <typename T, typename Op, bool S>
 void red_host_finish(reduction_desc<T, Op, S> &d, red_host_part<T> &p, std::size_t chunks) {
-  std::vector<T> res(d.count, d.identity);
+  std::unique_ptr<T[]> res(new T[d.count]);
+  for (std::size_t e = 0; e < d.count; ++e)
+    res[e] = d.identity;
   std::unique_ptr<bool[]> got(new bool[d.count]());
   for (std::size_t c = 0; c < chunks; ++c)
     for (std::size_t e = 0; e < d.count; ++e) {
@@ -330,7 +347,7 @@ void red_host_finish(reduction_desc<T, Op, S> &d, red_host_part<T> &p, std::size
       res[e] = got[e] ? d.op(res[e], p.vals[k]) : p.vals[k];
       got[e] = true;
     }
-  red_apply(d, res.data(), got.get());
+  red_apply(d, res.get(), got.get());
 }
 template <typename Descs, typename Parts, std::size_t... I>
 void red_host_finish_all(Descs &ds, Parts &ps, std::size_t chunks, std::index_sequence<I...>) {
