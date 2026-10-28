@@ -23,6 +23,7 @@
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Path.h>
+#include <llvm/Support/Program.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -98,6 +99,27 @@ static void appendRuntimeLinkFlags(std::vector<std::string> &command) {
   }
 }
 
+static void appendNVLinkShim(std::vector<std::string> &prefix,
+                             const std::string &program) {
+  std::string clangPath = program;
+  if (!llvm::sys::path::is_absolute(clangPath)) {
+    auto found = llvm::sys::findProgramByName(clangPath);
+    if (!found)
+      return;
+    clangPath = *found;
+  }
+  llvm::SmallString<256> real(llvm::sys::path::parent_path(clangPath));
+  llvm::sys::path::append(real, "clang-nvlink-wrapper");
+  const std::string shimDir =
+      std::string(PARAS_INSTALL_PREFIX) + "/libexec/paras";
+  if (!llvm::sys::fs::exists(real) ||
+      !llvm::sys::fs::exists(shimDir + "/clang-nvlink-wrapper"))
+    return;
+  if (!std::getenv("PARAS_REAL_NVLINK_WRAPPER"))
+    setenv("PARAS_REAL_NVLINK_WRAPPER", real.c_str(), 1);
+  prefix.push_back("-Wl,--device-compiler=nvptx64-nvidia-cuda=-B" + shimDir);
+}
+
 int executor(std::vector<std::string> command,
              std::vector<std::string> bkend_target) {
   std::string program_name = base_compiler();
@@ -120,8 +142,15 @@ int executor(std::vector<std::string> command,
       } else if (back_end == "cuda") {
         prefix.push_back("--offload-new-driver");
         prefix.push_back("--offload-link");
+        appendNVLinkShim(prefix, program_name);
       }
     }
+
+    if (bkend_target[3] != "is_link_only" && rdc && back_end == "cuda" &&
+        std::find_if(command.begin(), command.end(), [](const std::string &a) {
+          return a == "-c" || a == "-S" || a == "-E" || a == "-fsyntax-only";
+        }) == command.end())
+      appendNVLinkShim(prefix, program_name);
     if (bkend_target[3] != "is_link_only") {
       if (rdc && back_end == "cuda")
         prefix.push_back("--offload-new-driver");
