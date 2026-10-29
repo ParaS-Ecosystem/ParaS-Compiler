@@ -160,6 +160,15 @@ inline void check_accessor_range(const range<D> &bufRange,
 
     namespace detail {
 
+    template <typename T, typename H>
+    std::size_t paras_legacy_local_off(H &cgh, std::size_t n) {
+        const std::size_t off = cgh.template legacy_local_alloc_offset<T>(n);
+#if !PARAS_GPU_BACKEND
+        if (off + (n ? n : 1) * sizeof(T) > paras_host_detail::kHostLocalMemBytes)
+            return static_cast<std::size_t>(-1);
+#endif
+        return off;
+    }
     template <typename T> struct paras_acc_ptr {
         T *p = nullptr;
         std::size_t local_off = static_cast<std::size_t>(-1);
@@ -180,6 +189,10 @@ inline void check_accessor_range(const range<D> &bufRange,
     #if PARAS_DEVICE_PASS
             if (local_off != static_cast<std::size_t>(-1))
                 return reinterpret_cast<T *>(paras_get_dynamic_shared_memory() + local_off);
+    #else
+
+            if (local_off != static_cast<std::size_t>(-1) && paras_host_detail::tl_local_mem)
+                return reinterpret_cast<T *>(paras_host_detail::tl_local_mem + local_off);
     #endif
             return p;
         }
@@ -250,10 +263,8 @@ inline void check_accessor_range(const range<D> &bufRange,
             : ptr_(paras_raw_zeroed(allocationSize.size())), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = propList.has_no_init();
-#if PARAS_GPU_BACKEND
             if constexpr (AccessTarget == target::local)
-                ptr_.local_off = paras_cgh.template legacy_local_alloc_offset<std::remove_const_t<DataT>>(allocationSize.size());
-#endif
+                ptr_.local_off = detail::paras_legacy_local_off<std::remove_const_t<DataT>>(paras_cgh, allocationSize.size());
         }
 
         static DataT *paras_raw_zeroed(size_t n)
@@ -303,10 +314,8 @@ inline void check_accessor_range(const range<D> &bufRange,
             : ptr_(new DataT[allocationSize.size()]()), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = props.has_no_init();
-#if PARAS_GPU_BACKEND
             if constexpr (AccessTarget == target::local)
-                ptr_.local_off = paras_cgh.template legacy_local_alloc_offset<std::remove_const_t<DataT>>(allocationSize.size());
-#endif
+                ptr_.local_off = detail::paras_legacy_local_off<std::remove_const_t<DataT>>(paras_cgh, allocationSize.size());
             paras_check_no_init();
         }
 
@@ -741,10 +750,8 @@ inline void check_accessor_range(const range<D> &bufRange,
             : ptr_(new DataT[allocationSize.size()]()), r_(allocationSize), mem_r_(allocationSize)
         {
             no_init_ = props.has_no_init();
-#if PARAS_GPU_BACKEND
             if constexpr (AccessTarget == target::local)
-                ptr_.local_off = paras_cgh.template legacy_local_alloc_offset<std::remove_const_t<DataT>>(allocationSize.size());
-#endif
+                ptr_.local_off = detail::paras_legacy_local_off<std::remove_const_t<DataT>>(paras_cgh, allocationSize.size());
             paras_check_no_init();
         }
 
@@ -1125,10 +1132,8 @@ inline void check_accessor_range(const range<D> &bufRange,
             : ptr_(new DataT[1]())
         {
             no_init_ = props.has_no_init();
-#if PARAS_GPU_BACKEND
             if constexpr (AccessTarget == target::local)
-                ptr_.local_off = paras_cgh.template legacy_local_alloc_offset<std::remove_const_t<DataT>>(1);
-#endif
+                ptr_.local_off = detail::paras_legacy_local_off<std::remove_const_t<DataT>>(paras_cgh, 1);
             paras_check_no_init();
         }
 
