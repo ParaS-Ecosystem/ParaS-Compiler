@@ -27,7 +27,7 @@
 #include "access.hpp"
 #include <cstddef>
 
-#if !PARAS_GPU_BACKEND
+#if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
 #include <atomic>
 #endif
 
@@ -73,7 +73,7 @@ struct memory_order_traits<memory_order::release> {
     static constexpr memory_order write_order = memory_order::release;
 };
 
-#if !PARAS_GPU_BACKEND
+#if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
 inline constexpr std::memory_order to_std(memory_order o) {
     switch (o) {
     case memory_order::relaxed:
@@ -93,7 +93,7 @@ inline constexpr std::memory_order to_std(memory_order o) {
 
 PARAS_KERNEL_HD
 inline void atomic_fence(memory_order order, memory_scope scope) noexcept {
-#if PARAS_GPU_BACKEND
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
     (void)order;
     switch (scope) {
     case memory_scope::work_item:
