@@ -44,7 +44,7 @@ public:
     static constexpr int dimensions = 1;
     static constexpr memory_scope fence_scope = memory_scope::sub_group;
 
-#if PARAS_GPU_BACKEND
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
 
     static constexpr linear_id_type warp_size = PARAS_WARP_SIZE;
 
@@ -101,7 +101,7 @@ public:
 
     PARAS_KERNEL_HD
     range_type get_max_local_range() const {
-#if PARAS_GPU_BACKEND
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
         return range_type(warp_size);
 #else
         return range_type(1);
@@ -114,7 +114,7 @@ public:
 
 /* ================= subgroup algorithms ================= */
 
-#if PARAS_GPU_BACKEND
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
 
 namespace detail {
 
