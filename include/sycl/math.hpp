@@ -891,6 +891,18 @@ inline sycl::half fabs(sycl::half x) {
     return sycl::half(std::fabs(static_cast<float>(x)));
 }
 
+PARAS_KERNEL_HD inline sycl::half nan(std::uint16_t) {
+    return sycl::half(__builtin_nanf(""));
+}
+
+PARAS_KERNEL_HD inline float nan(std::uint32_t) {
+    return __builtin_nanf("");
+}
+
+PARAS_KERNEL_HD inline double nan(std::uint64_t) {
+    return __builtin_nan("");
+}
+
 template <typename NonScalar,
           std::enable_if_t<is_vec_v<NonScalar> || is_marray_v<NonScalar>, int> = 0>
 PARAS_KERNEL_HD inline auto fabs(const NonScalar& x) {
