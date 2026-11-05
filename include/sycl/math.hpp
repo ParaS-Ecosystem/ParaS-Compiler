@@ -191,6 +191,30 @@ PARAS_KERNEL_HD inline auto sqrt(const NonScalar& x) {
     }
 }
 
+PARAS_KERNEL_HD
+inline double cbrt(double x) {
+    return ::cbrt(x);
+}
+
+PARAS_KERNEL_HD
+inline float cbrt(float x) {
+    return ::cbrtf(x);
+}
+
+PARAS_KERNEL_HD
+inline sycl::half cbrt(sycl::half x) {
+    return sycl::half(std::cbrt(static_cast<float>(x)));
+}
+
+template <typename NonScalar,
+          std::enable_if_t<is_vec_v<NonScalar> || is_marray_v<NonScalar>, int> = 0>
+PARAS_KERNEL_HD inline auto cbrt(const NonScalar& x) {
+    NonScalar result{};
+    for (std::size_t i = 0; i < x.size(); ++i)
+        result[i] = sycl::cbrt(x[i]);
+    return result;
+}
+
 #if PARAS_GPU_BACKEND
 PARAS_KERNEL_HD
 inline double rsqrt(double x) {
@@ -880,6 +904,11 @@ inline float pow(float x, float y) {
 /* ===================== POW FUNCTIONS ===================== */
 
 /* ============= FABS / NEXTAFTER / ROUNDING FUNCTIONS ============= */
+
+template <typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>
+PARAS_KERNEL_HD inline T abs(T x) {
+    return x < T{} ? -x : x;
+}
 
 PARAS_KERNEL_HD
 inline double fabs(double x) {

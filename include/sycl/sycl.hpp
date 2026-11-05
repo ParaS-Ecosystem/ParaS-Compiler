@@ -22,6 +22,8 @@
 #define __PARAS_SYCL_HPP__
 #define SYCL_LANGUAGE_VERSION 202012L
 
+#include <assert.h>
+
 #include "../kem_gpu/gpu_utilities.hpp"
 
 #include "multi_ptr.hpp"
