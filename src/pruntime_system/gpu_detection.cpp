@@ -19,6 +19,7 @@
  */
 
 #include "utilities/gpu_detection.hpp"
+#include "ext/paras/detail/device_visibility.hpp"
 #include "utilities/internal_utils.hpp"
 
 #include <string>
@@ -132,6 +133,8 @@ static inline std::vector<std::string> split_csv_4(const std::string& ln) {
 static inline std::vector<std::size_t>
 get_visible_nvidia_indices(const std::size_t physicalDeviceCount) {
     std::vector<std::size_t> indices;
+    if (sycl::ext::paras::detail::has_uuid_tokens("CUDA_VISIBLE_DEVICES"))
+        return sycl::ext::paras::detail::visible_nvidia_indices(physicalDeviceCount);
 
     const char* env = std::getenv("CUDA_VISIBLE_DEVICES");
 
@@ -378,6 +381,7 @@ std::vector<sycl::device> detect_amd_gpus() {
     }
 #endif
 
+    if (!out.empty()) return sycl::ext::paras::detail::visible_amd_gpus(out);
     return out;
 }
 

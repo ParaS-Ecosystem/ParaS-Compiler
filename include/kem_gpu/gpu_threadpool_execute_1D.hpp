@@ -80,6 +80,7 @@ void cuda_threadpool::gpu_execute_1D(const sycl::range<1>& r, Func f) {
     (void)cudaGetLastError();
     gpu_execute_1D_kernel<<<blocks, threadsPerBlock, 0, stream>>>(n, f);
     paras_cuda_detail::check(cudaGetLastError(), "1D kernel launch failed");
+    if (async_launch()) return;
     paras_cuda_detail::check(cudaStreamSynchronize(stream), "1D kernel execution failed");
 }
 
@@ -101,6 +102,7 @@ void rocm_threadpool::gpu_execute_1D(const sycl::range<1>& r, Func f) {
     (void)hipGetLastError();
     gpu_execute_1D_kernel<<<blocks, threadsPerBlock, 0, stream>>>(n, f);
     paras_rocm_detail::check(hipGetLastError(), "1D kernel launch failed");
+    if (async_launch()) return;
     paras_rocm_detail::check(hipStreamSynchronize(stream), "1D kernel execution failed");
 }
 #endif

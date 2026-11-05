@@ -21,6 +21,7 @@
 #ifndef SYCL_EVENT_HPP
 #define SYCL_EVENT_HPP
 
+#include <functional>
 #include <vector>
 #include <memory>
 #include <stdexcept>
@@ -36,6 +37,8 @@ namespace sycl {
 struct paras_event_state {
     bool profiling = false;
     std::uint64_t submit = 0, start = 0, end = 0;
+    std::function<void()> wait_fn;
+    std::function<bool()> done_fn;
 };
 
 inline std::uint64_t paras_now_ns() {
@@ -54,6 +57,7 @@ private:
     void wait_deps() const {
         for (auto& d : m_deps)
             d.wait();
+        if (m_impl->wait_fn) m_impl->wait_fn();
     }
 
 public:
@@ -92,6 +96,8 @@ public:
     template <typename Param>
     typename Param::return_type get_info() const {
         if constexpr (std::is_same_v<Param, info::event::command_execution_status>) {
+            if (m_impl->done_fn && !m_impl->done_fn())
+                return info::event_command_status::running;
             return info::event_command_status::complete;
         } else {
             return typename Param::return_type();
@@ -128,6 +134,8 @@ public:
         e.m_impl->end = end;
         return e;
     }
+
+#include "ext/paras/detail/event_members.hpp"
 
     const void* identity() const noexcept { return m_impl.get(); }
 

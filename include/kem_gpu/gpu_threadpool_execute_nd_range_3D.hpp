@@ -80,6 +80,7 @@ __global__ void gpu_execute_nd_range_3D_kernel(std::size_t globalSize0, std::siz
 template <typename Func>
 void cuda_threadpool::gpu_execute_nd_range_3D(const sycl::nd_range<3>& r, Func f,
                                               std::size_t sharedMemoryBytes) {
+    if (async_launch()) return paras_ext_nd_range_3D(r, f, sharedMemoryBytes);
     paras_detail::validate_nd_range(r);
     ensure_stream();
 
@@ -193,6 +194,7 @@ void cuda_threadpool::gpu_execute_nd_range_3D(const sycl::nd_range<3>& r, Func f
 template <typename Func>
 void rocm_threadpool::gpu_execute_nd_range_3D(const sycl::nd_range<3>& r, Func f,
                                               std::size_t sharedMemoryBytes) {
+    if (async_launch()) return paras_ext_nd_range_3D(r, f, sharedMemoryBytes);
     paras_detail::validate_nd_range(r);
     ensure_stream();
 

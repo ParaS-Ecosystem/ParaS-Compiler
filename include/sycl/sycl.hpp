@@ -62,6 +62,7 @@
 #include "private_ptr.hpp"
 #include "property_list.hpp"
 #include "queue.hpp"
+#include "ext/paras/command_graph.hpp"
 #include "range.hpp"
 #include "sampler.hpp"
 #include "image.hpp"

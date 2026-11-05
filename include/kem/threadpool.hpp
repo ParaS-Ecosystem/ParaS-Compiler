@@ -250,6 +250,8 @@ void handler::parallel_for(const nd_range<dim>& r, Func f) {
     }
 }
 
+#include "ext/paras/detail/host_handler.hpp"
+
 inline void handler::memset(void* ptr, int value, size_t num_bytes) {
     std::memset(ptr, value, num_bytes);
 }

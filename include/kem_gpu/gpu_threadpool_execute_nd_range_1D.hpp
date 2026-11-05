@@ -21,6 +21,7 @@
 #ifndef __PARAS_GPU_THREADPOOL_EXECUTE_NDRANGE_1D_HPP__
 #define __PARAS_GPU_THREADPOOL_EXECUTE_NDRANGE_1D_HPP__
 
+#include "ext/paras/occupancy_hint.hpp"
 #include <cstddef>
 #include <stdexcept>
 #include <sycl/id.hpp>
@@ -61,6 +62,7 @@ __global__ void gpu_execute_nd_range_1D_kernel(std::size_t globalSize, sycl::ran
 template <typename Func>
 void cuda_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1>& r, Func f,
                                               std::size_t sharedMemoryBytes) {
+    if (async_launch()) return paras_ext_nd_range_1D(r, f, sharedMemoryBytes);
     paras_detail::validate_nd_range(r);
     ensure_stream();
 
@@ -120,6 +122,7 @@ void cuda_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1>& r, Func f
 template <typename Func>
 void rocm_threadpool::gpu_execute_nd_range_1D(const sycl::nd_range<1>& r, Func f,
                                               std::size_t sharedMemoryBytes) {
+    if (async_launch() || sycl::ext::paras::detail::occupancy_hint<Func>::value) return paras_ext_nd_range_1D(r, f, sharedMemoryBytes);
     paras_detail::validate_nd_range(r);
     ensure_stream();
 

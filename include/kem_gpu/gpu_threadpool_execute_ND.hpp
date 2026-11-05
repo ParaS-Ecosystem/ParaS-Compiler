@@ -79,6 +79,7 @@ void cuda_threadpool::gpu_execute_2D(const sycl::range<2>& r, Func f) {
     (void)cudaGetLastError();
     gpu_execute_2D_grid_kernel<<<grid, block, 0, stream>>>(rows, cols, f);
     paras_cuda_detail::check(cudaGetLastError(), "2D kernel launch failed");
+    if (async_launch()) return;
     paras_cuda_detail::check(cudaStreamSynchronize(stream), "2D kernel execution failed");
 }
 
@@ -98,6 +99,7 @@ void cuda_threadpool::gpu_execute_3D(const sycl::range<3>& r, Func f) {
     (void)cudaGetLastError();
     gpu_execute_3D_linear_kernel<<<blocks, threadsPerBlock, 0, stream>>>(X, Y, Z, f);
     paras_cuda_detail::check(cudaGetLastError(), "3D kernel launch failed");
+    if (async_launch()) return;
     paras_cuda_detail::check(cudaStreamSynchronize(stream), "3D kernel execution failed");
 }
 
@@ -120,6 +122,7 @@ void rocm_threadpool::gpu_execute_2D(const sycl::range<2>& r, Func f) {
     (void)hipGetLastError();
     gpu_execute_2D_grid_kernel<<<grid, block, 0, stream>>>(rows, cols, f);
     paras_rocm_detail::check(hipGetLastError(), "2D kernel launch failed");
+    if (async_launch()) return;
     paras_rocm_detail::check(hipStreamSynchronize(stream), "2D kernel execution failed");
 }
 
@@ -139,6 +142,7 @@ void rocm_threadpool::gpu_execute_3D(const sycl::range<3>& r, Func f) {
     (void)hipGetLastError();
     gpu_execute_3D_linear_kernel<<<blocks, threadsPerBlock, 0, stream>>>(X, Y, Z, f);
     paras_rocm_detail::check(hipGetLastError(), "3D kernel launch failed");
+    if (async_launch()) return;
     paras_rocm_detail::check(hipStreamSynchronize(stream), "3D kernel execution failed");
 }
 #endif
