@@ -191,28 +191,14 @@ PARAS_KERNEL_HD inline auto sqrt(const NonScalar& x) {
     }
 }
 
-PARAS_KERNEL_HD
-inline double cbrt(double x) {
-    return ::cbrt(x);
+template <typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>
+PARAS_KERNEL_HD inline auto cbrt(T x) {
+    return std::cbrt(x);
 }
 
-PARAS_KERNEL_HD
-inline float cbrt(float x) {
-    return ::cbrtf(x);
-}
-
-PARAS_KERNEL_HD
-inline sycl::half cbrt(sycl::half x) {
-    return sycl::half(std::cbrt(static_cast<float>(x)));
-}
-
-template <typename NonScalar,
-          std::enable_if_t<is_vec_v<NonScalar> || is_marray_v<NonScalar>, int> = 0>
+template <typename NonScalar, std::enable_if_t<is_vec_v<NonScalar> || is_marray_v<NonScalar>, int> = 0>
 PARAS_KERNEL_HD inline auto cbrt(const NonScalar& x) {
-    NonScalar result{};
-    for (std::size_t i = 0; i < x.size(); ++i)
-        result[i] = sycl::cbrt(x[i]);
-    return result;
+    return sycl::cbrt(x);
 }
 
 #if PARAS_GPU_BACKEND
