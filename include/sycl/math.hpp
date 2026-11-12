@@ -191,6 +191,16 @@ PARAS_KERNEL_HD inline auto sqrt(const NonScalar& x) {
     }
 }
 
+template <typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>
+PARAS_KERNEL_HD inline auto cbrt(T x) {
+    return std::cbrt(x);
+}
+
+template <typename NonScalar, std::enable_if_t<is_vec_v<NonScalar> || is_marray_v<NonScalar>, int> = 0>
+PARAS_KERNEL_HD inline auto cbrt(const NonScalar& x) {
+    return sycl::cbrt(x);
+}
+
 #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
 PARAS_KERNEL_HD
 inline double rsqrt(double x) {
@@ -880,6 +890,11 @@ inline float pow(float x, float y) {
 /* ===================== POW FUNCTIONS ===================== */
 
 /* ============= FABS / NEXTAFTER / ROUNDING FUNCTIONS ============= */
+
+template <typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>
+PARAS_KERNEL_HD inline T abs(T x) {
+    return x < T{} ? -x : x;
+}
 
 PARAS_KERNEL_HD
 inline double fabs(double x) {
