@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.26.5)
-project(ParaS-v1.0)
-
-message(STATUS "Configuring paras v1.0")
+project(ParaS VERSION 26.10.0 LANGUAGES C CXX)
 
 # Set GCC toolchain path for Clang
 set(CMAKE_C_COMPILER clang)
@@ -13,20 +11,28 @@ endif()
 
 #setting paras version info
 
-if(NOT DEFINED PARAS_MAJOR_VERSION)
-	set(PARAS_MAJOR_VERSION 1)
+if(NOT PARAS_VERSION_MAJOR)
+  set(PARAS_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 endif()
 
-if(NOT DEFINED PARAS_MINOR_VERSION)
-	set(PARAS_MINOR_VERSION 0)
+if(NOT PARAS_VERSION_MINOR)
+  set(PARAS_VERSION_MINOR ${PROJECT_VERSION_MINOR})
 endif()
 
-if(NOT DEFINED PARAS_VERSION_PATCH)
-	set(PARAS_VERSION_PATCH 0)
+if(NOT PARAS_VERSION_PATCH)
+  set(PARAS_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 endif()
+
+if(NOT PARAS_VERSION_SUFFIX)
+  set(PARAS_VERSION_SUFFIX "")
+endif
+
+set(PARAS_MAJOR_VERSION ${PARAS_VERSION_MAJOR})
+set(PARAS_MINOR_VERSION ${PARAS_VERSION_MINOR})
+set(PARAS_PATCH_VERSION ${PARAS_VERSION_PATCH})
 
 if (NOT PARAS_VERSION)
-	set(PARAS_VERSION "${PARAS_MAJOR_VERSION}.${PARAS_MINOR_VERSION}.${PARAS_VERSION_PATCH}")
+	set(PARAS_VERSION "${PARAS_VERSION_MAJOR}.${PARAS_VERSION_MINOR}.${PARAS_VERSION_PATCH}")
 endif()
 
 
@@ -58,16 +64,26 @@ else()
 	endif()
 endif()
 
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/paras/ParaSVersionConfig.hpp.in
+  ${CMAKE_CURRENT_BINARY_DIR}/include/paras/ParaSVersionConfig.hpp
+  @ONLY
+)
+
+install(
+  FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/include/paras/ParaSVersionConfig.hpp
+  DESTINATION include/paras
+)
+
 add_subdirectory(include)
 add_subdirectory(src)
 
 
 include(CMakePackageConfigHelpers)
 
-
 set(PARAS_INSTALL_CMAKE_DIR "lib/cmake/paras" CACHE PATH "Install path for CMake config files")
 set(PARAS_INSTALL_COMPILER_DIR bin)
-
 
 configure_package_config_file(
   ${PROJECT_SOURCE_DIR}/cmake/paras-config.cmake.in
@@ -79,10 +95,14 @@ configure_package_config_file(
 
 write_basic_package_version_file(
   ${PROJECT_BINARY_DIR}/paras-config-version.cmake
-  VERSION ${PARAS_MAJOR_VERSION}
+  VERSION ${PARAS_VERSION}
   COMPATIBILITY SameMajorVersion
 )
 
+install(FILES
+  ${PROJECT_SOURCE_DIR}/include/paras/ParaSVersion.hpp
+  DESTINATION include/paras
+)
 
 install(FILES
   ${PROJECT_BINARY_DIR}/paras-config.cmake
@@ -96,7 +116,6 @@ install(EXPORT install_exports
   #  NAMESPACE paras::
   DESTINATION ${PARAS_INSTALL_CMAKE_DIR}
 )
-
 
 mark_as_advanced(PARAS_INSTALL_CMAKE_DIR)
 
