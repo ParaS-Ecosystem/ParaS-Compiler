@@ -191,7 +191,7 @@ PARAS_KERNEL_HD inline auto sqrt(const NonScalar& x) {
     }
 }
 
-#if PARAS_GPU_BACKEND
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
 PARAS_KERNEL_HD
 inline double rsqrt(double x) {
     return ::rsqrt(x);
