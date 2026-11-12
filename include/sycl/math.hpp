@@ -201,7 +201,7 @@ PARAS_KERNEL_HD inline auto cbrt(const NonScalar& x) {
     return sycl::cbrt(x);
 }
 
-#if PARAS_GPU_BACKEND
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
 PARAS_KERNEL_HD
 inline double rsqrt(double x) {
     return ::rsqrt(x);
@@ -904,6 +904,18 @@ inline double fabs(double x) {
 PARAS_KERNEL_HD
 inline sycl::half fabs(sycl::half x) {
     return sycl::half(std::fabs(static_cast<float>(x)));
+}
+
+PARAS_KERNEL_HD inline sycl::half nan(std::uint16_t) {
+    return sycl::half(__builtin_nanf(""));
+}
+
+PARAS_KERNEL_HD inline float nan(std::uint32_t) {
+    return __builtin_nanf("");
+}
+
+PARAS_KERNEL_HD inline double nan(std::uint64_t) {
+    return __builtin_nan("");
 }
 
 template <typename NonScalar,
