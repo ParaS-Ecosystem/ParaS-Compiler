@@ -32,6 +32,7 @@
 #include "sycl/device_selector.hpp"
 #include "sycl/context.hpp"
 #include "sycl/event.hpp"
+#include "sycl/usm.hpp"
 
 #include "sycl/queue.hpp"
 
@@ -258,4 +259,10 @@ inline void handler::memcpy(void* dest, const void* src, size_t num_bytes) {
 }
 
 } // namespace sycl
+
+template <typename T>
+inline void free(T* ptr, const threadpool& q) {
+    sycl::free(static_cast<void*>(ptr), q);
+}
+
 #endif
