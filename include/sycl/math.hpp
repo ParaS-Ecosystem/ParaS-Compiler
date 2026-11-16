@@ -23,6 +23,7 @@
 
 #include <type_traits>
 #include <cmath>
+#include <climits>
 #include <algorithm>
 #include "kem_gpu/gpu_utilities.hpp"
 #include <utility>
