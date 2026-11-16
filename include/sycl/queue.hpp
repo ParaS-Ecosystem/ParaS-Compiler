@@ -103,6 +103,16 @@ public:
         return event{get_backend()};
     }
 
+    template <typename Func>
+    event spawn_1D(Func f) {
+        return submit([&](handler& cgh) { f(cgh); });
+    }
+
+    template <typename Func>
+    event spawn_1D_event(Func f) {
+        return spawn_1D(f);
+    }
+
     template <typename CGF>
     event submit(CGF cgf, const property_list& propList) {
         (void)propList;
