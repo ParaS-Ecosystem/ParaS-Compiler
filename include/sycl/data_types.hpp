@@ -21,52 +21,48 @@
 #ifndef __PARAS_DATA_TYPES_HPP__
 #define __PARAS_DATA_TYPES_HPP__
 
-#include <limits>
+#include <cmath>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
 #include <type_traits>
 #include <utility>
 #include "kem_gpu/gpu_utilities.hpp"
+#include "half.hpp"
 
 namespace sycl {
 
 using byte = unsigned char;
 
+namespace opencl {
+using cl_bool = bool;
+using cl_char = std::int8_t;
+using cl_uchar = std::uint8_t;
+using cl_short = std::int16_t;
+using cl_ushort = std::uint16_t;
+using cl_int = std::int32_t;
+using cl_uint = std::uint32_t;
+using cl_long = std::int64_t;
+using cl_ulong = std::uint64_t;
+using cl_half = sycl::half;
+using cl_float = float;
+using cl_double = double;
+}
+
 enum class elem : int {
-    x = 0,
-    y = 1,
-    z = 2,
-    w = 3,
-    r = 0,
-    g = 1,
-    b = 2,
-    a = 3,
-    s0 = 0,
-    s1 = 1,
-    s2 = 2,
-    s3 = 3,
-    s4 = 4,
-    s5 = 5,
-    s6 = 6,
-    s7 = 7,
-    s8 = 8,
-    s9 = 9,
-    sA = 10,
-    sB = 11,
-    sC = 12,
-    sD = 13,
-    sE = 14,
-    sF = 15
+    x = 0, y = 1, z = 2, w = 3,
+    r = 0, g = 1, b = 2, a = 3,
+    s0 = 0, s1 = 1, s2 = 2, s3 = 3,
+    s4 = 4, s5 = 5, s6 = 6, s7 = 7,
+    s8 = 8, s9 = 9, sA = 10, sB = 11,
+    sC = 12, sD = 13, sE = 14, sF = 15
 };
 
 enum class rounding_mode { automatic, rte, rtz, rtp, rtn };
 
-template <typename T>
-struct vec_rel_t;
+template <typename T> struct vec_rel_t;
 
-template <typename T, typename = void>
-struct paras_is_swizzle_ref;
+template <typename T, typename = void> struct paras_is_swizzle_ref;
 
 template <typename T, int N>
 constexpr std::size_t paras_vec_alignof() {
@@ -79,7 +75,7 @@ template <typename T, int N>
 class alignas(paras_vec_alignof<T, N>()) vec {
 public:
     using value_type = T;
-    using element_type = T;
+	using element_type = T;
     T data[N];
 
     PARAS_KERNEL_HD
@@ -98,18 +94,17 @@ public:
         return *this;
     }
 
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator=(const SwizzleRefT& rhs) noexcept {
         return (*this) = static_cast<vec<T, N>>(rhs);
     }
 
 private:
     template <typename U>
-    PARAS_KERNEL_HD static constexpr int paras_fill_component(T* dst, int idx,
-                                                              const U& val) noexcept {
+    PARAS_KERNEL_HD
+    static constexpr int paras_fill_component(T* dst, int idx, const U& val) noexcept {
         if constexpr (std::is_convertible_v<U, T>) {
             dst[idx] = static_cast<T>(val);
             return idx + 1;
@@ -120,15 +115,42 @@ private:
         }
     }
 
+    template <typename U, typename = void>
+    struct paras_arg_count : std::integral_constant<int, 0> {};
+    template <typename U>
+    struct paras_arg_count<U, std::enable_if_t<std::is_convertible_v<U, T>>>
+        : std::integral_constant<int, 1> {};
+    template <typename U>
+    struct paras_arg_count<U, std::enable_if_t<!std::is_convertible_v<U, T> &&
+                                               (U::size() > 0)>>
+        : std::integral_constant<int, static_cast<int>(U::size())> {};
+
 public:
-    template <typename... Args, typename = std::enable_if_t<(sizeof...(Args) >= 1)>>
-    PARAS_KERNEL_HD constexpr vec(Args... args) noexcept : data{} {
+
+    template <typename... Args,
+              typename = std::enable_if_t<(sizeof...(Args) >= 2) &&
+                  ((paras_arg_count<Args>::value + ...) == N) &&
+                  ((paras_arg_count<Args>::value > 0) && ...)>>
+    PARAS_KERNEL_HD
+    constexpr vec(Args... args) noexcept : data{} {
         int idx = 0;
         ((idx = paras_fill_component(data, idx, args)), ...);
     }
 
+    template <typename Arg,
+              typename = std::enable_if_t<
+                  (paras_arg_count<Arg>::value == N) &&
+                  (paras_arg_count<Arg>::value > 0)>,
+              typename = void>
     PARAS_KERNEL_HD
-    static constexpr int size() noexcept { return N; }
+    explicit constexpr vec(Arg arg) noexcept : data{} {
+        paras_fill_component(data, 0, arg);
+    }
+
+    PARAS_KERNEL_HD
+    static constexpr int size() noexcept {
+        return N;
+    }
 
     PARAS_KERNEL_HD
     std::size_t byte_size() const noexcept {
@@ -137,10 +159,14 @@ public:
     }
 
     PARAS_KERNEL_HD
-    T& operator[](int i) noexcept { return data[i]; }
+    T& operator[](int i) noexcept {
+        return data[i];
+    }
 
     PARAS_KERNEL_HD
-    const T& operator[](int i) const noexcept { return data[i]; }
+    const T& operator[](int i) const noexcept {
+        return data[i];
+    }
 
     PARAS_KERNEL_HD
     vec& operator+=(const vec& rhs) noexcept {
@@ -156,11 +182,10 @@ public:
         return *this;
     }
 
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator+=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator+=(const SwizzleRefT& rhs) noexcept {
         return (*this) += static_cast<vec>(rhs);
     }
 
@@ -188,294 +213,256 @@ public:
         return result;
     }
 
-    PARAS_KERNEL_HD
-    vec& operator*=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i) {
-            data[i] *= rhs;
-        }
-        return *this;
-    }
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator*=(const SwizzleRefT& rhs) noexcept {
-        return (*this) *= static_cast<vec>(rhs);
-    }
+	PARAS_KERNEL_HD
+	vec& operator*=(T rhs) noexcept {
+		for (int i = 0 ; i < N ; ++i) {
+			data[i] *= rhs ;
+		}
+		return *this ;
+	}
+	template <typename SwizzleRefT,
+          typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+PARAS_KERNEL_HD
+vec& operator*=(const SwizzleRefT& rhs) noexcept {
+return (*this) *= static_cast<vec>(rhs);
+}
 
     PARAS_KERNEL_HD
     vec& operator-=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] -= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] -= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec& operator-=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] -= rhs;
+        for (int i = 0; i < N; ++i) data[i] -= rhs;
         return *this;
     }
 
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator-=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator-=(const SwizzleRefT& rhs) noexcept {
         return (*this) -= static_cast<vec>(rhs);
     }
 
     PARAS_KERNEL_HD
     vec& operator*=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] *= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] *= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec operator*(const vec& rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] * rhs.data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] * rhs.data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec& operator/=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] /= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] /= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec& operator/=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] /= rhs;
+        for (int i = 0; i < N; ++i) data[i] /= rhs;
         return *this;
     }
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator/=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator/=(const SwizzleRefT& rhs) noexcept {
         return (*this) /= static_cast<vec>(rhs);
     }
 
     PARAS_KERNEL_HD
     vec operator/(const vec& rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] / rhs.data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] / rhs.data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec operator/(T rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] / rhs;
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] / rhs;
         return result;
     }
 
     PARAS_KERNEL_HD
     vec& operator%=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] %= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] %= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec& operator%=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] %= rhs;
+        for (int i = 0; i < N; ++i) data[i] %= rhs;
         return *this;
     }
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator%=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator%=(const SwizzleRefT& rhs) noexcept {
         return (*this) %= static_cast<vec>(rhs);
     }
 
     PARAS_KERNEL_HD
     vec operator%(const vec& rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] % rhs.data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] % rhs.data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec operator%(T rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] % rhs;
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] % rhs;
         return result;
     }
 
     PARAS_KERNEL_HD
     vec& operator&=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] &= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] &= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec& operator&=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] &= rhs;
+        for (int i = 0; i < N; ++i) data[i] &= rhs;
         return *this;
     }
 
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator&=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator&=(const SwizzleRefT& rhs) noexcept {
         return (*this) &= static_cast<vec>(rhs);
     }
 
     PARAS_KERNEL_HD
     vec operator&(const vec& rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] & rhs.data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] & rhs.data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec& operator|=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] |= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] |= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec& operator|=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] |= rhs;
+        for (int i = 0; i < N; ++i) data[i] |= rhs;
         return *this;
     }
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator|=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator|=(const SwizzleRefT& rhs) noexcept {
         return (*this) |= static_cast<vec>(rhs);
     }
 
     PARAS_KERNEL_HD
     vec operator|(const vec& rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] | rhs.data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] | rhs.data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec& operator^=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] ^= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] ^= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec& operator^=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] ^= rhs;
+        for (int i = 0; i < N; ++i) data[i] ^= rhs;
         return *this;
     }
 
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator^=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator^=(const SwizzleRefT& rhs) noexcept {
         return (*this) ^= static_cast<vec>(rhs);
     }
 
     PARAS_KERNEL_HD
     vec operator^(const vec& rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] ^ rhs.data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] ^ rhs.data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec& operator<<=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] <<= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] <<= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec& operator<<=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] <<= rhs;
+        for (int i = 0; i < N; ++i) data[i] <<= rhs;
         return *this;
     }
 
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator<<=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator<<=(const SwizzleRefT& rhs) noexcept {
         return (*this) <<= static_cast<vec>(rhs);
     }
 
     PARAS_KERNEL_HD
     vec operator<<(const vec& rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] << rhs.data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] << rhs.data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec operator<<(T rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] << rhs;
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] << rhs;
         return result;
     }
 
     PARAS_KERNEL_HD
     vec& operator>>=(const vec& rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] >>= rhs.data[i];
+        for (int i = 0; i < N; ++i) data[i] >>= rhs.data[i];
         return *this;
     }
 
     PARAS_KERNEL_HD
     vec& operator>>=(T rhs) noexcept {
-        for (int i = 0; i < N; ++i)
-            data[i] >>= rhs;
+        for (int i = 0; i < N; ++i) data[i] >>= rhs;
         return *this;
     }
 
-    template <
-        typename SwizzleRefT,
-        typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N &&
-                                    std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
-    PARAS_KERNEL_HD vec& operator>>=(const SwizzleRefT& rhs) noexcept {
+	template <typename SwizzleRefT,
+              typename = std::enable_if_t<static_cast<int>(SwizzleRefT::size()) == N && std::is_convertible_v<typename SwizzleRefT::element_type, T>>>
+    PARAS_KERNEL_HD
+    vec& operator>>=(const SwizzleRefT& rhs) noexcept {
         return (*this) >>= static_cast<vec>(rhs);
     }
 
     PARAS_KERNEL_HD
     vec operator>>(const vec& rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] >> rhs.data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] >> rhs.data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec operator>>(T rhs) const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = data[i] >> rhs;
+        for (int i = 0; i < N; ++i) result.data[i] = data[i] >> rhs;
         return result;
     }
 
@@ -485,16 +472,14 @@ public:
     PARAS_KERNEL_HD
     vec operator-() const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = -data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = -data[i];
         return result;
     }
 
     PARAS_KERNEL_HD
     vec operator~() const noexcept {
         vec result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = ~data[i];
+        for (int i = 0; i < N; ++i) result.data[i] = ~data[i];
         return result;
     }
 
@@ -509,8 +494,7 @@ public:
 
     PARAS_KERNEL_HD
     vec& operator++() noexcept {
-        for (int i = 0; i < N; ++i)
-            ++data[i];
+        for (int i = 0; i < N; ++i) ++data[i];
         return *this;
     }
 
@@ -523,8 +507,7 @@ public:
 
     PARAS_KERNEL_HD
     vec& operator--() noexcept {
-        for (int i = 0; i < N; ++i)
-            --data[i];
+        for (int i = 0; i < N; ++i) --data[i];
         return *this;
     }
 
@@ -583,16 +566,16 @@ public:
         return data[3];
     }
 
-#define PARAS_VEC_SWIZZLE_ACCESSOR(NAME, INDEX)                                                    \
-    PARAS_KERNEL_HD                                                                                \
-    T NAME() const noexcept {                                                                      \
-        static_assert(N > (INDEX), #NAME "() requires N > " #INDEX);                               \
-        return data[INDEX];                                                                        \
-    }                                                                                              \
-    PARAS_KERNEL_HD                                                                                \
-    T& NAME() noexcept {                                                                           \
-        static_assert(N > (INDEX), #NAME "() requires N > " #INDEX);                               \
-        return data[INDEX];                                                                        \
+#define PARAS_VEC_SWIZZLE_ACCESSOR(NAME, INDEX)                    \
+    PARAS_KERNEL_HD                                                \
+    T NAME() const noexcept {                                      \
+        static_assert(N > (INDEX), #NAME "() requires N > " #INDEX); \
+        return data[INDEX];                                        \
+    }                                                               \
+    PARAS_KERNEL_HD                                                \
+    T& NAME() noexcept {                                           \
+        static_assert(N > (INDEX), #NAME "() requires N > " #INDEX); \
+        return data[INDEX];                                        \
     }
 
     PARAS_VEC_SWIZZLE_ACCESSOR(s0, 0)
@@ -614,26 +597,25 @@ public:
 
 #undef PARAS_VEC_SWIZZLE_ACCESSOR
 
-#define PARAS_VEC_NAMED_SWIZZLE2(NAME, I0, I1)                                                     \
-    PARAS_KERNEL_HD                                                                                \
-    vec<T, 2> NAME() const noexcept {                                                              \
-        static_assert(N > (I0) && N > (I1), #NAME "() index out of range");                        \
-        return vec<T, 2>{data[I0], data[I1]};                                                      \
+#define PARAS_VEC_NAMED_SWIZZLE2(NAME, I0, I1)                                    \
+    PARAS_KERNEL_HD                                                               \
+    vec<T, 2> NAME() const noexcept {                                              \
+        static_assert(N > (I0) && N > (I1), #NAME "() index out of range");         \
+        return vec<T, 2>{ data[I0], data[I1] };                                     \
     }
 
-#define PARAS_VEC_NAMED_SWIZZLE3(NAME, I0, I1, I2)                                                 \
-    PARAS_KERNEL_HD                                                                                \
-    vec<T, 3> NAME() const noexcept {                                                              \
-        static_assert(N > (I0) && N > (I1) && N > (I2), #NAME "() index out of range");            \
-        return vec<T, 3>{data[I0], data[I1], data[I2]};                                            \
+#define PARAS_VEC_NAMED_SWIZZLE3(NAME, I0, I1, I2)                                \
+    PARAS_KERNEL_HD                                                               \
+    vec<T, 3> NAME() const noexcept {                                              \
+        static_assert(N > (I0) && N > (I1) && N > (I2), #NAME "() index out of range"); \
+        return vec<T, 3>{ data[I0], data[I1], data[I2] };                           \
     }
 
-#define PARAS_VEC_NAMED_SWIZZLE4(NAME, I0, I1, I2, I3)                                             \
-    PARAS_KERNEL_HD                                                                                \
-    vec<T, 4> NAME() const noexcept {                                                              \
-        static_assert(N > (I0) && N > (I1) && N > (I2) && N > (I3),                                \
-                      #NAME "() index out of range");                                              \
-        return vec<T, 4>{data[I0], data[I1], data[I2], data[I3]};                                  \
+#define PARAS_VEC_NAMED_SWIZZLE4(NAME, I0, I1, I2, I3)                            \
+    PARAS_KERNEL_HD                                                               \
+    vec<T, 4> NAME() const noexcept {                                              \
+        static_assert(N > (I0) && N > (I1) && N > (I2) && N > (I3), #NAME "() index out of range"); \
+        return vec<T, 4>{ data[I0], data[I1], data[I2], data[I3] };                 \
     }
 
     PARAS_VEC_NAMED_SWIZZLE2(xx, 0, 0)
@@ -1351,7 +1333,8 @@ public:
     }
 
     template <typename Ptr>
-    PARAS_KERNEL_HD void load(std::size_t offset, Ptr ptr) noexcept {
+    PARAS_KERNEL_HD
+    void load(std::size_t offset, Ptr ptr) noexcept {
         const std::size_t base = offset * static_cast<std::size_t>(N);
         for (int j = 0; j < N; ++j) {
             data[j] = ptr[base + static_cast<std::size_t>(j)];
@@ -1359,7 +1342,8 @@ public:
     }
 
     template <typename Ptr>
-    PARAS_KERNEL_HD void store(std::size_t offset, Ptr ptr) const noexcept {
+    PARAS_KERNEL_HD
+    void store(std::size_t offset, Ptr ptr) const noexcept {
         const std::size_t base = offset * static_cast<std::size_t>(N);
         for (int j = 0; j < N; ++j) {
             ptr[base + static_cast<std::size_t>(j)] = data[j];
@@ -1367,8 +1351,11 @@ public:
     }
 
     template <auto... Indices>
-    PARAS_KERNEL_HD vec<T, static_cast<int>(sizeof...(Indices))> swizzle() const noexcept {
-        return vec<T, static_cast<int>(sizeof...(Indices))>{data[static_cast<int>(Indices)]...};
+    PARAS_KERNEL_HD
+    vec<T, static_cast<int>(sizeof...(Indices))> swizzle() const noexcept {
+        return vec<T, static_cast<int>(sizeof...(Indices))>{
+            data[static_cast<int>(Indices)]...
+        };
     }
 
     template <elem... Indices>
@@ -1378,37 +1365,39 @@ public:
         using value_type = T;
         using element_type = T;
 
-        template <typename U, typename = void>
+		template <typename U, typename = void>
         struct paras_swizzle_op_has_size : std::false_type {};
         template <typename U>
         struct paras_swizzle_op_has_size<U, std::void_t<decltype(U::size())>> : std::true_type {};
         template <typename U>
         static constexpr bool paras_swizzle_op_has_size_v = paras_swizzle_op_has_size<U>::value;
 
-#define PARAS_SYCL_DEFINE_SWIZZLE_REF_RELATIONAL_OP(OP)                                            \
-    template <typename RhsT, typename = std::enable_if_t<std::is_convertible_v<RhsT, T>>>          \
-    PARAS_KERNEL_HD auto operator OP(const RhsT& rhs) const noexcept {                             \
-        using SelfVec = vec<T, static_cast<int>(sizeof...(Indices))>;                              \
-        return static_cast<SelfVec>(*this) OP static_cast<T>(rhs);                                 \
-    }                                                                                              \
-    template <typename RhsT,                                                                       \
-              typename = std::enable_if_t<                                                         \
-                  !std::is_convertible_v<RhsT, T> && static_cast<int>(sizeof...(Indices)) == 1 &&  \
-                  paras_swizzle_op_has_size_v<RhsT> && (static_cast<int>(RhsT::size()) != 1)>,     \
-              typename = void, typename = void>                                                    \
-    PARAS_KERNEL_HD auto operator OP(const RhsT& rhs) const noexcept {                             \
-        return static_cast<T>(*this) OP rhs;                                                       \
-    }                                                                                              \
-    template <typename RhsT,                                                                       \
-              typename = std::enable_if_t<!std::is_convertible_v<RhsT, T> &&                       \
-                                          !((static_cast<int>(sizeof...(Indices)) == 1) &&         \
-                                            paras_swizzle_op_has_size_v<RhsT> &&                   \
-                                            (static_cast<int>(RhsT::size()) != 1))>,               \
-              typename = void>                                                                     \
-    PARAS_KERNEL_HD auto operator OP(const RhsT& rhs) const noexcept {                             \
-        using SelfVec = vec<T, static_cast<int>(sizeof...(Indices))>;                              \
-        return static_cast<SelfVec>(*this) OP static_cast<SelfVec>(rhs);                           \
-    }
+#define PARAS_SYCL_DEFINE_SWIZZLE_REF_RELATIONAL_OP(OP)                            \
+        template <typename RhsT, typename = std::enable_if_t<std::is_convertible_v<RhsT, T>>> \
+        PARAS_KERNEL_HD                                                           \
+        auto operator OP(const RhsT& rhs) const noexcept {                        \
+            using SelfVec = vec<T, static_cast<int>(sizeof...(Indices))>;         \
+            return static_cast<SelfVec>(*this) OP static_cast<T>(rhs);            \
+        }                                                                          \
+        template <typename RhsT, typename = std::enable_if_t<                    \
+            !std::is_convertible_v<RhsT, T> &&                                    \
+            static_cast<int>(sizeof...(Indices)) == 1 &&                          \
+            paras_swizzle_op_has_size_v<RhsT> &&                                  \
+            (static_cast<int>(RhsT::size()) != 1)>, typename = void, typename = void> \
+        PARAS_KERNEL_HD                                                           \
+        auto operator OP(const RhsT& rhs) const noexcept {                        \
+            return static_cast<T>(*this) OP rhs;                                  \
+        }                                                                          \
+        template <typename RhsT, typename = std::enable_if_t<                    \
+            !std::is_convertible_v<RhsT, T> &&                                    \
+            !((static_cast<int>(sizeof...(Indices)) == 1) &&                      \
+              paras_swizzle_op_has_size_v<RhsT> &&                                \
+              (static_cast<int>(RhsT::size()) != 1))>, typename = void>           \
+        PARAS_KERNEL_HD                                                           \
+        auto operator OP(const RhsT& rhs) const noexcept {                        \
+            using SelfVec = vec<T, static_cast<int>(sizeof...(Indices))>;         \
+            return static_cast<SelfVec>(*this) OP static_cast<SelfVec>(rhs);      \
+        }
 
         PARAS_SYCL_DEFINE_SWIZZLE_REF_RELATIONAL_OP(==)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_RELATIONAL_OP(!=)
@@ -1420,116 +1409,116 @@ public:
 #undef PARAS_SYCL_DEFINE_SWIZZLE_REF_RELATIONAL_OP
 
         template <typename RhsT, typename = std::enable_if_t<std::is_convertible_v<RhsT, T>>>
-        PARAS_KERNEL_HD auto operator&&(const RhsT& rhs) const noexcept {
+        PARAS_KERNEL_HD
+        auto operator&&(const RhsT& rhs) const noexcept {
             using SelfVec = vec<T, static_cast<int>(sizeof...(Indices))>;
             return static_cast<SelfVec>(*this) && static_cast<T>(rhs);
         }
 
-        template <
-            typename RhsT,
-            typename = std::enable_if_t<
-                !std::is_convertible_v<RhsT, T> && static_cast<int>(sizeof...(Indices)) == 1 &&
-                paras_swizzle_op_has_size_v<RhsT> && (static_cast<int>(RhsT::size()) != 1)>,
-            typename = void, typename = void>
-        PARAS_KERNEL_HD auto operator&&(const RhsT& rhs) const noexcept {
+        template <typename RhsT, typename = std::enable_if_t<
+            !std::is_convertible_v<RhsT, T> &&
+            static_cast<int>(sizeof...(Indices)) == 1 &&
+            paras_swizzle_op_has_size_v<RhsT> &&
+            (static_cast<int>(RhsT::size()) != 1)>, typename = void, typename = void>
+        PARAS_KERNEL_HD
+        auto operator&&(const RhsT& rhs) const noexcept {
             return static_cast<T>(*this) && rhs;
         }
 
-        template <typename RhsT,
-                  typename = std::enable_if_t<!std::is_convertible_v<RhsT, T> &&
-                                              !((static_cast<int>(sizeof...(Indices)) == 1) &&
-                                                paras_swizzle_op_has_size_v<RhsT> &&
-                                                (static_cast<int>(RhsT::size()) != 1))>,
-                  typename = void>
-        PARAS_KERNEL_HD auto operator&&(const RhsT& rhs) const noexcept {
+        template <typename RhsT, typename = std::enable_if_t<
+            !std::is_convertible_v<RhsT, T> &&
+            !((static_cast<int>(sizeof...(Indices)) == 1) &&
+              paras_swizzle_op_has_size_v<RhsT> &&
+              (static_cast<int>(RhsT::size()) != 1))>, typename = void>
+        PARAS_KERNEL_HD
+        auto operator&&(const RhsT& rhs) const noexcept {
             using SelfVec = vec<T, static_cast<int>(sizeof...(Indices))>;
             return static_cast<SelfVec>(*this) && static_cast<SelfVec>(rhs);
         }
 
         template <typename RhsT, typename = std::enable_if_t<std::is_convertible_v<RhsT, T>>>
-        PARAS_KERNEL_HD auto operator||(const RhsT& rhs) const noexcept {
+        PARAS_KERNEL_HD
+        auto operator||(const RhsT& rhs) const noexcept {
             using SelfVec = vec<T, static_cast<int>(sizeof...(Indices))>;
             return static_cast<SelfVec>(*this) || static_cast<T>(rhs);
         }
 
-        template <
-            typename RhsT,
-            typename = std::enable_if_t<
-                !std::is_convertible_v<RhsT, T> && static_cast<int>(sizeof...(Indices)) == 1 &&
-                paras_swizzle_op_has_size_v<RhsT> && (static_cast<int>(RhsT::size()) != 1)>,
-            typename = void, typename = void>
-        PARAS_KERNEL_HD auto operator||(const RhsT& rhs) const noexcept {
+        template <typename RhsT, typename = std::enable_if_t<
+            !std::is_convertible_v<RhsT, T> &&
+            static_cast<int>(sizeof...(Indices)) == 1 &&
+            paras_swizzle_op_has_size_v<RhsT> &&
+            (static_cast<int>(RhsT::size()) != 1)>, typename = void, typename = void>
+        PARAS_KERNEL_HD
+        auto operator||(const RhsT& rhs) const noexcept {
             return static_cast<T>(*this) || rhs;
         }
 
-        template <typename RhsT,
-                  typename = std::enable_if_t<!std::is_convertible_v<RhsT, T> &&
-                                              !((static_cast<int>(sizeof...(Indices)) == 1) &&
-                                                paras_swizzle_op_has_size_v<RhsT> &&
-                                                (static_cast<int>(RhsT::size()) != 1))>,
-                  typename = void>
-        PARAS_KERNEL_HD auto operator||(const RhsT& rhs) const noexcept {
+        template <typename RhsT, typename = std::enable_if_t<
+            !std::is_convertible_v<RhsT, T> &&
+            !((static_cast<int>(sizeof...(Indices)) == 1) &&
+              paras_swizzle_op_has_size_v<RhsT> &&
+              (static_cast<int>(RhsT::size()) != 1))>, typename = void>
+        PARAS_KERNEL_HD
+        auto operator||(const RhsT& rhs) const noexcept {
             using SelfVec = vec<T, static_cast<int>(sizeof...(Indices))>;
             return static_cast<SelfVec>(*this) || static_cast<SelfVec>(rhs);
         }
 
-#define PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(OP)                                     \
-    PARAS_KERNEL_HD                                                                                \
-    auto operator OP(const T& rhs) const noexcept {                                                \
-        return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this) OP rhs;            \
-    }
+#define PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(OP)             \
+        PARAS_KERNEL_HD                                                   \
+        auto operator OP(const T& rhs) const noexcept {                   \
+            return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this) OP rhs; \
+        }
 
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(+)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(-)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(*)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(/)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(>>)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(<<)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(/)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(>>)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(<<)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(^)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(|)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(&)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(&)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP(%)
 
 #undef PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SCALAR_OP
 
-#define PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(OP)                                        \
-    PARAS_KERNEL_HD                                                                                \
-    auto operator OP(const vec<T, static_cast<int>(sizeof...(Indices))>& rhs) const noexcept {     \
-        return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this) OP rhs;            \
-    }
+#define PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(OP)                \
+        PARAS_KERNEL_HD                                                   \
+        auto operator OP(const vec<T, static_cast<int>(sizeof...(Indices))>& rhs) const noexcept { \
+            return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this) OP rhs; \
+        }
 
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(+)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(-)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(*)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(/)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(&)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(&)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(|)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(^)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(<<)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(>>)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(%)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP(%)
 #undef PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_VEC_OP
 
-#define PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(OP)                                    \
-    template <typename RhsSwizzleRefT,                                                             \
-              typename = std::enable_if_t<                                                         \
-                  paras_is_swizzle_ref<RhsSwizzleRefT>::value&& static_cast<int>(                  \
-                      RhsSwizzleRefT::size()) == static_cast<int>(sizeof...(Indices))>>            \
-    PARAS_KERNEL_HD auto operator OP(const RhsSwizzleRefT& rhs) const noexcept {                   \
-        return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this)                    \
-            OP static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(rhs);                     \
-    }
+#define PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(OP)             \
+        template <typename RhsSwizzleRefT,                                \
+                  typename = std::enable_if_t<paras_is_swizzle_ref<RhsSwizzleRefT>::value && static_cast<int>(RhsSwizzleRefT::size()) == static_cast<int>(sizeof...(Indices))>> \
+        PARAS_KERNEL_HD                                                   \
+        auto operator OP(const RhsSwizzleRefT& rhs) const noexcept {      \
+            return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this) OP static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(rhs); \
+        }
 
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(+)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(-)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(*)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(/)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(^)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(^)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(|)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(<<)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(>>)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(&)
-        PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(%)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(&)
+		PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP(%)
 #undef PARAS_SYCL_DEFINE_SWIZZLE_REF_ARITHMETIC_SWIZZLE_OP
 
         PARAS_KERNEL_HD
@@ -1545,19 +1534,19 @@ public:
             return *this;
         }
 
-        PARAS_KERNEL_HD
+		PARAS_KERNEL_HD
         swizzle_ref& operator=(const swizzle_ref& rhs) noexcept {
             return (*this) = static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(rhs);
         }
 
-        PARAS_KERNEL_HD
+		PARAS_KERNEL_HD
         T& operator[](int i) noexcept {
-            static constexpr int idx[] = {static_cast<int>(Indices)...};
+            static constexpr int idx[] = { static_cast<int>(Indices)... };
             return base[idx[i]];
         }
         PARAS_KERNEL_HD
         const T& operator[](int i) const noexcept {
-            static constexpr int idx[] = {static_cast<int>(Indices)...};
+            static constexpr int idx[] = { static_cast<int>(Indices)... };
             return base[idx[i]];
         }
 
@@ -1580,16 +1569,15 @@ public:
         }
 
         template <typename ConvertT, rounding_mode Mode = rounding_mode::automatic>
-        PARAS_KERNEL_HD vec<ConvertT, static_cast<int>(sizeof...(Indices))>
-        convert() const noexcept {
-            return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this)
-                .template convert<ConvertT, Mode>();
+        PARAS_KERNEL_HD
+        vec<ConvertT, static_cast<int>(sizeof...(Indices))> convert() const noexcept {
+            return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this).template convert<ConvertT, Mode>();
         }
 
         template <typename asVecType>
-        PARAS_KERNEL_HD asVecType as() const noexcept {
-            return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this)
-                .template as<asVecType>();
+        PARAS_KERNEL_HD
+        asVecType as() const noexcept {
+            return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this).template as<asVecType>();
         }
 
         PARAS_KERNEL_HD
@@ -1615,39 +1603,36 @@ public:
             return tmp;
         }
 
-        template <int M = static_cast<int>(sizeof...(Indices)), std::enable_if_t<(M > 1), int> = 0>
-        PARAS_KERNEL_HD operator vec<T, M>() const noexcept {
-            return vec<T, M>{base[static_cast<int>(Indices)]...};
+        PARAS_KERNEL_HD
+        explicit operator vec<T, static_cast<int>(sizeof...(Indices))>() const noexcept {
+            return vec<T, static_cast<int>(sizeof...(Indices))>{ base[static_cast<int>(Indices)]... };
         }
 
-        template <int M = static_cast<int>(sizeof...(Indices)), std::enable_if_t<M == 1, int> = 0>
-        PARAS_KERNEL_HD explicit operator vec<T, M>() const noexcept {
-            return vec<T, M>{base[static_cast<int>(Indices)]...};
-        }
-
-        template <int M = static_cast<int>(sizeof...(Indices)), typename = std::enable_if_t<M == 1>>
-        PARAS_KERNEL_HD operator T() const noexcept {
+        template <int M = static_cast<int>(sizeof...(Indices)),
+                  typename = std::enable_if_t<M == 1>>
+        PARAS_KERNEL_HD
+        operator T() const noexcept {
             T result;
             ((result = base[static_cast<int>(Indices)]), ...);
             return result;
         }
 
-#define PARAS_SYCL_DEFINE_SWIZZLE_REF_COMPOUND_OP(OP)                                              \
-    PARAS_KERNEL_HD                                                                                \
-    swizzle_ref& operator OP(const T& rhs) noexcept {                                              \
-        ((base[static_cast<int>(Indices)] OP rhs), ...);                                           \
-        return *this;                                                                              \
-    }                                                                                              \
-    PARAS_KERNEL_HD                                                                                \
-    swizzle_ref& operator OP(const vec<T, static_cast<int>(sizeof...(Indices))>& rhs) noexcept {   \
-        int paras_i = 0;                                                                           \
-        ((base[static_cast<int>(Indices)] OP rhs[paras_i++]), ...);                                \
-        return *this;                                                                              \
-    }                                                                                              \
-    PARAS_KERNEL_HD                                                                                \
-    swizzle_ref& operator OP(const swizzle_ref& rhs) noexcept {                                    \
-        return (*this)OP static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(rhs);           \
-    }
+		#define PARAS_SYCL_DEFINE_SWIZZLE_REF_COMPOUND_OP(OP)                     \
+        PARAS_KERNEL_HD                                                   \
+        swizzle_ref& operator OP(const T& rhs) noexcept {                 \
+            ((base[static_cast<int>(Indices)] OP rhs), ...);              \
+            return *this;                                                 \
+        }                                                                 \
+        PARAS_KERNEL_HD                                                   \
+        swizzle_ref& operator OP(const vec<T, static_cast<int>(sizeof...(Indices))>& rhs) noexcept { \
+            int paras_i = 0;                                              \
+            ((base[static_cast<int>(Indices)] OP rhs[paras_i++]), ...);   \
+            return *this;                                                 \
+        }                                                                 \
+        PARAS_KERNEL_HD                                                   \
+        swizzle_ref& operator OP(const swizzle_ref& rhs) noexcept {       \
+            return (*this) OP static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(rhs); \
+        }
 
         PARAS_SYCL_DEFINE_SWIZZLE_REF_COMPOUND_OP(+=)
         PARAS_SYCL_DEFINE_SWIZZLE_REF_COMPOUND_OP(-=)
@@ -1691,35 +1676,32 @@ public:
         vec<T, (static_cast<int>(sizeof...(Indices)) + 1) / 2> even() const noexcept {
             return static_cast<vec<T, static_cast<int>(sizeof...(Indices))>>(*this).even();
         }
+
     };
 
     template <auto... Indices>
-    PARAS_KERNEL_HD swizzle_ref<static_cast<elem>(Indices)...> swizzle() noexcept {
-        return swizzle_ref<static_cast<elem>(Indices)...>{data};
+    PARAS_KERNEL_HD
+    swizzle_ref<static_cast<elem>(Indices)...> swizzle() noexcept {
+        return swizzle_ref<static_cast<elem>(Indices)...>{ data };
     }
 
-#define PARAS_VEC_NAMED_SWIZZLE2_MUT(NAME, I0, I1)                                                 \
-    PARAS_KERNEL_HD                                                                                \
-    swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1)> NAME() noexcept {                    \
-        return swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1)>{data};                    \
-    }
+    #define PARAS_VEC_NAMED_SWIZZLE2_MUT(NAME, I0, I1)                          \
+        PARAS_KERNEL_HD                                                        \
+        swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1)> NAME() noexcept { \
+            return swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1)>{ data }; \
+        }
 
-#define PARAS_VEC_NAMED_SWIZZLE3_MUT(NAME, I0, I1, I2)                                             \
-    PARAS_KERNEL_HD                                                                                \
-    swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1), static_cast<elem>(I2)>               \
-    NAME() noexcept {                                                                              \
-        return swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1), static_cast<elem>(I2)>{   \
-            data};                                                                                 \
-    }
+    #define PARAS_VEC_NAMED_SWIZZLE3_MUT(NAME, I0, I1, I2)                      \
+        PARAS_KERNEL_HD                                                        \
+        swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1), static_cast<elem>(I2)> NAME() noexcept { \
+            return swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1), static_cast<elem>(I2)>{ data }; \
+        }
 
-#define PARAS_VEC_NAMED_SWIZZLE4_MUT(NAME, I0, I1, I2, I3)                                         \
-    PARAS_KERNEL_HD                                                                                \
-    swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1), static_cast<elem>(I2),               \
-                static_cast<elem>(I3)>                                                             \
-    NAME() noexcept {                                                                              \
-        return swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1), static_cast<elem>(I2),    \
-                           static_cast<elem>(I3)>{data};                                           \
-    }
+    #define PARAS_VEC_NAMED_SWIZZLE4_MUT(NAME, I0, I1, I2, I3)                  \
+        PARAS_KERNEL_HD                                                        \
+        swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1), static_cast<elem>(I2), static_cast<elem>(I3)> NAME() noexcept { \
+            return swizzle_ref<static_cast<elem>(I0), static_cast<elem>(I1), static_cast<elem>(I2), static_cast<elem>(I3)>{ data }; \
+        }
 
     PARAS_VEC_NAMED_SWIZZLE2_MUT(xx, 0, 0)
     PARAS_VEC_NAMED_SWIZZLE2_MUT(xy, 0, 1)
@@ -2394,44 +2376,69 @@ public:
     PARAS_VEC_NAMED_SWIZZLE4_MUT(aaab, 3, 3, 3, 2)
     PARAS_VEC_NAMED_SWIZZLE4_MUT(aaaa, 3, 3, 3, 3)
 
-#undef PARAS_VEC_NAMED_SWIZZLE2_MUT
-#undef PARAS_VEC_NAMED_SWIZZLE3_MUT
-#undef PARAS_VEC_NAMED_SWIZZLE4_MUT
+    #undef PARAS_VEC_NAMED_SWIZZLE2_MUT
+    #undef PARAS_VEC_NAMED_SWIZZLE3_MUT
+    #undef PARAS_VEC_NAMED_SWIZZLE4_MUT
 
     template <typename ConvertT, rounding_mode Mode = rounding_mode::automatic>
-    PARAS_KERNEL_HD vec<ConvertT, N> convert() const noexcept {
+    PARAS_KERNEL_HD
+    vec<ConvertT, N> convert() const noexcept {
+
+        constexpr bool fp_src = std::is_floating_point_v<T> ||
+                                std::is_same_v<T, half>;
+        constexpr bool int_dst = std::is_integral_v<ConvertT>;
         vec<ConvertT, N> result;
-        for (int i = 0; i < N; ++i)
-            result.data[i] = static_cast<ConvertT>(data[i]);
+        for (int i = 0; i < N; ++i) {
+            if constexpr (fp_src && int_dst) {
+                using F = std::conditional_t<std::is_same_v<T, double>, double, float>;
+                const F x = static_cast<F>(data[i]);
+                F r;
+                if constexpr (Mode == rounding_mode::rtz)
+                    r = trunc(x);
+                else if constexpr (Mode == rounding_mode::rtp)
+                    r = ceil(x);
+                else if constexpr (Mode == rounding_mode::rtn)
+                    r = floor(x);
+                else
+                    r = rint(x);
+                result.data[i] = static_cast<ConvertT>(r);
+            } else {
+                result.data[i] = static_cast<ConvertT>(data[i]);
+            }
+        }
         return result;
     }
 
     template <typename asVecType>
-    PARAS_KERNEL_HD asVecType as() const noexcept {
-        static_assert(
-            sizeof(asVecType) == sizeof(vec),
-            "as<>() requires the source and destination vec to have the same total byte size");
+    PARAS_KERNEL_HD
+    asVecType as() const noexcept {
+        static_assert(sizeof(asVecType) == sizeof(vec),
+                      "as<>() requires the source and destination vec to have the same total byte size");
         asVecType result;
-        std::memcpy(&result, this, sizeof(vec));
+        __builtin_memcpy(&result, this, sizeof(vec));
         return result;
     }
 
-    template <int M = N, typename = std::enable_if_t<M == 1>>
-    PARAS_KERNEL_HD operator T() const noexcept {
-        return data[0];
-    }
+	template <int M = N, typename = std::enable_if_t<M == 1>>
+    PARAS_KERNEL_HD
+    operator T() const noexcept { return data[0]; }
+
 };
+
 template <typename T, typename... U>
 vec(T, U...) -> vec<T, sizeof...(U) + 1>;
 
 template <typename T, int N>
-PARAS_KERNEL_HD constexpr T dot(const vec<T, N>& a, const vec<T, N>& b) noexcept {
-    T result{};
+PARAS_KERNEL_HD
+constexpr T dot(const vec<T, N>& a,
+				const vec<T, N>& b) noexcept
+{
+	T result{} ;
 
-    for (int i = 0; i < N; ++i) {
-        result += a[i] * b[i];
-    }
-    return result;
+	for (int i = 0 ; i < N ; ++i) {
+		result += a[i] * b[i] ;
+	}
+	return result ;
 }
 
 using float2 = vec<float, 2>;
@@ -2446,631 +2453,154 @@ using uint2 = vec<std::uint32_t, 2>;
 using uint3 = vec<std::uint32_t, 3>;
 using uint4 = vec<std::uint32_t, 4>;
 
-class half {
-public:
-    PARAS_KERNEL_HD
-    constexpr half() noexcept : bits_(0) {}
+using char2   = vec<std::int8_t, 2>;
+using char3   = vec<std::int8_t, 3>;
+using char4   = vec<std::int8_t, 4>;
+using char8   = vec<std::int8_t, 8>;
+using char16  = vec<std::int8_t, 16>;
 
-    PARAS_KERNEL_HD
-    half(float v) noexcept : bits_(float_to_half_bits(v)) {}
-
-    PARAS_KERNEL_HD
-    operator float() const noexcept { return half_bits_to_float(bits_); }
-
-    PARAS_KERNEL_HD
-    half& operator=(float v) noexcept {
-        bits_ = float_to_half_bits(v);
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    half& operator++() noexcept {
-        *this = static_cast<float>(*this) + 1.0f;
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    half operator++(int) noexcept {
-        half tmp(*this);
-        ++(*this);
-        return tmp;
-    }
-
-    PARAS_KERNEL_HD
-    half& operator--() noexcept {
-        *this = static_cast<float>(*this) - 1.0f;
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    half operator--(int) noexcept {
-        half tmp(*this);
-        --(*this);
-        return tmp;
-    }
-
-    PARAS_KERNEL_HD
-    half& operator+=(half rhs) noexcept {
-        *this = static_cast<float>(*this) + static_cast<float>(rhs);
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    half& operator-=(half rhs) noexcept {
-        *this = static_cast<float>(*this) - static_cast<float>(rhs);
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    half& operator*=(half rhs) noexcept {
-        *this = static_cast<float>(*this) * static_cast<float>(rhs);
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    half& operator/=(half rhs) noexcept {
-        *this = static_cast<float>(*this) / static_cast<float>(rhs);
-        return *this;
-    }
-
-private:
-    std::uint16_t bits_;
-
-    PARAS_KERNEL_HD
-    static std::uint16_t float_to_half_bits(float f) noexcept {
-        std::uint32_t x;
-        std::memcpy(&x, &f, sizeof(x));
-        std::uint32_t sign = (x >> 16) & 0x8000u;
-        std::int32_t exp = static_cast<std::int32_t>((x >> 23) & 0xFF) - 127 + 15;
-        std::uint32_t mant = x & 0x7FFFFFu;
-
-        if (((x >> 23) & 0xFF) == 0xFF) {
-            return static_cast<std::uint16_t>(sign | 0x7C00u | (mant ? 0x200u : 0u));
-        }
-        if (exp <= 0) {
-            if (exp < -10)
-                return static_cast<std::uint16_t>(sign);
-            mant |= 0x800000u;
-            std::uint32_t shift = static_cast<std::uint32_t>(14 - exp);
-            std::uint32_t half_mant = mant >> shift;
-            if ((mant >> (shift - 1)) & 1u)
-                ++half_mant;
-            return static_cast<std::uint16_t>(sign | half_mant);
-        }
-        if (exp >= 0x1F) {
-            return static_cast<std::uint16_t>(sign | 0x7C00u);
-        }
-        std::uint32_t half_mant = mant >> 13;
-        if (mant & 0x1000u) {
-            ++half_mant;
-            if (half_mant == 0x400u) {
-                half_mant = 0;
-                ++exp;
-                if (exp >= 0x1F)
-                    return static_cast<std::uint16_t>(sign | 0x7C00u);
-            }
-        }
-        return static_cast<std::uint16_t>(sign | (static_cast<std::uint32_t>(exp) << 10) |
-                                          half_mant);
-    }
-
-    PARAS_KERNEL_HD
-    static float half_bits_to_float(std::uint16_t h) noexcept {
-        std::uint32_t sign = static_cast<std::uint32_t>(h & 0x8000u) << 16;
-        std::uint32_t exp = (h >> 10) & 0x1Fu;
-        std::uint32_t mant = h & 0x3FFu;
-        std::uint32_t bits;
-
-        if (exp == 0) {
-            if (mant == 0) {
-                bits = sign;
-            } else {
-                std::uint32_t e = 1;
-                while ((mant & 0x400u) == 0u) {
-                    mant <<= 1;
-                    --e;
-                }
-                mant &= 0x3FFu;
-                std::uint32_t fexp = static_cast<std::uint32_t>(127 - 15 + static_cast<int>(e));
-                bits = sign | (fexp << 23) | (mant << 13);
-            }
-        } else if (exp == 0x1F) {
-            bits = sign | 0x7F800000u | (mant << 13);
-        } else {
-            std::uint32_t fexp = exp - 15 + 127;
-            bits = sign | (fexp << 23) | (mant << 13);
-        }
-
-        float f;
-        std::memcpy(&f, &bits, sizeof(f));
-        return f;
-    }
-};
-
-using char2 = vec<std::int8_t, 2>;
-using char3 = vec<std::int8_t, 3>;
-using char4 = vec<std::int8_t, 4>;
-using char8 = vec<std::int8_t, 8>;
-using char16 = vec<std::int8_t, 16>;
-
-using uchar2 = vec<std::uint8_t, 2>;
-using uchar3 = vec<std::uint8_t, 3>;
-using uchar4 = vec<std::uint8_t, 4>;
-using uchar8 = vec<std::uint8_t, 8>;
+using uchar2  = vec<std::uint8_t, 2>;
+using uchar3  = vec<std::uint8_t, 3>;
+using uchar4  = vec<std::uint8_t, 4>;
+using uchar8  = vec<std::uint8_t, 8>;
 using uchar16 = vec<std::uint8_t, 16>;
 
-using short2 = vec<std::int16_t, 2>;
-using short3 = vec<std::int16_t, 3>;
-using short4 = vec<std::int16_t, 4>;
-using short8 = vec<std::int16_t, 8>;
-using short16 = vec<std::int16_t, 16>;
+using short2   = vec<std::int16_t, 2>;
+using short3   = vec<std::int16_t, 3>;
+using short4   = vec<std::int16_t, 4>;
+using short8   = vec<std::int16_t, 8>;
+using short16  = vec<std::int16_t, 16>;
 
-using ushort2 = vec<std::uint16_t, 2>;
-using ushort3 = vec<std::uint16_t, 3>;
-using ushort4 = vec<std::uint16_t, 4>;
-using ushort8 = vec<std::uint16_t, 8>;
+using ushort2  = vec<std::uint16_t, 2>;
+using ushort3  = vec<std::uint16_t, 3>;
+using ushort4  = vec<std::uint16_t, 4>;
+using ushort8  = vec<std::uint16_t, 8>;
 using ushort16 = vec<std::uint16_t, 16>;
 
-using int8 = vec<std::int32_t, 8>;
-using int16 = vec<std::int32_t, 16>;
-using uint8 = vec<std::uint32_t, 8>;
-using uint16 = vec<std::uint32_t, 16>;
+using int8    = vec<std::int32_t, 8>;
+using int16   = vec<std::int32_t, 16>;
+using uint8   = vec<std::uint32_t, 8>;
+using uint16  = vec<std::uint32_t, 16>;
 
-using long2 = vec<std::int64_t, 2>;
-using long3 = vec<std::int64_t, 3>;
-using long4 = vec<std::int64_t, 4>;
-using long8 = vec<std::int64_t, 8>;
-using long16 = vec<std::int64_t, 16>;
+using long2   = vec<std::int64_t, 2>;
+using long3   = vec<std::int64_t, 3>;
+using long4   = vec<std::int64_t, 4>;
+using long8   = vec<std::int64_t, 8>;
+using long16  = vec<std::int64_t, 16>;
 
-using ulong2 = vec<std::uint64_t, 2>;
-using ulong3 = vec<std::uint64_t, 3>;
-using ulong4 = vec<std::uint64_t, 4>;
-using ulong8 = vec<std::uint64_t, 8>;
+using ulong2  = vec<std::uint64_t, 2>;
+using ulong3  = vec<std::uint64_t, 3>;
+using ulong4  = vec<std::uint64_t, 4>;
+using ulong8  = vec<std::uint64_t, 8>;
 using ulong16 = vec<std::uint64_t, 16>;
 
-using float8 = vec<float, 8>;
+using float8  = vec<float, 8>;
 using float16 = vec<float, 16>;
 
-using double2 = vec<double, 2>;
-using double3 = vec<double, 3>;
-using double4 = vec<double, 4>;
-using double8 = vec<double, 8>;
+using double2  = vec<double, 2>;
+using double3  = vec<double, 3>;
+using double4  = vec<double, 4>;
+using double8  = vec<double, 8>;
 using double16 = vec<double, 16>;
 
-template <typename T, std::size_t N>
-class marray {
-public:
-    using value_type = T;
-
-    T data[N];
-
-    PARAS_KERNEL_HD
-    constexpr marray() noexcept : data{} {}
-
-    PARAS_KERNEL_HD
-    explicit constexpr marray(const T& v) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] = v;
-    }
-
-    template <typename... Args, typename = std::enable_if_t<sizeof...(Args) == N>>
-    PARAS_KERNEL_HD constexpr marray(Args... args) noexcept : data{static_cast<T>(args)...} {}
-
-    PARAS_KERNEL_HD
-    static constexpr std::size_t size() noexcept { return N; }
-
-    PARAS_KERNEL_HD
-    T& operator[](std::size_t i) noexcept { return data[i]; }
-
-    PARAS_KERNEL_HD
-    const T& operator[](std::size_t i) const noexcept { return data[i]; }
-
-    using iterator = T*;
-    using const_iterator = const T*;
-
-    PARAS_KERNEL_HD
-    iterator begin() noexcept { return data; }
-    PARAS_KERNEL_HD
-    const_iterator begin() const noexcept { return data; }
-
-    PARAS_KERNEL_HD
-    iterator end() noexcept { return data + N; }
-    PARAS_KERNEL_HD
-    const_iterator end() const noexcept { return data + N; }
-
-    PARAS_KERNEL_HD
-    marray& operator+=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] += rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator+=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] += rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator-=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] -= rhs.data[i];
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator-=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] -= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator*=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] *= rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator*=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] *= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator/=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] /= rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator/=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] /= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator%=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] %= rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator%=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] %= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator&=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] &= rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator&=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] &= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator|=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] |= rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator|=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] |= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator^=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] ^= rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator^=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] ^= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator<<=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] <<= rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator<<=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] <<= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator>>=(const marray& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] >>= rhs.data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray& operator>>=(const T& rhs) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            data[i] >>= rhs;
-        return *this;
-    }
-
-    PARAS_KERNEL_HD
-    marray operator+() const noexcept { return *this; }
-    PARAS_KERNEL_HD
-    marray operator-() const noexcept {
-        marray result;
-        for (std::size_t i = 0; i < N; ++i)
-            result.data[i] = -data[i];
-        return result;
-    }
-
-    PARAS_KERNEL_HD
-    marray<bool, N> operator!() const noexcept {
-        marray<bool, N> result{};
-        for (std::size_t i = 0; i < N; ++i)
-            result[i] = !data[i];
-        return result;
-    }
-
-    PARAS_KERNEL_HD
-    marray operator~() const noexcept {
-        marray result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.data[i] = ~data[i];
-        }
-        return result;
-    }
-
-    PARAS_KERNEL_HD
-    marray& operator++() noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            ++data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray operator++(int) noexcept {
-        marray tmp(*this);
-        ++(*this);
-        return tmp;
-    }
-    PARAS_KERNEL_HD
-    marray& operator--() noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-            --data[i];
-        return *this;
-    }
-    PARAS_KERNEL_HD
-    marray operator--(int) noexcept {
-        marray tmp(*this);
-        --(*this);
-        return tmp;
-    }
-};
-
-using mfloat2 = marray<float, 2>;
-using mfloat3 = marray<float, 3>;
-using mfloat4 = marray<float, 4>;
-using mfloat8 = marray<float, 8>;
-using mfloat16 = marray<float, 16>;
-
-using mdouble2 = marray<double, 2>;
-using mdouble3 = marray<double, 3>;
-using mdouble4 = marray<double, 4>;
-using mdouble8 = marray<double, 8>;
-using mdouble16 = marray<double, 16>;
-
-using mbool2 = marray<bool, 2>;
-using mbool3 = marray<bool, 3>;
-using mbool4 = marray<bool, 4>;
-using mbool8 = marray<bool, 8>;
-using mbool16 = marray<bool, 16>;
-
-using mchar2 = marray<int8_t, 2>;
-using mchar3 = marray<int8_t, 3>;
-using mchar4 = marray<int8_t, 4>;
-using mchar8 = marray<int8_t, 8>;
-using mchar16 = marray<int8_t, 16>;
-
-using muchar2 = marray<uint8_t, 2>;
-using muchar3 = marray<uint8_t, 3>;
-using muchar4 = marray<uint8_t, 4>;
-using muchar8 = marray<uint8_t, 8>;
-using muchar16 = marray<uint8_t, 16>;
-
-using mshort2 = marray<int16_t, 2>;
-using mshort3 = marray<int16_t, 3>;
-using mshort4 = marray<int16_t, 4>;
-using mshort8 = marray<int16_t, 8>;
-using mshort16 = marray<int16_t, 16>;
-
-using mushort2 = marray<uint16_t, 2>;
-using mushort3 = marray<uint16_t, 3>;
-using mushort4 = marray<uint16_t, 4>;
-using mushort8 = marray<uint16_t, 8>;
-using mushort16 = marray<uint16_t, 16>;
-
-using mint2 = marray<int32_t, 2>;
-using mint3 = marray<int32_t, 3>;
-using mint4 = marray<int32_t, 4>;
-using mint8 = marray<int32_t, 8>;
-using mint16 = marray<int32_t, 16>;
-
-using muint2 = marray<uint32_t, 2>;
-using muint3 = marray<uint32_t, 3>;
-using muint4 = marray<uint32_t, 4>;
-using muint8 = marray<uint32_t, 8>;
-using muint16 = marray<uint32_t, 16>;
-
-using mlong2 = marray<int64_t, 2>;
-using mlong3 = marray<int64_t, 3>;
-using mlong4 = marray<int64_t, 4>;
-using mlong8 = marray<int64_t, 8>;
-using mlong16 = marray<int64_t, 16>;
-
-using mulong2 = marray<uint64_t, 2>;
-using mulong3 = marray<uint64_t, 3>;
-using mulong4 = marray<uint64_t, 4>;
-using mulong8 = marray<uint64_t, 8>;
-using mulong16 = marray<uint64_t, 16>;
-
-using mhalf2 = marray<half, 2>;
-using mhalf3 = marray<half, 3>;
-using mhalf4 = marray<half, 4>;
-using mhalf8 = marray<half, 8>;
-using mhalf16 = marray<half, 16>;
-
-using char2 = vec<int8_t, 2>;
-using char3 = vec<int8_t, 3>;
-using char4 = vec<int8_t, 4>;
-using char8 = vec<int8_t, 8>;
+using char2 = vec<int8_t, 2>;   using char3 = vec<int8_t, 3>;
+using char4 = vec<int8_t, 4>;   using char8 = vec<int8_t, 8>;
 using char16 = vec<int8_t, 16>;
 
-using uchar2 = vec<uint8_t, 2>;
-using uchar3 = vec<uint8_t, 3>;
-using uchar4 = vec<uint8_t, 4>;
-using uchar8 = vec<uint8_t, 8>;
+using uchar2 = vec<uint8_t, 2>;  using uchar3 = vec<uint8_t, 3>;
+using uchar4 = vec<uint8_t, 4>;  using uchar8 = vec<uint8_t, 8>;
 using uchar16 = vec<uint8_t, 16>;
 
-using short2 = vec<int16_t, 2>;
-using short3 = vec<int16_t, 3>;
-using short4 = vec<int16_t, 4>;
-using short8 = vec<int16_t, 8>;
+using short2 = vec<int16_t, 2>;  using short3 = vec<int16_t, 3>;
+using short4 = vec<int16_t, 4>;  using short8 = vec<int16_t, 8>;
 using short16 = vec<int16_t, 16>;
 
-using ushort2 = vec<uint16_t, 2>;
-using ushort3 = vec<uint16_t, 3>;
-using ushort4 = vec<uint16_t, 4>;
-using ushort8 = vec<uint16_t, 8>;
+using ushort2 = vec<uint16_t, 2>;  using ushort3 = vec<uint16_t, 3>;
+using ushort4 = vec<uint16_t, 4>;  using ushort8 = vec<uint16_t, 8>;
 using ushort16 = vec<uint16_t, 16>;
 
-using int2 = vec<int32_t, 2>;
-using int3 = vec<int32_t, 3>;
-using int4 = vec<int32_t, 4>;
-using int8 = vec<int32_t, 8>;
+using int2 = vec<int32_t, 2>;   using int3 = vec<int32_t, 3>;
+using int4 = vec<int32_t, 4>;   using int8 = vec<int32_t, 8>;
 using int16 = vec<int32_t, 16>;
 
-using uint2 = vec<uint32_t, 2>;
-using uint3 = vec<uint32_t, 3>;
-using uint4 = vec<uint32_t, 4>;
-using uint8 = vec<uint32_t, 8>;
+using uint2 = vec<uint32_t, 2>;  using uint3 = vec<uint32_t, 3>;
+using uint4 = vec<uint32_t, 4>;  using uint8 = vec<uint32_t, 8>;
 using uint16 = vec<uint32_t, 16>;
 
-using long2 = vec<int64_t, 2>;
-using long3 = vec<int64_t, 3>;
-using long4 = vec<int64_t, 4>;
-using long8 = vec<int64_t, 8>;
+using long2 = vec<int64_t, 2>;   using long3 = vec<int64_t, 3>;
+using long4 = vec<int64_t, 4>;   using long8 = vec<int64_t, 8>;
 using long16 = vec<int64_t, 16>;
 
-using ulong2 = vec<uint64_t, 2>;
-using ulong3 = vec<uint64_t, 3>;
-using ulong4 = vec<uint64_t, 4>;
-using ulong8 = vec<uint64_t, 8>;
+using ulong2 = vec<uint64_t, 2>;  using ulong3 = vec<uint64_t, 3>;
+using ulong4 = vec<uint64_t, 4>;  using ulong8 = vec<uint64_t, 8>;
 using ulong16 = vec<uint64_t, 16>;
 
-using float2 = vec<float, 2>;
-using float3 = vec<float, 3>;
-using float4 = vec<float, 4>;
-using float8 = vec<float, 8>;
+using float2 = vec<float, 2>;   using float3 = vec<float, 3>;
+using float4 = vec<float, 4>;   using float8 = vec<float, 8>;
 using float16 = vec<float, 16>;
 
-using double2 = vec<double, 2>;
-using double3 = vec<double, 3>;
-using double4 = vec<double, 4>;
-using double8 = vec<double, 8>;
+using double2 = vec<double, 2>;  using double3 = vec<double, 3>;
+using double4 = vec<double, 4>;  using double8 = vec<double, 8>;
 using double16 = vec<double, 16>;
 
-using half2 = vec<half, 2>;
-using half3 = vec<half, 3>;
-using half4 = vec<half, 4>;
-using half8 = vec<half, 8>;
+using half2 = vec<half, 2>;   using half3 = vec<half, 3>;
+using half4 = vec<half, 4>;   using half8 = vec<half, 8>;
 using half16 = vec<half, 16>;
 
+using cl_char2 = vec<opencl::cl_char, 2>; using cl_char3 = vec<opencl::cl_char, 3>; using cl_char4 = vec<opencl::cl_char, 4>; using cl_char8 = vec<opencl::cl_char, 8>; using cl_char16 = vec<opencl::cl_char, 16>;
+using cl_uchar2 = vec<opencl::cl_uchar, 2>; using cl_uchar3 = vec<opencl::cl_uchar, 3>; using cl_uchar4 = vec<opencl::cl_uchar, 4>; using cl_uchar8 = vec<opencl::cl_uchar, 8>; using cl_uchar16 = vec<opencl::cl_uchar, 16>;
+using cl_short2 = vec<opencl::cl_short, 2>; using cl_short3 = vec<opencl::cl_short, 3>; using cl_short4 = vec<opencl::cl_short, 4>; using cl_short8 = vec<opencl::cl_short, 8>; using cl_short16 = vec<opencl::cl_short, 16>;
+using cl_ushort2 = vec<opencl::cl_ushort, 2>; using cl_ushort3 = vec<opencl::cl_ushort, 3>; using cl_ushort4 = vec<opencl::cl_ushort, 4>; using cl_ushort8 = vec<opencl::cl_ushort, 8>; using cl_ushort16 = vec<opencl::cl_ushort, 16>;
+using cl_int2 = vec<opencl::cl_int, 2>; using cl_int3 = vec<opencl::cl_int, 3>; using cl_int4 = vec<opencl::cl_int, 4>; using cl_int8 = vec<opencl::cl_int, 8>; using cl_int16 = vec<opencl::cl_int, 16>;
+using cl_uint2 = vec<opencl::cl_uint, 2>; using cl_uint3 = vec<opencl::cl_uint, 3>; using cl_uint4 = vec<opencl::cl_uint, 4>; using cl_uint8 = vec<opencl::cl_uint, 8>; using cl_uint16 = vec<opencl::cl_uint, 16>;
+using cl_long2 = vec<opencl::cl_long, 2>; using cl_long3 = vec<opencl::cl_long, 3>; using cl_long4 = vec<opencl::cl_long, 4>; using cl_long8 = vec<opencl::cl_long, 8>; using cl_long16 = vec<opencl::cl_long, 16>;
+using cl_ulong2 = vec<opencl::cl_ulong, 2>; using cl_ulong3 = vec<opencl::cl_ulong, 3>; using cl_ulong4 = vec<opencl::cl_ulong, 4>; using cl_ulong8 = vec<opencl::cl_ulong, 8>; using cl_ulong16 = vec<opencl::cl_ulong, 16>;
+using cl_half2 = vec<opencl::cl_half, 2>; using cl_half3 = vec<opencl::cl_half, 3>; using cl_half4 = vec<opencl::cl_half, 4>; using cl_half8 = vec<opencl::cl_half, 8>; using cl_half16 = vec<opencl::cl_half, 16>;
+using cl_float2 = vec<opencl::cl_float, 2>; using cl_float3 = vec<opencl::cl_float, 3>; using cl_float4 = vec<opencl::cl_float, 4>; using cl_float8 = vec<opencl::cl_float, 8>; using cl_float16 = vec<opencl::cl_float, 16>;
+using cl_double2 = vec<opencl::cl_double, 2>; using cl_double3 = vec<opencl::cl_double, 3>; using cl_double4 = vec<opencl::cl_double, 4>; using cl_double8 = vec<opencl::cl_double, 8>; using cl_double16 = vec<opencl::cl_double, 16>;
+using opencl::cl_bool; using opencl::cl_char; using opencl::cl_uchar;
+using opencl::cl_short; using opencl::cl_ushort; using opencl::cl_int;
+using opencl::cl_uint; using opencl::cl_long; using opencl::cl_ulong;
+using opencl::cl_half; using opencl::cl_float; using opencl::cl_double;
+
+namespace detail {
+#if defined(__HIP_DEVICE_COMPILE__)
+
+template <typename To> struct bit_cast_mem_result : To {
+  PARAS_KERNEL_HD bit_cast_mem_result() {}
+  PARAS_KERNEL_HD bit_cast_mem_result(const bit_cast_mem_result &o) : To() {
+    __builtin_memcpy(static_cast<void *>(static_cast<To *>(this)),
+                     static_cast<const To *>(&o), sizeof(To));
+  }
+  PARAS_KERNEL_HD bit_cast_mem_result &operator=(const bit_cast_mem_result &o) {
+    __builtin_memcpy(static_cast<void *>(static_cast<To *>(this)),
+                     static_cast<const To *>(&o), sizeof(To));
+    return *this;
+  }
+};
+template <typename To>
+inline constexpr bool bit_cast_via_memory =
+    std::is_class_v<To> && !std::is_final_v<To> && sizeof(To) == 1 &&
+    std::is_default_constructible_v<To>;
+template <typename To>
+using bit_cast_result_t =
+    std::conditional_t<bit_cast_via_memory<To>, bit_cast_mem_result<To>, To>;
+#else
+template <typename To> using bit_cast_result_t = To;
+#endif
+}
+
 template <typename To, typename From>
-PARAS_KERNEL_HD To bit_cast(const From& from) noexcept {
-    static_assert(sizeof(To) == sizeof(From), "sycl::bit_cast requires equally-sized types");
-    To to;
-    std::memcpy(&to, &from, sizeof(To));
+PARAS_KERNEL_HD
+detail::bit_cast_result_t<To> bit_cast(const From& from) noexcept {
+    static_assert(sizeof(To) == sizeof(From),
+                  "sycl::bit_cast requires equally-sized types");
+    detail::bit_cast_result_t<To> to;
+    __builtin_memcpy(static_cast<void *>(static_cast<To *>(&to)), &from,
+                     sizeof(To));
     return to;
 }
 
-} // namespace sycl
-
-namespace std {
-
-template <>
-class numeric_limits<sycl::half> {
-public:
-    static constexpr bool is_specialized = true;
-
-    PARAS_KERNEL_HD static sycl::half min() noexcept { return sycl::half(6.103515625e-05f); }
-
-    PARAS_KERNEL_HD static sycl::half max() noexcept { return sycl::half(65504.0f); }
-
-    PARAS_KERNEL_HD static sycl::half lowest() noexcept { return sycl::half(-65504.0f); }
-
-    static constexpr int digits = 11;
-    static constexpr int digits10 = 3;
-    static constexpr int max_digits10 = 5;
-
-    static constexpr bool is_signed = true;
-    static constexpr bool is_integer = false;
-    static constexpr bool is_exact = false;
-
-    static constexpr int radix = 2;
-
-    PARAS_KERNEL_HD static sycl::half epsilon() noexcept { return sycl::half(0.0009765625f); }
-
-    PARAS_KERNEL_HD static sycl::half round_error() noexcept { return sycl::half(0.5f); }
-
-    static constexpr int min_exponent = -13;
-    static constexpr int min_exponent10 = -4;
-
-    static constexpr int max_exponent = 16;
-    static constexpr int max_exponent10 = 4;
-
-    static constexpr bool has_infinity = true;
-    static constexpr bool has_quiet_NaN = true;
-    static constexpr bool has_signaling_NaN = true;
-
-    static constexpr float_denorm_style has_denorm = denorm_present;
-
-    static constexpr bool has_denorm_loss = false;
-
-    PARAS_KERNEL_HD static sycl::half infinity() noexcept { return sycl::half(__builtin_inff()); }
-
-    PARAS_KERNEL_HD static sycl::half quiet_NaN() noexcept {
-        return sycl::half(__builtin_nanf(""));
-    }
-
-    PARAS_KERNEL_HD static sycl::half signaling_NaN() noexcept {
-        return sycl::half(__builtin_nansf(""));
-    }
-
-    PARAS_KERNEL_HD static sycl::half denorm_min() noexcept {
-        return sycl::half(5.960464477539063e-08f);
-    }
-
-    static constexpr bool is_iec559 = true;
-    static constexpr bool is_bounded = true;
-    static constexpr bool is_modulo = false;
-
-    static constexpr bool traps = false;
-    static constexpr bool tinyness_before = false;
-
-    static constexpr float_round_style round_style = round_to_nearest;
-};
-
-} // namespace std
+}
 
 #endif

@@ -23,160 +23,208 @@
 
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <utility>
 #include "sycl/property_list.hpp"
 #include "sycl/device.hpp"
 #include <functional>
+
 #include "sycl/exception.hpp"
+
 #include "sycl/atomic_ref.hpp"
 
 namespace sycl {
 
-using async_handler = std::function<void(sycl::exception_list)>;
+    using async_handler = std::function<void(sycl::exception_list)>;
 
-namespace info {
-namespace context {
-struct platform {
-    using return_type = sycl::platform;
-};
-struct devices {
-    using return_type = std::vector<sycl::device>;
-};
-struct atomic_memory_order_capabilities {
-    using return_type = std::vector<memory_order>;
-};
-struct atomic_memory_scope_capabilities {
-    using return_type = std::vector<memory_scope>;
-};
-struct atomic_fence_order_capabilities {
-    using return_type = std::vector<memory_order>;
-};
-struct atomic_fence_scope_capabilities {
-    using return_type = std::vector<memory_scope>;
-};
-} // namespace context
-} // namespace info
-
-class context {
-public:
-    explicit context(const property_list& = {}) : devices_{device{}} {}
-
-    explicit context(async_handler, const property_list& = {}) : devices_{device{}} {}
-
-    explicit context(const device& dev, const property_list& = {}) : devices_{dev} {}
-
-    explicit context(const device& dev, async_handler, const property_list& = {}) : devices_{dev} {}
-
-    explicit context(const std::vector<device>& deviceList, const property_list& = {})
-        : devices_{deviceList.empty()
-                       ? throw sycl::exception(sycl::make_error_code(sycl::errc::invalid))
-                       : deviceList} {}
-
-    explicit context(const std::vector<device>& deviceList, async_handler,
-                     const property_list& = {})
-        : devices_{deviceList.empty()
-                       ? throw sycl::exception(sycl::make_error_code(sycl::errc::invalid))
-                       : deviceList} {}
-
-    explicit context(const platform& plt, const property_list& = {})
-        : devices_{plt.get_devices()} {}
-
-    explicit context(const platform& plt, async_handler, const property_list& = {})
-        : devices_{plt.get_devices()} {}
-
-    backend get_backend() const noexcept {
-        return devices_.empty() ? backend::host : devices_.front().get_backend();
+    namespace info {
+    namespace context {
+        struct platform { using return_type = sycl::platform; };
+        struct devices { using return_type = std::vector<sycl::device>; };
+        struct atomic_memory_order_capabilities { using return_type = std::vector<memory_order>; };
+        struct atomic_memory_scope_capabilities { using return_type = std::vector<memory_scope>; };
+        struct atomic_fence_order_capabilities { using return_type = std::vector<memory_order>; };
+        struct atomic_fence_scope_capabilities { using return_type = std::vector<memory_scope>; };
+    }
     }
 
-    platform get_platform() const {
-        return devices_.empty() ? platform("host") : devices_.front().get_platform();
+    class context {
+        public:
+
+            explicit context(const property_list& = {})
+                : devices_{ device{} } {}
+
+            explicit context(async_handler paras_ah,
+                            const property_list& = {})
+                : devices_{ device{} } { if (paras_ah) async_ = std::make_shared<async_handler>(paras_ah); }
+
+            explicit context(const device& dev,
+                            const property_list& = {})
+                : devices_{ dev } {}
+
+            explicit context(const device& dev,
+                            async_handler paras_ah,
+                            const property_list& = {})
+                : devices_{ dev } { if (paras_ah) async_ = std::make_shared<async_handler>(paras_ah); }
+
+            explicit context(const std::vector<device>& deviceList,
+                            const property_list& = {})
+                : devices_{ deviceList.empty()
+                            ? throw sycl::exception(sycl::make_error_code(sycl::errc::invalid))
+                            : deviceList } {}
+
+            explicit context(const std::vector<device>& deviceList,
+                            async_handler paras_ah,
+                            const property_list& = {})
+                : devices_{ deviceList.empty()
+                            ? throw sycl::exception(sycl::make_error_code(sycl::errc::invalid))
+                            : deviceList } { if (paras_ah) async_ = std::make_shared<async_handler>(paras_ah); }
+
+            explicit context(const platform& plt,
+                            const property_list& = {})
+                : devices_{ plt.get_devices() } {}
+
+            explicit context(const platform& plt,
+                            async_handler paras_ah,
+                            const property_list& = {})
+                : devices_{ plt.get_devices() } { if (paras_ah) async_ = std::make_shared<async_handler>(paras_ah); }
+
+            backend get_backend() const noexcept {
+                return devices_.empty()
+                    ? backend::host
+                    : devices_.front().get_backend();
+            }
+
+            platform get_platform() const {
+                return devices_.empty()
+                    ? platform()
+                    : devices_.front().get_platform();
+            }
+
+            std::vector<device> get_devices() const {
+                return devices_;
+            }
+
+            const device& get_device() const {
+                static device fallback{};
+                return devices_.empty() ? fallback : devices_.front();
+            }
+
+            template <typename Param>
+            typename Param::return_type get_info() const {
+                return typename Param::return_type{};
+            }
+
+            template <typename Param>
+            typename Param::return_type get_backend_info() const {
+                return typename Param::return_type{};
+            }
+
+            bool operator==(const context& rhs) const noexcept {
+                return id_ == rhs.id_;
+            }
+
+            bool operator!=(const context& rhs) const noexcept {
+                return !(*this == rhs);
+            }
+
+            std::shared_ptr<int> get_id_() const noexcept { return id_; }
+
+            std::shared_ptr<async_handler> paras_async_handler() const {
+                return async_;
+            }
+
+        private:
+            std::shared_ptr<async_handler> async_;
+            std::vector<device> devices_;
+
+            std::shared_ptr<int> id_{std::make_shared<int>()};
+    };
+
+    namespace detail {
+
+    inline context paras_default_context(const platform &p) {
+      static std::mutex m;
+      static std::vector<std::pair<platform, context>> known;
+      std::lock_guard<std::mutex> lock(m);
+      for (auto &e : known)
+        if (e.first == p)
+          return e.second;
+      known.emplace_back(p, context(p));
+      return known.back().second;
+    }
     }
 
-    std::vector<device> get_devices() const { return devices_; }
-
-    const device& get_device() const {
-        static device fallback{};
-        return devices_.empty() ? fallback : devices_.front();
-    }
-
-    template <typename Param>
-    typename Param::return_type get_info() const {
-        return typename Param::return_type{};
-    }
-
-    template <typename Param>
-    typename Param::return_type get_backend_info() const {
-        return typename Param::return_type{};
-    }
-
-    bool operator==(const context& rhs) const noexcept { return id_ == rhs.id_; }
-
-    bool operator!=(const context& rhs) const noexcept { return !(*this == rhs); }
-
-    std::shared_ptr<int> get_id_() const noexcept { return id_; }
-
-private:
-    std::vector<device> devices_;
-    std::shared_ptr<int> id_{std::make_shared<int>()};
-};
-
-inline exception::exception(const context& ctx, std::error_code ec, const std::string& what_arg)
-    : exception(ec, what_arg) {
-    context_ = std::make_shared<context>(ctx);
-}
-
-inline exception::exception(const context& ctx, std::error_code ec)
-    : exception(ctx, ec, ec.message()) {}
-
-inline exception::exception(const context& ctx, int ev, const std::error_category& cat,
+	inline exception::exception(const context& ctx,
+                            std::error_code ec,
                             const std::string& what_arg)
-    : exception(ctx, std::error_code(ev, cat), what_arg) {}
+	    : exception(ec, what_arg) {
+	  context_ = std::make_shared<context>(ctx);
+	}
 
-inline exception::exception(const context& ctx, int ev, const std::error_category& cat)
-    : exception(ctx, std::error_code(ev, cat)) {}
+	inline exception::exception(const context& ctx, std::error_code ec)
+	    : exception(ctx, ec, ec.message()) {}
 
-inline context exception::get_context() const {
-    return *context_;
-}
+	inline exception::exception(const context& ctx, int ev,
+	                            const std::error_category& cat,
+	                            const std::string& what_arg)
+	    : exception(ctx, std::error_code(ev, cat), what_arg) {}
 
-template <>
-inline typename info::context::platform::return_type
-context::get_info<info::context::platform>() const {
-    return get_platform();
-}
+	inline exception::exception(const context& ctx, int ev,
+	                            const std::error_category& cat)
+	    : exception(ctx, std::error_code(ev, cat)) {}
 
-template <>
-inline typename info::context::devices::return_type
-context::get_info<info::context::devices>() const {
-    return get_devices();
-}
+	inline context exception::get_context() const {
+
+	  if (!context_)
+	    throw exception(make_error_code(errc::invalid),
+	                    "sycl::exception has no associated context");
+	  return *context_;
+	}
+
+    template <>
+    inline typename info::context::platform::return_type
+    context::get_info<info::context::platform>() const {
+        return get_platform();
+    }
+
+    template <>
+    inline typename info::context::devices::return_type
+    context::get_info<info::context::devices>() const {
+        return get_devices();
+    }
 
 template <>
 inline typename info::context::atomic_memory_order_capabilities::return_type
 context::get_info<info::context::atomic_memory_order_capabilities>() const {
-    return {memory_order::relaxed, memory_order::acquire, memory_order::release,
-            memory_order::acq_rel, memory_order::seq_cst};
+    return { memory_order::relaxed, memory_order::acquire,
+             memory_order::release, memory_order::acq_rel,
+             memory_order::seq_cst };
 }
 
 template <>
 inline typename info::context::atomic_fence_order_capabilities::return_type
 context::get_info<info::context::atomic_fence_order_capabilities>() const {
-    return {memory_order::relaxed, memory_order::acquire, memory_order::release,
-            memory_order::acq_rel, memory_order::seq_cst};
+    return { memory_order::relaxed, memory_order::acquire,
+             memory_order::release, memory_order::acq_rel,
+             memory_order::seq_cst };
 }
 
 template <>
 inline typename info::context::atomic_memory_scope_capabilities::return_type
 context::get_info<info::context::atomic_memory_scope_capabilities>() const {
-    return {memory_scope::work_item, memory_scope::sub_group, memory_scope::work_group};
+    return { memory_scope::work_item, memory_scope::sub_group,
+             memory_scope::work_group };
 }
 
 template <>
 inline typename info::context::atomic_fence_scope_capabilities::return_type
 context::get_info<info::context::atomic_fence_scope_capabilities>() const {
-    return {memory_scope::work_item, memory_scope::sub_group, memory_scope::work_group};
+    return { memory_scope::work_item, memory_scope::sub_group,
+             memory_scope::work_group };
 }
 
-} // namespace sycl
+}
 
 namespace std {
 template <>
@@ -185,6 +233,35 @@ struct hash<sycl::context> {
         return std::hash<std::shared_ptr<int>>{}(c.get_id_());
     }
 };
-} // namespace std
+}
+
+namespace sycl {
+
+namespace property {
+namespace buffer {
+class context_bound {
+  context ctx_;
+
+public:
+  context_bound(context boundContext) : ctx_(boundContext) {}
+  context get_context() const { return ctx_; }
+};
+}
+namespace image {
+class context_bound {
+  context ctx_;
+
+public:
+  context_bound(context boundContext) : ctx_(boundContext) {}
+  context get_context() const { return ctx_; }
+};
+}
+}
+
+namespace detail {
+template <> struct is_property<property::buffer::context_bound> : std::true_type {};
+template <> struct is_property<property::image::context_bound> : std::true_type {};
+}
+}
 
 #endif

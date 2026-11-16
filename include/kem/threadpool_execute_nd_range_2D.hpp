@@ -24,8 +24,8 @@
 #include "threadpool_execute_nd_range_common.hpp"
 
 template <typename Func>
-void threadpool::execute_nd_range_2D(const sycl::nd_range<2>& r, Func f) {
-    paras_host_detail::execute_nd_range<2>(r, f);
+void threadpool::execute_nd_range_2D(const sycl::nd_range<2> &r, Func f) {
+  paras_host_detail::execute_nd_range<2>(r, f);
 }
 
 #endif

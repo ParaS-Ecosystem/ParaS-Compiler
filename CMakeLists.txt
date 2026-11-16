@@ -34,6 +34,27 @@ message(STATUS "Setting up configuration for PARAS v${PARAS_VERSION}")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
+# GCC installation clang should use (--gcc-toolchain), e.g. /usr/local when
+# clang is built against a newer GCC than the system one. It is used to build
+# ParaS itself AND by parascc for every user compile, so C++ headers and the
+# libstdc++ loaded at run time always match. Without it, clang may pick the
+# system GCC's headers while libstdc++ comes from the newer GCC: std::filesystem
+# (and other ABI-changed types) then crash at run time.
+set(PARAS_GCC_TOOLCHAIN "" CACHE PATH "GCC installation passed to clang as --gcc-toolchain (optional)")
+set(PARAS_GCC_LIBDIR "")
+if(PARAS_GCC_TOOLCHAIN)
+	if(EXISTS "${PARAS_GCC_TOOLCHAIN}/lib64")
+		set(PARAS_GCC_LIBDIR "${PARAS_GCC_TOOLCHAIN}/lib64")
+	else()
+		set(PARAS_GCC_LIBDIR "${PARAS_GCC_TOOLCHAIN}/lib")
+	endif()
+	message(STATUS "GCC toolchain for clang: ${PARAS_GCC_TOOLCHAIN} (libstdc++ from ${PARAS_GCC_LIBDIR})")
+	string(APPEND CMAKE_CXX_FLAGS " --gcc-toolchain=${PARAS_GCC_TOOLCHAIN}")
+	string(APPEND CMAKE_C_FLAGS " --gcc-toolchain=${PARAS_GCC_TOOLCHAIN}")
+	string(APPEND CMAKE_EXE_LINKER_FLAGS " -L${PARAS_GCC_LIBDIR} -Wl,-rpath,${PARAS_GCC_LIBDIR}")
+	string(APPEND CMAKE_SHARED_LINKER_FLAGS " -L${PARAS_GCC_LIBDIR} -Wl,-rpath,${PARAS_GCC_LIBDIR}")
+endif()
+
 #include_directories(${PROJECT_SOURCE_DIR}/include)
 
 if(NOT DEFINED PARAS_INSTALL_PREFIX)
@@ -53,6 +74,8 @@ else()
 
 #define PARAS_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\"
 #define PARAS_BASE_COMPILER \"${PARAS_BASE_COMPILER}\"
+#define PARAS_GCC_TOOLCHAIN \"${PARAS_GCC_TOOLCHAIN}\"
+#define PARAS_GCC_LIBDIR \"${PARAS_GCC_LIBDIR}\"
 #endif
 ")
 	endif()

@@ -34,5 +34,5 @@ std::string generate_output_filename();
 void process_file(const std::string &input, const std::string &output,
                   std::vector<std::string> bkend_target);
 
-} // namespace preprocessor
+}
 #endif

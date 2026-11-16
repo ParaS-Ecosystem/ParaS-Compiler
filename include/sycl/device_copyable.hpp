@@ -31,16 +31,24 @@ struct is_device_copyable : std::bool_constant<std::is_trivially_copyable_v<T>> 
 template <typename T>
 inline constexpr bool is_device_copyable_v = is_device_copyable<T>::value;
 
-} // namespace sycl
+}
 
-#define SYCL_ADD_DEVICE_COPYABLE(T)                                                                \
-    namespace sycl {                                                                               \
-    template <>                                                                                    \
-    struct is_device_copyable<T> : std::true_type {};                                              \
-    }
+#ifndef SYCL_DEVICE_COPYABLE
+#define SYCL_DEVICE_COPYABLE 1
+#endif
+
+#define SYCL_ADD_DEVICE_COPYABLE(T)                          \
+  namespace sycl {                                            \
+  template <>                                                 \
+  struct is_device_copyable<T> : std::true_type {};            \
+  }
 
 #ifndef SYCL_EXTERNAL
+#if defined(__HIP__) || defined(__CUDA__)
+#define SYCL_EXTERNAL __host__ __device__
+#else
 #define SYCL_EXTERNAL
+#endif
 #endif
 
 #endif

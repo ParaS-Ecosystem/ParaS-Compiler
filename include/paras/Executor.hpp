@@ -21,17 +21,20 @@
 #ifndef __PARAS_EXECUTOR_HPP__
 #define __PARAS_EXECUTOR_HPP__
 
-#include <vector>
-#include <string>
-#include <filesystem>
-#include <unistd.h>
 #include <cstdlib>
-
-namespace fs = std::filesystem;
+#include <string>
+#include <unistd.h>
+#include <vector>
 
 namespace executor {
-std::string find_clangxx(const char* argv0);
-int executor(std::vector<std::string> command, std::vector<std::string> bkend_target);
-} // namespace executor
+std::string find_clangxx(const char *argv0);
+
+std::string base_compiler();
+
+void remember_ignored_signals();
+
+int executor(std::vector<std::string> command,
+             std::vector<std::string> bkend_target);
+}
 
 #endif

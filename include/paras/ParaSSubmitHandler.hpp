@@ -25,36 +25,28 @@
 #include "clang/Basic/SourceManager.h"
 #include <clang/AST/AST.h>
 #include <clang/AST/ASTConsumer.h>
-#include <clang/ASTMatchers/ASTMatchers.h>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <clang/ASTMatchers/ASTMatchers.h>
 #include <clang/Rewrite/Core/Rewriter.h>
-#include <unordered_set>
 #include <string>
+#include <unordered_set>
 
-class SubmitFunctionCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
+class SubmitFunctionCallback
+    : public clang::ast_matchers::MatchFinder::MatchCallback {
 private:
-    clang::Rewriter& rewriter;
-    static std::unordered_set<std::string> ProcessedFiles;
-    static std::unordered_set<std::string> ProcessedCallSites;
-    std::vector<std::string> bkend_target;
-
-    struct PendingSubmitWait {
-        clang::SourceRange waitRange;   
-        clang::SourceRange submitRange; 
-        clang::SourceRange queueRange;  
-        std::string waitName;           
-    };
-    std::vector<PendingSubmitWait> pendingSubmitWaits;
+  clang::Rewriter &rewriter;
+  static std::unordered_set<std::string> ProcessedFiles;
+  std::vector<std::string> bkend_target;
 
 public:
-    SubmitFunctionCallback(clang::Rewriter& r) : rewriter(r) {}
-    SubmitFunctionCallback(clang::Rewriter& r, std::vector<std::string> bk)
-        : rewriter(r), bkend_target(bk) {}
+  SubmitFunctionCallback(clang::Rewriter &r) : rewriter(r) {}
+  SubmitFunctionCallback(clang::Rewriter &r, std::vector<std::string> bk)
+      : rewriter(r), bkend_target(bk) {}
 
-    void run(const clang::ast_matchers::MatchFinder::MatchResult& result) override;
-    void onEndOfTranslationUnit() override;
+  void
+  run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
 
-    void HandleHeaders(const clang::SourceManager& SM);
+  void HandleHeaders(const clang::SourceManager &SM);
 };
 
 #endif

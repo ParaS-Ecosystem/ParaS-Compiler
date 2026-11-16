@@ -32,11 +32,24 @@ public:
   static constexpr int dimensions = Dimensions;
 
 private:
+
+  friend bool operator==(const nd_range &a, const nd_range &b) {
+    return a.global_range_ == b.global_range_ &&
+           a.local_range_ == b.local_range_ && a.offset_ == b.offset_;
+  }
+  friend bool operator!=(const nd_range &a, const nd_range &b) {
+    return !(a == b);
+  }
+
   range<Dimensions> global_range_;
   range<Dimensions> local_range_;
   id<Dimensions> offset_;
 
 public:
+
+  PARAS_KERNEL_HD
+  nd_range() : global_range_(), local_range_(), offset_() {}
+
   PARAS_KERNEL_HD
   nd_range(range<Dimensions> g, range<Dimensions> l,
            id<Dimensions> o = id<Dimensions>())
@@ -60,6 +73,6 @@ public:
   id<Dimensions> get_offset() const { return offset_; }
 };
 
-} // namespace sycl
+}
 
 #endif

@@ -1,0 +1,23 @@
+#!/bin/bash
+# ParaS shim for clang-nvlink-wrapper (installed in <prefix>/libexec/paras,
+# found first by the device-link clang through -B; parascc sets
+# PARAS_REAL_NVLINK_WRAPPER to the real one next to the base clang).
+#
+# When the NVPTX device link of -fgpu-rdc objects is longer than 64 KiB
+# (LLVM's command-line limit; SYCL-CTS vector_swizzles: 800 objects), clang
+# hands its arguments to clang-nvlink-wrapper in a response file written as
+# nvlink's `--options-file<path>`. clang-nvlink-wrapper (LLVM 20 and 21) only
+# reads `@<path>` files, so it saw neither -arch nor the inputs: "must pass in
+# an explicit nvptx64 gpu architecture to 'nvlink'". Rewrite the flag to @.
+real="${PARAS_REAL_NVLINK_WRAPPER:?PARAS_REAL_NVLINK_WRAPPER is not set}"
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --options-file=*) args+=("@${1#--options-file=}") ;;
+    --options-file) shift; args+=("@$1") ;;
+    --options-file*) args+=("@${1#--options-file}") ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+exec "$real" "${args[@]}"

@@ -18,133 +18,313 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef SYCL_EVENT_HPP
-#define SYCL_EVENT_HPP
+#ifndef __PARAS_EVENT_HPP__
+#define __PARAS_EVENT_HPP__
 
-#include <vector>
 #include <memory>
+#include <functional>
+#include <type_traits>
 #include <stdexcept>
-#include "device.hpp"
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <future>
+#include <exception>
+#include <chrono>
+#include "backend.hpp"
 #include "exception.hpp"
 #include "info.hpp"
-#include <chrono>
-#include <cstdint>
-#include <type_traits>
+#include <thread>
+#include <vector>
 
 namespace sycl {
+class event;
+namespace detail {
 
-struct paras_event_state {
-    bool profiling = false;
-    std::uint64_t submit = 0, start = 0, end = 0;
+struct queue_gpu_state {
+  std::mutex mtx;
+  void *stream = nullptr;
+  int native_device = -1;
+  bool arch_checked = false;
+
+  std::atomic<unsigned long long> submitted{0};
+  std::atomic<unsigned long long> completed{0};
+  std::vector<void *> free_events;
+
+  void (*destroy)(queue_gpu_state &) noexcept = nullptr;
+
+  void (*wait_until)(queue_gpu_state &, unsigned long long seq,
+                     void *native) = nullptr;
+
+  bool (*is_done)(queue_gpu_state &, unsigned long long seq,
+                  void *native) = nullptr;
+  void (*release_event)(queue_gpu_state &, void *native) noexcept = nullptr;
+
+  queue_gpu_state() = default;
+  queue_gpu_state(const queue_gpu_state &) = delete;
+  queue_gpu_state &operator=(const queue_gpu_state &) = delete;
+  ~queue_gpu_state() {
+    if (stream != nullptr && destroy != nullptr)
+      destroy(*this);
+  }
+
+  void note_completed(unsigned long long upto) noexcept {
+    unsigned long long seen = completed.load(std::memory_order_relaxed);
+    while (seen < upto &&
+           !completed.compare_exchange_weak(seen, upto,
+                                            std::memory_order_relaxed)) {
+    }
+  }
 };
 
-inline std::uint64_t paras_now_ns() {
-    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                          std::chrono::steady_clock::now().time_since_epoch())
-                                          .count());
+struct event_state {
+  std::shared_future<void> done;
+  std::vector<event> deps;
+  std::exception_ptr error;
+  bool reported = false;
+
+  std::function<void(std::vector<std::exception_ptr>)> report;
+  bool profiling = false;
+
+  std::uint64_t prof_submit = 0;
+  std::uint64_t prof_start = 0;
+  std::atomic<std::uint64_t> prof_end{0};
+
+  std::shared_ptr<queue_gpu_state> gpu;
+  std::atomic<unsigned long long> gpu_seq{0};
+  std::atomic<void *> gpu_event{nullptr};
+
+  event_state() = default;
+  ~event_state();
+};
 }
-
 class event {
-private:
-    std::shared_ptr<paras_event_state> m_impl = std::make_shared<paras_event_state>();
-    std::vector<event> m_deps;
-    bool m_ready = true;
-    backend backend_ = backend::host;
-
-    void wait_deps() const {
-        for (auto& d : m_deps)
-            d.wait();
-    }
+  std::shared_ptr<detail::event_state> m_state =
+      std::make_shared<detail::event_state>();
 
 public:
-    event() = default;
-    explicit event(backend event_backend) : backend_(event_backend) {}
-    ~event() = default;
-    event(const event&) = default;
-    event(event&&) = default;
-    event& operator=(const event&) = default;
-    event& operator=(event&&) = default;
+  event() = default;
+  ~event() = default;
+  event(const event &) = default;
+  event(event &&) = default;
+  event &operator=(const event &) = default;
+  event &operator=(event &&) = default;
 
-    bool operator==(const event& rhs) const noexcept { return m_impl == rhs.m_impl; }
+  static event paras_async(std::shared_future<void> done,
+                           std::vector<event> deps) {
+    event e;
+    e.m_state->done = std::move(done);
+    e.m_state->deps = std::move(deps);
+    return e;
+  }
+  std::shared_ptr<detail::event_state> paras_state() const { return m_state; }
 
-    bool operator!=(const event& rhs) const noexcept { return !(*this == rhs); }
+  bool paras_host_complete() const {
+    return !m_state->done.valid() ||
+           m_state->done.wait_for(std::chrono::seconds(0)) ==
+               std::future_status::ready;
+  }
 
-    backend get_backend() const noexcept { return backend_; }
+  bool paras_gpu_complete() const {
+    detail::event_state &s = *m_state;
+    if (!s.gpu)
+      return true;
+    const unsigned long long seq = s.gpu_seq.load();
+    if (s.gpu->completed.load(std::memory_order_relaxed) >= seq)
+      return true;
+    return s.gpu->is_done != nullptr &&
+           s.gpu->is_done(*s.gpu, seq, s.gpu_event.load());
+  }
+  bool paras_complete() const {
+    return paras_host_complete() && paras_gpu_complete();
+  }
 
-    void set_dependencies(const std::vector<event>& deps) { m_deps = deps; }
+  void paras_attach_gpu(std::shared_ptr<detail::queue_gpu_state> st,
+                        unsigned long long seq, void *native = nullptr) {
+    m_state->gpu = std::move(st);
+    m_state->gpu_seq.store(seq);
+    m_state->gpu_event.store(native);
+  }
+  bool paras_has_wait_list() const { return !m_state->deps.empty(); }
 
-    void wait() const { wait_deps(); }
+  void set_dependencies(const std::vector<event> &deps) {
+    m_state->deps = deps;
+  }
 
-    void wait_and_throw() const { wait(); }
+  friend bool operator==(const event &a, const event &b) {
+    return a.m_state == b.m_state;
+  }
+  friend bool operator!=(const event &a, const event &b) { return !(a == b); }
+  const void *paras_identity() const { return m_state.get(); }
 
-    std::vector<event> get_wait_list() const { return m_deps; }
+  backend get_backend() const noexcept {
+#if defined(PARASDEVICE) && PARASDEVICE == 2
+    return backend::hip;
+#elif defined(PARASDEVICE) && PARASDEVICE == 1
+    return backend::cuda;
+#else
+    return backend::host;
+#endif
+  }
 
-    static void wait(const std::vector<event>& events) {
-        for (const auto& e : events)
-            e.wait();
+  void wait() const {
+    if (m_state->done.valid())
+      m_state->done.wait();
+    detail::event_state &s = *m_state;
+    if (s.gpu && s.gpu->wait_until != nullptr) {
+      const unsigned long long seq = s.gpu_seq.load();
+      if (s.gpu->completed.load(std::memory_order_relaxed) < seq)
+        s.gpu->wait_until(*s.gpu, seq, s.gpu_event.load());
     }
+  }
 
-    static void wait_and_throw(const std::vector<event>& events) {
-        for (const auto& e : events)
-            e.wait_and_throw();
+  void wait_and_throw() const {
+    wait();
+    paras_report_errors();
+  }
+  void paras_report_errors() const {
+    for (auto &d : m_state->deps)
+      d.paras_report_errors();
+    if (m_state->error && !m_state->reported && m_state->report) {
+      m_state->reported = true;
+      m_state->report({m_state->error});
     }
+  }
+  void paras_set_reporter(
+      std::function<void(std::vector<std::exception_ptr>)> r) {
+    if (!m_state->report)
+      m_state->report = std::move(r);
+  }
 
-    template <typename Param>
-    typename Param::return_type get_info() const {
-        if constexpr (std::is_same_v<Param, info::event::command_execution_status>) {
-            return info::event_command_status::complete;
-        } else {
-            return typename Param::return_type();
-        }
+  std::vector<event> get_wait_list() { return m_state->deps; }
+
+  static void wait(const std::vector<event> &events) {
+    for (const auto &e : events)
+      e.wait();
+  }
+  static void wait_and_throw(const std::vector<event> &events) {
+    for (const auto &e : events)
+      e.wait_and_throw();
+  }
+
+  template <typename Param> typename Param::return_type get_info() const {
+    using R = typename Param::return_type;
+    if constexpr (std::is_enum_v<R>)
+      return static_cast<R>(paras_complete() ? 2 : 1);
+    else
+      return R();
+  }
+
+  template <typename Param>
+  typename Param::return_type get_backend_info() const {
+    return typename Param::return_type();
+  }
+
+  template <typename Param>
+  typename Param::return_type get_profiling_info() const {
+    if (!m_state->profiling)
+      throw exception(make_error_code(errc::invalid),
+                      "get_profiling_info: the queue was not created with "
+                      "property::queue::enable_profiling");
+    detail::event_state &s = *m_state;
+    if constexpr (std::is_same_v<Param, info::event_profiling::command_submit>) {
+      return s.prof_submit;
+    } else if constexpr (std::is_same_v<Param, info::event_profiling::command_start>) {
+      return s.prof_start;
+    } else {
+      wait();
+      std::uint64_t end = s.prof_end.load();
+      if (end == 0) {
+        std::uint64_t now = paras_now_ns();
+        if (now < s.prof_start)
+          now = s.prof_start;
+        s.prof_end.compare_exchange_strong(end, now);
+        end = s.prof_end.load();
+      }
+      return end;
     }
+  }
 
-    template <typename Param>
-    typename Param::return_type get_backend_info() const {
-        return typename Param::return_type();
-    }
+  void set_profiling(bool enabled) { m_state->profiling = enabled; }
 
-    template <typename Param>
-    typename Param::return_type get_profiling_info() const {
-        if (!m_impl->profiling) {
-            throw sycl::exception(sycl::make_error_code(sycl::errc::invalid),
-                                  "event profiling info requested but the queue "
-                                  "was not created with property::queue::enable_profiling");
-        }
-        wait();
-        if constexpr (std::is_same_v<Param, info::event_profiling::command_submit>) {
-            return m_impl->submit;
-        } else if constexpr (std::is_same_v<Param, info::event_profiling::command_start>) {
-            return m_impl->start;
-        } else {
-            return m_impl->end;
-        }
-    }
+  static std::uint64_t paras_now_ns() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+  }
 
-    static event paras_profiled(std::uint64_t submit, std::uint64_t start, std::uint64_t end) {
-        event e;
-        e.m_impl->profiling = true;
-        e.m_impl->submit = submit;
-        e.m_impl->start = start;
-        e.m_impl->end = end;
-        return e;
-    }
-
-    const void* identity() const noexcept { return m_impl.get(); }
-
-    void set_profiling(bool enabled) { m_impl->profiling = enabled; }
-    void mark_complete() { m_ready = true; }
-    bool is_ready() const { return m_ready; }
+  void paras_start_profiling(std::uint64_t submit_ns) {
+    m_state->profiling = true;
+    m_state->prof_submit = submit_ns;
+    const std::uint64_t now = paras_now_ns();
+    m_state->prof_start = now < submit_ns ? submit_ns : now;
+  }
+  void mark_complete() {}
+  bool is_ready() const { return paras_complete(); }
 };
 
-} // namespace sycl
+namespace detail {
 
-namespace std {
-template <>
-struct hash<sycl::event> {
-    std::size_t operator()(const sycl::event& e) const noexcept {
-        return std::hash<const void*>{}(e.identity());
+inline event_state::~event_state() {
+  void *native = gpu_event.load();
+  if (native != nullptr && gpu && gpu->release_event != nullptr)
+    gpu->release_event(*gpu, native);
+}
+
+struct pending_events {
+  std::mutex mtx;
+  std::vector<event> events;
+  void add(const event &e) {
+
+    if (e.paras_host_complete() && !e.paras_state()->error)
+      return;
+    std::lock_guard<std::mutex> lock(mtx);
+    events.push_back(e);
+  }
+  std::vector<event> finished;
+  void wait_all() {
+    std::vector<event> todo;
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      todo.swap(events);
     }
+    for (auto &e : todo) {
+      e.wait();
+      if (e.paras_state()->error && !e.paras_state()->reported) {
+        std::lock_guard<std::mutex> lock(mtx);
+        finished.push_back(e);
+      }
+    }
+  }
+
+  void report_all() {
+    wait_all();
+    std::vector<event> todo;
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      todo.swap(finished);
+    }
+    for (auto &e : todo)
+      e.paras_report_errors();
+  }
 };
-} // namespace std
+
+inline pending_events &all_host_tasks() {
+  static pending_events all;
+  return all;
+}
+inline thread_local bool tl_in_host_task = false;
+inline void wait_all_host_tasks() {
+  if (!tl_in_host_task)
+    all_host_tasks().wait_all();
+}
+
+inline void buffer_host_access_sync();
+
+inline void gpu_device_sync();
+}
+
+}
 
 #endif
