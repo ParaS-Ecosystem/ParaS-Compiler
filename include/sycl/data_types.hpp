@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
+#include <initializer_list>
 #include <type_traits>
 #include <utility>
 #include "kem_gpu/gpu_utilities.hpp"
@@ -95,6 +96,19 @@ public:
     vec& operator=(const T& v) noexcept {
         for (int i = 0; i < N; ++i)
             data[i] = v;
+        return *this;
+    }
+
+    PARAS_KERNEL_HD
+    vec& operator=(std::initializer_list<T> values) noexcept {
+        int i = 0;
+        for (const T& value : values) {
+            if (i == N)
+                break;
+            data[i++] = value;
+        }
+        for (; i < N; ++i)
+            data[i] = T{};
         return *this;
     }
 

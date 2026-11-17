@@ -32,6 +32,7 @@
 #include "sycl/item.hpp"
 #include "sycl/queue.hpp"
 #include "sycl/range.hpp"
+#include "sycl/usm.hpp"
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
@@ -1040,5 +1041,17 @@ inline void sycl::queue::wait_and_throw() const {
     throw_async_exceptns();
 #endif
 }
+
+#if (PARAS_CUDA_BACKEND)
+template <typename T>
+inline void free(T* ptr, const cuda_threadpool& q) {
+    sycl::free(static_cast<void*>(ptr), q);
+}
+#elif (PARAS_HIP_BACKEND)
+template <typename T>
+inline void free(T* ptr, const rocm_threadpool& q) {
+    sycl::free(static_cast<void*>(ptr), q);
+}
+#endif
 
 #endif
