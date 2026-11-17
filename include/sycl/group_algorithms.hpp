@@ -113,13 +113,41 @@ PARAS_KERNEL_HD inline OutPtr joint_scan(Group g, InPtr first, InPtr last, OutPt
     const std::size_t n = static_cast<std::size_t>(last - first);
     const std::size_t lid = g.get_local_linear_id();
     const std::size_t lsize = g.get_local_linear_range();
-    T running = init;
-    for (std::size_t i = 0; i < n; ++i) {
-        const T next = binary_op(running, static_cast<T>(first[i]));
-        if (i % lsize == lid)
-            result[i] = Inclusive ? next : running;
-        running = next;
+
+    const std::size_t workers = n == 0 ? 1 : (n < lsize ? n : lsize);
+    const std::size_t base = n / workers;
+    const std::size_t remainder = n % workers;
+    const std::size_t begin = lid * base + (lid < remainder ? lid : remainder);
+    const std::size_t end = begin + base + (lid < remainder ? 1 : 0);
+
+    T chunk_total = init;
+    if (lid < workers && begin < end) {
+        T running = static_cast<T>(first[begin]);
+        if constexpr (Inclusive)
+            result[begin] = running;
+
+        for (std::size_t i = begin + 1; i < end; ++i) {
+            if constexpr (!Inclusive)
+                result[i] = running;
+            running = binary_op(running, static_cast<T>(first[i]));
+            if constexpr (Inclusive)
+                result[i] = running;
+        }
+        chunk_total = running;
     }
+
+    const T carry = detail::wg_exclusive_scan(g, chunk_total, init, binary_op);
+    if (lid < workers && begin < end) {
+        if constexpr (!Inclusive) {
+            result[begin] = carry;
+            for (std::size_t i = begin + 1; i < end; ++i)
+                result[i] = binary_op(carry, result[i]);
+        } else {
+            for (std::size_t i = begin; i < end; ++i)
+                result[i] = binary_op(carry, result[i]);
+        }
+    }
+
     group_barrier(g);
     return result + n;
 }
