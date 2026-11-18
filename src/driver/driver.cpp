@@ -452,6 +452,14 @@ std::vector<std::vector<std::string>> parseCommandLineArgs(int argc,
       }))
     args.push_back(std::string("--gcc-toolchain=") + PARAS_GCC_TOOLCHAIN);
 
+#if defined(PARAS_NO_BUFFERS_DEFAULT) && PARAS_NO_BUFFERS_DEFAULT
+  if (std::none_of(args.begin(), args.end(), [](const std::string &a) {
+        return a.rfind("-DPARAS_NO_BUFFERS", 0) == 0 ||
+               a.rfind("-UPARAS_NO_BUFFERS", 0) == 0;
+      }))
+    args.push_back("-DPARAS_NO_BUFFERS=1");
+#endif
+
   std::vector<std::string> bkend_target(4);
   bool found = false;
   bool llvmResDirFound = false;

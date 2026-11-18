@@ -200,6 +200,7 @@ inline void check_accessor_range(const range<D> &bufRange,
     };
     }
 
+#if !PARAS_NO_BUFFERS
     template <
     typename DataT,
     int Dimensions = 1,
@@ -1345,6 +1346,7 @@ inline void check_accessor_range(const range<D> &bufRange,
     host_accessor(buffer<T, D, A> &, range<D>, id<D>, TagT,
                   const property_list & = {})
         -> host_accessor<T, D, TagT::value>;
+#endif
 
     template <typename DataT, int Dimensions = 1>
     class local_accessor
@@ -1655,11 +1657,13 @@ inline void check_accessor_range(const range<D> &bufRange,
 namespace sycl
 {
 
+#if !PARAS_NO_BUFFERS
 template <typename DataT, int Dimensions, access::mode AccessMode,
           access::placeholder IsPlaceholder>
 multi_ptr(accessor<DataT, Dimensions, AccessMode, target::device, IsPlaceholder>)
     -> multi_ptr<std::conditional_t<AccessMode == access::mode::read, const DataT, DataT>,
                  access::address_space::global_space, access::decorated::no>;
+#endif
 
 template <typename DataT, int Dimensions>
 multi_ptr(local_accessor<DataT, Dimensions>)
@@ -1669,6 +1673,7 @@ multi_ptr(local_accessor<DataT, Dimensions>)
 
 namespace std
 {
+#if !PARAS_NO_BUFFERS
     template <typename DataT, int Dimensions, sycl::access::mode AccessMode,
               sycl::target AccessTarget, sycl::access::placeholder IsPlaceholder>
     struct hash<sycl::accessor<DataT, Dimensions, AccessMode, AccessTarget, IsPlaceholder>>
@@ -1689,6 +1694,8 @@ namespace std
             return std::hash<const void *>{}(static_cast<const void *>(a.paras_raw()));
         }
     };
+
+#endif
 
     template <typename DataT, int Dimensions>
     struct hash<sycl::local_accessor<DataT, Dimensions>>

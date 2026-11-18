@@ -36,7 +36,11 @@ PARAS_HD_REGION_OPEN
 #include "accessor.hpp"
 #include "aspect.hpp"
 #include "atomic_ref.hpp"
+#if !PARAS_NO_BUFFERS
 #include "buffer.hpp"
+#else
+#include "no_buffers.hpp"
+#endif
 #include "context.hpp"
 #include "data_types.hpp"
 #include "marray.hpp"

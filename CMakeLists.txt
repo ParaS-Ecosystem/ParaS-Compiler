@@ -55,6 +55,14 @@ if(PARAS_GCC_TOOLCHAIN)
 	string(APPEND CMAKE_SHARED_LINKER_FLAGS " -L${PARAS_GCC_LIBDIR} -Wl,-rpath,${PARAS_GCC_LIBDIR}")
 endif()
 
+option(PARAS_NO_BUFFERS "Build parascc with sycl::buffer and sycl::accessor switched off by default (USM only)" OFF)
+if(PARAS_NO_BUFFERS)
+	set(PARAS_NO_BUFFERS_DEFAULT 1)
+	message(STATUS "sycl::buffer / sycl::accessor: off by default (PARAS_NO_BUFFERS=ON)")
+else()
+	set(PARAS_NO_BUFFERS_DEFAULT 0)
+endif()
+
 #include_directories(${PROJECT_SOURCE_DIR}/include)
 
 if(NOT DEFINED PARAS_INSTALL_PREFIX)
@@ -76,6 +84,7 @@ else()
 #define PARAS_BASE_COMPILER \"${PARAS_BASE_COMPILER}\"
 #define PARAS_GCC_TOOLCHAIN \"${PARAS_GCC_TOOLCHAIN}\"
 #define PARAS_GCC_LIBDIR \"${PARAS_GCC_LIBDIR}\"
+#define PARAS_NO_BUFFERS_DEFAULT ${PARAS_NO_BUFFERS_DEFAULT}
 #endif
 ")
 	endif()
