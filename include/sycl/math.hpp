@@ -22,6 +22,7 @@
 #define __PARAS_MATH_HPP__
 
 #include <cmath>
+#include <climits>
 #include <algorithm>
 #include "kem_gpu/gpu_utilities.hpp"
 #include "functional.hpp"

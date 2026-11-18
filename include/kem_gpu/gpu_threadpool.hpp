@@ -40,6 +40,7 @@ PARAS_HD_REGION_OPEN
 #include "sycl/item.hpp"
 #include "sycl/queue.hpp"
 #include "sycl/range.hpp"
+#include "sycl/usm.hpp"
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
@@ -1096,6 +1097,18 @@ void sycl::handler::paras_internal_range(std::size_t n, Func f) {
 PARAS_HD_REGION_CLOSE
 #undef PARAS_HD_REGION_OWNER_GPU_THREADPOOL
 #undef PARAS_HD_REGION_ACTIVE
+#endif
+
+#if (PARAS_CUDA_BACKEND)
+template <typename T>
+inline void free(T* ptr, const cuda_threadpool& q) {
+    sycl::free(static_cast<void*>(ptr), q);
+}
+#elif (PARAS_HIP_BACKEND)
+template <typename T>
+inline void free(T* ptr, const rocm_threadpool& q) {
+    sycl::free(static_cast<void*>(ptr), q);
+}
 #endif
 
 #endif

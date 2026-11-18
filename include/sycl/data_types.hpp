@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
+#include <initializer_list>
 #include <type_traits>
 #include <utility>
 #include "kem_gpu/gpu_utilities.hpp"
