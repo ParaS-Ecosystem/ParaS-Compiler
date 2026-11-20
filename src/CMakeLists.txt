@@ -19,8 +19,8 @@ add_executable(parascc
 	driver/ParaSSubmitHandler.cpp 
 	driver/ParaSParallelforHandler.cpp
 	driver/ParaSLambdaHandler.cpp
-	driver/ParaSDeviceFunctionMarker.cpp
 	driver/ParaSDeviceCallGraph.cpp
+	driver/ParaSKernelAttrHandler.cpp
 )
 target_link_libraries(parascc
  	PRIVATE
@@ -56,3 +56,7 @@ install (TARGETS DeviceDiscoveryModule EXPORT install_exports LIBRARY DESTINATIO
 message(STATUS "Configured pruntime systems !")
 
 
+
+# clang-nvlink-wrapper shim for long -fgpu-rdc device links (see the script)
+install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/driver/libexec/clang-nvlink-wrapper
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/libexec/paras/)

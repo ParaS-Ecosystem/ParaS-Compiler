@@ -30,38 +30,42 @@ enum class filtering_mode { nearest, linear };
 enum class coordinate_normalization_mode { normalized, unnormalized };
 
 class sampler {
-    coordinate_normalization_mode normalization_;
-    addressing_mode addressing_;
-    filtering_mode filtering_;
+  coordinate_normalization_mode normalization_;
+  addressing_mode addressing_;
+  filtering_mode filtering_;
 
-public:
-    PARAS_KERNEL_HD
-    sampler(coordinate_normalization_mode normalizationMode, addressing_mode addressingMode,
-            filtering_mode filteringMode)
-        : normalization_(normalizationMode), addressing_(addressingMode),
-          filtering_(filteringMode) {}
+ public:
 
-    sampler(const sampler& rhs) = default;
-    sampler& operator=(const sampler& rhs) = default;
+  PARAS_KERNEL_HD
+  sampler(addressing_mode addressingMode,
+          coordinate_normalization_mode normalizationMode,
+          filtering_mode filteringMode)
+      : normalization_(normalizationMode),
+        addressing_(addressingMode),
+        filtering_(filteringMode) {}
 
-    PARAS_KERNEL_HD
-    addressing_mode get_addressing_mode() const { return addressing_; }
-    PARAS_KERNEL_HD
-    filtering_mode get_filtering_mode() const { return filtering_; }
-    PARAS_KERNEL_HD
-    coordinate_normalization_mode get_coordinate_normalization_mode() const {
-        return normalization_;
-    }
+  sampler(const sampler& rhs) = default;
+  sampler& operator=(const sampler& rhs) = default;
 
-    PARAS_KERNEL_HD
-    bool operator==(const sampler& rhs) const {
-        return normalization_ == rhs.normalization_ && addressing_ == rhs.addressing_ &&
-               filtering_ == rhs.filtering_;
-    }
-    PARAS_KERNEL_HD
-    bool operator!=(const sampler& rhs) const { return !(*this == rhs); }
+  PARAS_KERNEL_HD
+  addressing_mode get_addressing_mode() const { return addressing_; }
+  PARAS_KERNEL_HD
+  filtering_mode get_filtering_mode() const { return filtering_; }
+  PARAS_KERNEL_HD
+  coordinate_normalization_mode get_coordinate_normalization_mode() const {
+    return normalization_;
+  }
+
+  PARAS_KERNEL_HD
+  bool operator==(const sampler& rhs) const {
+    return normalization_ == rhs.normalization_ &&
+           addressing_ == rhs.addressing_ &&
+           filtering_ == rhs.filtering_;
+  }
+  PARAS_KERNEL_HD
+  bool operator!=(const sampler& rhs) const { return !(*this == rhs); }
 };
 
-} // namespace sycl
+}
 
 #endif

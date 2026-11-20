@@ -107,7 +107,7 @@ bool isLambdaCallOperator(const clang::FunctionDecl* FD) {
     return MD && MD->getParent()->isLambda();
 }
 
-} // namespace
+}
 
 void markKernelReachableFunctions(clang::ASTContext& ctx, clang::Rewriter& rw) {
     clang::SourceManager& SM = ctx.getSourceManager();

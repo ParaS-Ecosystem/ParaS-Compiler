@@ -21,36 +21,21 @@
 #ifndef __PARAS_THREADPOOL_EXECUTE_1D_HPP__
 #define __PARAS_THREADPOOL_EXECUTE_1D_HPP__
 
-#include <vector>
-#include <algorithm>
-#include <thread>
+#include "sycl/item.hpp"
 #include "sycl/id.hpp"
 #include "sycl/range.hpp"
-#include "sycl/item.hpp"
+#include <algorithm>
+#include <thread>
+#include <vector>
+#include "kem/host_pool.hpp"
 
 template <typename Func>
-void threadpool::execute_1D(const sycl::range<1>& r, Func f) {
-    size_t N = r[0];
-    unsigned NT = get_num_threads();
+void threadpool::execute_1D(const sycl::range<1> &r, Func f) {
 
-    std::vector<std::thread> threads;
-    threads.reserve(NT);
-
-    size_t chunk = (N + NT - 1) / NT;
-
-    for (unsigned t = 0; t < NT; t++) {
-        size_t start = t * chunk;
-        size_t end = std::min(start + chunk, N);
-        if (start >= end)
-            break;
-
-        threads.emplace_back([=]() {
-            for (size_t i = start; i < end; i++)
-                sycl::detail::invoke_range_kernel<1>(f, sycl::id<1>(i), r);
-        });
-    }
-
-    for (auto& th : threads)
-        th.join();
+  paras_host_detail::host_parallel_chunks(
+      r[0], [&](std::size_t start, std::size_t end) {
+        for (std::size_t i = start; i < end; i++)
+          sycl::detail::invoke_range_kernel<1>(f, sycl::id<1>(i), r);
+      });
 }
 #endif

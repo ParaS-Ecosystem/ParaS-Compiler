@@ -33,124 +33,184 @@
 
 namespace sycl {
 
-/* ================= sub_group ================= */
-
 class sub_group {
 public:
-    using id_type = id<1>;
-    using range_type = range<1>;
-    using linear_id_type = uint32_t;
+  using id_type = id<1>;
+  using range_type = range<1>;
+  using linear_id_type = uint32_t;
 
-    static constexpr int dimensions = 1;
-    static constexpr memory_scope fence_scope = memory_scope::sub_group;
+  static constexpr int dimensions = 1;
+  static constexpr memory_scope fence_scope = memory_scope::sub_group;
 
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+#if PARAS_GPU_BACKEND
 
-    static constexpr linear_id_type warp_size = PARAS_WARP_SIZE;
+  static constexpr linear_id_type warp_size = PARAS_WARP_SIZE;
 
-    PARAS_KERNEL_D
-    static linear_id_type paras_block_linear_id() {
-        return threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y;
-    }
+  PARAS_KERNEL_D
+  static linear_id_type paras_block_linear_id() {
 
-    PARAS_KERNEL_D
-    static linear_id_type paras_block_size() { return blockDim.x * blockDim.y * blockDim.z; }
-
-    PARAS_KERNEL_D
-    linear_id_type get_local_linear_id() const { return paras_block_linear_id() & (warp_size - 1); }
-
-    PARAS_KERNEL_D
-    linear_id_type get_local_linear_range() const {
-        const linear_id_type base = paras_block_linear_id() & ~(warp_size - 1);
-        const linear_id_type left = paras_block_size() - base;
-        return left < warp_size ? left : warp_size;
-    }
-
-    PARAS_KERNEL_D
-    linear_id_type get_group_linear_id() const { return paras_block_linear_id() / warp_size; }
-
-    PARAS_KERNEL_D
-    linear_id_type get_group_linear_range() const {
-        return (paras_block_size() + warp_size - 1) / warp_size;
-    }
+#if PARAS_DEVICE_PASS
+    return threadIdx.x +
+           threadIdx.y * blockDim.x +
+           threadIdx.z * blockDim.x * blockDim.y;
 #else
-    PARAS_KERNEL_HD
-    linear_id_type get_local_linear_id() const { return 0; }
+    return 0;
+#endif
+  }
 
-    PARAS_KERNEL_HD
-    linear_id_type get_local_linear_range() const { return 1; }
+  PARAS_KERNEL_D
+  static linear_id_type paras_block_size() {
+#if PARAS_DEVICE_PASS
+    return blockDim.x * blockDim.y * blockDim.z;
+#else
+    return 1;
+#endif
+  }
 
-    PARAS_KERNEL_HD
-    linear_id_type get_group_linear_id() const { return detail::wg_local_linear_id(); }
+  PARAS_KERNEL_D
+  linear_id_type get_local_linear_id() const {
+    return paras_block_linear_id() & (warp_size - 1);
+  }
 
-    PARAS_KERNEL_HD
-    linear_id_type get_group_linear_range() const { return paras_host_detail::tl_local_size; }
+  PARAS_KERNEL_D
+  linear_id_type get_local_linear_range() const {
+    const linear_id_type base = paras_block_linear_id() & ~(warp_size - 1);
+    const linear_id_type left = paras_block_size() - base;
+    return left < warp_size ? left : warp_size;
+  }
+
+  PARAS_KERNEL_D
+  linear_id_type get_group_linear_id() const {
+    return paras_block_linear_id() / warp_size;
+  }
+
+  PARAS_KERNEL_D
+  linear_id_type get_group_linear_range() const {
+    return (paras_block_size() + warp_size - 1) / warp_size;
+  }
+#else
+  PARAS_KERNEL_HD
+  linear_id_type get_local_linear_id() const { return 0; }
+
+  PARAS_KERNEL_HD
+  linear_id_type get_local_linear_range() const { return 1; }
+
+  PARAS_KERNEL_HD
+  linear_id_type get_group_linear_id() const {
+    return static_cast<linear_id_type>(detail::wg_local_linear_id());
+  }
+
+  PARAS_KERNEL_HD
+  linear_id_type get_group_linear_range() const {
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
+    if (paras_host_detail::tl_barrier)
+      return static_cast<linear_id_type>(paras_host_detail::tl_barrier->size());
+#endif
+    return 1;
+  }
 #endif
 
-    PARAS_KERNEL_HD
-    id_type get_local_id() const { return id_type(get_local_linear_id()); }
-
-    PARAS_KERNEL_HD
-    range_type get_local_range() const { return range_type(get_local_linear_range()); }
-
-    PARAS_KERNEL_HD
-    id_type get_group_id() const { return id_type(get_group_linear_id()); }
-
-    PARAS_KERNEL_HD
-    range_type get_group_range() const { return range_type(get_group_linear_range()); }
-
-    PARAS_KERNEL_HD
-    range_type get_max_local_range() const {
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-        return range_type(warp_size);
+#if PARAS_GPU_BACKEND
+  PARAS_KERNEL_D
 #else
-        return range_type(1);
+  PARAS_KERNEL_HD
 #endif
-    }
+  friend bool operator==(const sub_group &a, const sub_group &b) {
+    return a.get_group_linear_id() == b.get_group_linear_id();
+  }
+#if PARAS_GPU_BACKEND
+  PARAS_KERNEL_D
+#else
+  PARAS_KERNEL_HD
+#endif
+  friend bool operator!=(const sub_group &a, const sub_group &b) {
+    return !(a == b);
+  }
 
-    PARAS_KERNEL_HD
-    bool leader() const { return get_local_linear_id() == 0; }
+  PARAS_KERNEL_HD id_type get_group_id() const {
+    return id_type(get_group_linear_id());
+  }
+  PARAS_KERNEL_HD range_type get_group_range() const {
+    return range_type(get_group_linear_range());
+  }
+  PARAS_KERNEL_HD
+  id_type get_local_id() const {
+    return id_type(get_local_linear_id());
+  }
+
+  PARAS_KERNEL_HD
+  range_type get_local_range() const {
+    return range_type(get_local_linear_range());
+  }
+
+  PARAS_KERNEL_HD
+  range_type get_max_local_range() const {
+
+#if PARAS_GPU_BACKEND
+    const linear_id_type wg = paras_block_size();
+    return range_type(wg < warp_size ? wg : warp_size);
+#else
+    return range_type(1);
+#endif
+  }
+
+  PARAS_KERNEL_HD
+  bool leader() const {
+    return get_local_linear_id() == 0;
+  }
 };
 
-/* ================= subgroup algorithms ================= */
-
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+#if PARAS_GPU_BACKEND
 
 namespace detail {
 
 template <typename T, typename BinaryOperation>
-PARAS_KERNEL_D inline T sub_group_reduce(const sub_group& g, T value, BinaryOperation binary_op) {
-    const std::uint64_t mask = paras_active_mask();
-    const auto lane = g.get_local_linear_id();
-    const auto size = g.get_local_linear_range();
-    for (unsigned offset = sub_group::warp_size / 2; offset > 0; offset >>= 1) {
-        T other = paras_shfl_down(mask, value, static_cast<int>(offset));
-        if (lane + offset < size)
-            value = binary_op(value, other);
-    }
-    return paras_shfl(mask, value, 0);
+PARAS_KERNEL_D inline T sub_group_reduce(const sub_group &g, T value,
+                                         BinaryOperation binary_op) {
+  const std::uint64_t mask = paras_sub_group_mask();
+  const auto lane = g.get_local_linear_id();
+  const auto size = g.get_local_linear_range();
+  for (unsigned offset = sub_group::warp_size / 2; offset > 0; offset >>= 1) {
+    T other = paras_shfl_down(mask, value, static_cast<int>(offset));
+    if (lane + offset < size)
+      value = binary_op(value, other);
+  }
+  return paras_shfl(mask, value, 0);
 }
-} // namespace detail
+}
 
 template <typename Group>
-PARAS_KERNEL_HD inline bool any_of_group(Group g, bool pred) {
-    if constexpr (std::is_same_v<Group, sub_group>)
-        return paras_any_sync(paras_active_mask(), pred);
-    else
-        return detail::wg_any(g, pred);
+PARAS_KERNEL_HD
+inline bool any_of_group(Group g, bool pred)
+{
+  if constexpr (std::is_same_v<Group, sub_group>)
+    return paras_any_sync(paras_sub_group_mask(), pred);
+  else
+    return detail::wg_any(g, pred);
 }
 
 template <typename Group, typename T, typename BinaryOperation>
-PARAS_KERNEL_HD inline T reduce_over_group(Group g, T value, BinaryOperation binary_op) {
-    if constexpr (std::is_same_v<Group, sub_group>) {
-        return detail::sub_group_reduce(g, value, binary_op);
-    } else {
-        return detail::wg_reduce(g, value, binary_op);
-    }
+PARAS_KERNEL_HD
+inline T reduce_over_group(Group g,
+                           T value,
+                           BinaryOperation binary_op)
+{
+  if constexpr (std::is_same_v<Group, sub_group>)
+  {
+    return detail::sub_group_reduce(g, value, binary_op);
+  }
+  else
+  {
+    return detail::wg_reduce(g, value, binary_op);
+  }
 }
 
 template <typename T, typename BinaryOperation>
-PARAS_KERNEL_HD inline T reduce_over_group(sub_group g, T value, BinaryOperation binary_op) {
+PARAS_KERNEL_HD
+inline T reduce_over_group(sub_group g,
+                           T value,
+                           BinaryOperation binary_op)
+{
 #if PARAS_GPU_BACKEND
     return detail::sub_group_reduce(g, value, binary_op);
 #else
@@ -159,55 +219,80 @@ PARAS_KERNEL_HD inline T reduce_over_group(sub_group g, T value, BinaryOperation
 }
 
 template <typename Group, typename T>
-PARAS_KERNEL_HD inline T select_from_group(Group g, T value,
-                                           typename Group::id_type remote_local_id) {
-    if constexpr (std::is_same_v<Group, sub_group>) {
-        return paras_shfl(paras_active_mask(), value, remote_local_id[0]);
-    } else {
-        return value;
-    }
+PARAS_KERNEL_HD
+inline T select_from_group(Group g,
+                           T value,
+                           typename Group::id_type remote_local_id)
+{
+  if constexpr (std::is_same_v<Group, sub_group>)
+  {
+    return paras_shfl(paras_sub_group_mask(),
+                      value,
+                      remote_local_id[0]);
+  }
+  else
+  {
+    return value;
+  }
 }
 
 template <typename Group, typename T>
-PARAS_KERNEL_HD inline T select_from_group(Group g, T value, uint32_t remote_lane) {
-    return select_from_group(g, value, typename Group::id_type(remote_lane));
+PARAS_KERNEL_HD
+inline T select_from_group(Group g,
+                           T value,
+                           uint32_t remote_lane)
+{
+  return select_from_group(g,
+                           value,
+                           typename Group::id_type(remote_lane));
 }
 
 #else
 
 template <typename Group>
-PARAS_KERNEL_HD inline bool any_of_group(Group g, bool pred) {
-    if constexpr (std::is_same_v<Group, sub_group>)
-        return pred;
-    else
-        return detail::wg_any(g, pred);
+PARAS_KERNEL_HD
+inline bool any_of_group(Group g, bool pred) {
+  if constexpr (std::is_same_v<Group, sub_group>) return pred;
+  else return detail::wg_any(g, pred);
 }
 
 template <typename Group, typename T, typename BinaryOperation>
-PARAS_KERNEL_HD inline T reduce_over_group(Group g, T value, BinaryOperation binary_op) {
-    if constexpr (std::is_same_v<Group, sub_group>)
-        return value;
-    else
-        return detail::wg_reduce(g, value, binary_op);
+PARAS_KERNEL_HD
+inline T reduce_over_group(Group g,
+                           T value,
+                           BinaryOperation binary_op)
+{
+  if constexpr (std::is_same_v<Group, sub_group>) return value;
+  else return detail::wg_reduce(g, value, binary_op);
 }
 
 template <typename Group, typename T>
-PARAS_KERNEL_HD inline T select_from_group(Group, T value, typename Group::id_type) {
-    return value;
+PARAS_KERNEL_HD
+inline T select_from_group(Group,
+                           T value,
+                           typename Group::id_type)
+{
+  return value;
 }
 
 template <typename Group, typename T>
-PARAS_KERNEL_HD inline T select_from_group(Group, T value, uint32_t) {
-    return value;
+PARAS_KERNEL_HD
+inline T select_from_group(Group,
+                           T value,
+                           uint32_t)
+{
+  return value;
 }
 
 #endif
 
 template <typename Group, typename V, typename T, typename BinaryOperation>
-PARAS_KERNEL_HD inline T reduce_over_group(Group g, V x, T init, BinaryOperation binary_op) {
-    return binary_op(init, reduce_over_group(g, T(x), binary_op));
+PARAS_KERNEL_HD
+inline T reduce_over_group(Group g, V x, T init, BinaryOperation binary_op)
+{
+  return binary_op(init, reduce_over_group(g, T(x), binary_op));
 }
 
-} // namespace sycl
+}
 
 #endif

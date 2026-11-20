@@ -27,9 +27,17 @@
 #include "range.hpp"
 
 namespace sycl {
+
+class context;
+class device;
+
 namespace info {
 
-enum class event_command_status : unsigned int { submitted, running, complete };
+enum class event_command_status : unsigned int {
+    submitted,
+    running,
+    complete
+};
 
 namespace event {
 
@@ -37,23 +45,23 @@ struct command_execution_status {
     using return_type = sycl::info::event_command_status;
 };
 
-} // namespace event
+}
 
 namespace event_profiling {
 
 struct command_submit {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
 struct command_start {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
 struct command_end {
-    using return_type = unsigned long long;
+    using return_type = std::uint64_t;
 };
 
-} // namespace event_profiling
+}
 
 namespace kernel {
 
@@ -65,7 +73,7 @@ struct attributes {
     using return_type = std::string;
 };
 
-} // namespace kernel
+}
 
 namespace kernel_device_specific {
 
@@ -105,8 +113,23 @@ struct compile_sub_group_size {
     using return_type = std::uint32_t;
 };
 
-} // namespace kernel_device_specific
+}
 
-} // namespace info
-} // namespace sycl
+namespace queue {
+
+struct context {
+    using return_type = sycl::context;
+};
+
+struct device {
+    using return_type = sycl::device;
+};
+
+}
+
+using queue_context_t = queue::context;
+using queue_device_t = queue::device;
+
+}
+}
 #endif

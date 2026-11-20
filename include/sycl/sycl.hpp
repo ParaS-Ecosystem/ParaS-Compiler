@@ -20,55 +20,76 @@
 
 #ifndef __PARAS_SYCL_HPP__
 #define __PARAS_SYCL_HPP__
+
+#ifndef SYCL_LANGUAGE_VERSION
 #define SYCL_LANGUAGE_VERSION 202012L
+#endif
 
-#include <assert.h>
+#include "kem_gpu/hd_region.hpp"
+#ifndef PARAS_HD_REGION_ACTIVE
+#define PARAS_HD_REGION_ACTIVE
+#define PARAS_HD_REGION_OWNER_SYCL_HPP
+PARAS_HD_REGION_OPEN
+#endif
 
-#include "../kem_gpu/gpu_utilities.hpp"
-
-#include "multi_ptr.hpp"
-#include "decorated_ptr_and_device_event.hpp"
 #include "access.hpp"
 #include "accessor.hpp"
 #include "aspect.hpp"
 #include "atomic_ref.hpp"
+#if !PARAS_NO_BUFFERS
 #include "buffer.hpp"
+#else
+#include "no_buffers.hpp"
+#endif
 #include "context.hpp"
+#include "data_types.hpp"
+#include "marray.hpp"
+#include "marray_vec_logical_ops.hpp"
 #include "detail.hpp"
 #include "device.hpp"
 #include "device_selector.hpp"
 #include "event.hpp"
 #include "exception.hpp"
-#include "data_types.hpp"
-#include "multi_ptr.hpp"
 #include "get_pointer_type.hpp"
 #include "global_ptr.hpp"
+#include "group.hpp"
+#include "h_item.hpp"
+#include "kernel_handler.hpp"
+#include "device_copyable.hpp"
+#include "private_memory.hpp"
 #include "group_algorithms.hpp"
 #include "group_barrier.hpp"
-#include "h_item.hpp"
-#include "group.hpp"
 #include "handler.hpp"
 #include "id.hpp"
 #include "info.hpp"
+#include "kernel.hpp"
 #include "interop_handle.hpp"
 #include "item.hpp"
-#include "kernel.hpp"
-#include "spec_constant.hpp"
 #include "local_ptr.hpp"
 #include "math.hpp"
+#include "math_builtins_extra.hpp"
+#include "multi_ptr.hpp"
+#include "decorated_ptr_and_device_event.hpp"
+#include "atomic.hpp"
+#include "constant_ptr.hpp"
+#include "host_ptr.hpp"
 #include "native.hpp"
 #include "nd_item.hpp"
 #include "nd_range.hpp"
+#include "stream.hpp"
+#include "image.hpp"
 #include "private_ptr.hpp"
 #include "property_list.hpp"
 #include "queue.hpp"
 #include "range.hpp"
-#include "sampler.hpp"
-#include "image.hpp"
 #include "sub_group.hpp"
-#include "usm_alloc.hpp"
 #include "usm.hpp"
-#include "marray_vec_logical_ops.hpp"
-#include "device_copyable.hpp"
-#include "stream.hpp"
+#include "usm_alloc.hpp"
+
+#ifdef PARAS_HD_REGION_OWNER_SYCL_HPP
+PARAS_HD_REGION_CLOSE
+#undef PARAS_HD_REGION_OWNER_SYCL_HPP
+#undef PARAS_HD_REGION_ACTIVE
+#endif
+
 #endif

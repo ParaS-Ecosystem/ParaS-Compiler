@@ -22,6 +22,7 @@
 #define __PARAS_THREADPOOL_EXECUTE_3D_HPP__
 
 #include <vector>
+#include "kem/host_pool.hpp"
 #include <algorithm>
 #include <thread>
 #include "sycl/id.hpp"
@@ -30,28 +31,15 @@
 
 template <typename Func>
 void threadpool::execute_3D(const sycl::range<3>& r, Func f) {
-    size_t X = r[0], Y = r[1], Z = r[2];
-    size_t total = X * Y * Z;
-    unsigned NT = get_num_threads();
-    std::vector<std::thread> threads;
-    threads.reserve(NT);
-    size_t chunk = (total + NT - 1) / NT;
-    for (unsigned t = 0; t < NT; t++) {
-        size_t start = t * chunk;
-        size_t end = std::min(start + chunk, total);
-        if (start >= end)
-            break;
-        threads.emplace_back([=]() {
-            for (size_t idx = start; idx < end; idx++) {
-                size_t i = idx / (Y * Z);
-                size_t rem = idx % (Y * Z);
-                size_t j = rem / Z;
-                size_t k = rem % Z;
-                sycl::detail::invoke_range_kernel<3>(f, sycl::id<3>(i, j, k), r);
+    const size_t Y = r[1], Z = r[2];
+    paras_host_detail::host_parallel_chunks(
+        r[0] * Y * Z, [&](std::size_t start, std::size_t end) {
+            for (std::size_t idx = start; idx < end; idx++) {
+                const size_t i = idx / (Y * Z);
+                const size_t rem = idx % (Y * Z);
+                sycl::detail::invoke_range_kernel<3>(
+                    f, sycl::id<3>(i, rem / Z, rem % Z), r);
             }
         });
-    }
-    for (auto& th : threads)
-        th.join();
 }
 #endif

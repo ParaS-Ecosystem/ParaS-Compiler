@@ -33,14 +33,15 @@ inline void validate_nd_range(const sycl::nd_range<D>& r) {
     const auto L = r.get_local_range();
     for (int d = 0; d < D; ++d) {
         if (L[d] == 0 || G[d] % L[d] != 0) {
-            throw sycl::exception(sycl::make_error_code(sycl::errc::nd_range),
-                                  "nd_range: global size " + std::to_string(G[d]) +
-                                      " is not divisible by local size " + std::to_string(L[d]) +
-                                      " in dimension " + std::to_string(d));
+            throw sycl::exception(
+                sycl::make_error_code(sycl::errc::nd_range),
+                "nd_range: global size " + std::to_string(G[d]) +
+                " is not divisible by local size " + std::to_string(L[d]) +
+                " in dimension " + std::to_string(d));
         }
     }
 }
 
-} // namespace paras_detail
+}
 
 #endif

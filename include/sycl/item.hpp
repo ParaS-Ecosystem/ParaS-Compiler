@@ -23,6 +23,7 @@
 
 #include <type_traits>
 #include "id.hpp"
+#include "kernel_handler.hpp"
 #include "range.hpp"
 #include "kem_gpu/gpu_utilities.hpp"
 
@@ -31,7 +32,7 @@ namespace sycl {
 template <int Dims = 1, bool WithOffset = true>
 class item {
     static_assert(Dims >= 1 && Dims <= 3, "item supports 1, 2 or 3 dimensions");
-    id<Dims> idx_;
+    id<Dims>    idx_;
     range<Dims> range_;
 
 public:
@@ -40,10 +41,13 @@ public:
     PARAS_KERNEL_HD
     item(const id<Dims>& i, const range<Dims>& r) : idx_(i), range_(r) {}
 
+    template <bool W = WithOffset, typename = std::enable_if_t<W>>
+    PARAS_KERNEL_HD item(const item<Dims, false>& other)
+        : idx_(other.get_id()), range_(other.get_range()) {}
+
     PARAS_KERNEL_HD
     item(const id<Dims>& i) : idx_(i) {
-        for (int d = 0; d < Dims; ++d)
-            range_[d] = i[d] + 1;
+        for (int d = 0; d < Dims; ++d) range_[d] = i[d] + 1;
     }
     template <int D = Dims, typename std::enable_if_t<D == 1, int> = 0>
     PARAS_KERNEL_HD item(size_t i) : item(id<1>(i)) {}
@@ -53,35 +57,30 @@ public:
     PARAS_KERNEL_HD item(size_t i, size_t j, size_t k) : item(id<3>(i, j, k)) {}
 
     PARAS_KERNEL_HD id<Dims> get_id() const { return idx_; }
-    PARAS_KERNEL_HD size_t get_id(int d) const { return idx_[d]; }
-    PARAS_KERNEL_HD size_t operator[](int d) const { return idx_[d]; }
-    PARAS_KERNEL_HD size_t& operator[](int d) { return idx_[d]; }
+    PARAS_KERNEL_HD size_t   get_id(int d) const { return idx_[d]; }
+    PARAS_KERNEL_HD size_t   operator[](int d) const { return idx_[d]; }
 
     PARAS_KERNEL_HD range<Dims> get_range() const { return range_; }
-    PARAS_KERNEL_HD size_t get_range(int d) const { return range_[d]; }
+    PARAS_KERNEL_HD size_t      get_range(int d) const { return range_[d]; }
 
     PARAS_KERNEL_HD id<Dims> get_offset() const { return id<Dims>(); }
 
     PARAS_KERNEL_HD
     size_t get_linear_id() const {
         size_t lin = 0;
-        for (int d = 0; d < Dims; ++d)
-            lin = lin * range_[d] + idx_[d];
+        for (int d = 0; d < Dims; ++d) lin = lin * range_[d] + idx_[d];
         return lin;
     }
 
     PARAS_KERNEL_HD operator id<Dims>() const { return idx_; }
 
     template <int D = Dims, typename std::enable_if_t<D == 1, int> = 0>
-    PARAS_KERNEL_HD operator size_t() const {
-        return idx_[0];
-    }
+    PARAS_KERNEL_HD operator size_t() const { return idx_[0]; }
 
     PARAS_KERNEL_HD
     friend bool operator==(const item& a, const item& b) {
         for (int d = 0; d < Dims; ++d)
-            if (a.idx_[d] != b.idx_[d] || a.range_[d] != b.range_[d])
-                return false;
+            if (a.idx_[d] != b.idx_[d] || a.range_[d] != b.range_[d]) return false;
         return true;
     }
     PARAS_KERNEL_HD
@@ -89,16 +88,21 @@ public:
 };
 
 namespace detail {
+
 template <int D, typename Func>
 PARAS_KERNEL_HD inline void invoke_range_kernel(const Func& f, const id<D>& idx,
                                                 const range<D>& r) {
-    if constexpr (std::is_invocable_v<const Func&, item<D>>)
+    if constexpr (std::is_invocable_v<const Func&, item<D>, kernel_handler>)
+        f(item<D>(idx, r), kernel_handler{});
+    else if constexpr (std::is_invocable_v<const Func&, item<D>>)
         f(item<D>(idx, r));
+    else if constexpr (std::is_invocable_v<const Func&, id<D>, kernel_handler>)
+        f(idx, kernel_handler{});
     else
         f(idx);
 }
-} // namespace detail
+}
 
-} // namespace sycl
+}
 
 #endif

@@ -62,7 +62,7 @@ void set(const value_t<SpecName>& v) {
     (void)hipMemcpyToSymbol(HIP_SYMBOL(device_value<SpecName>), &v, sizeof(v));
 #endif
 }
-} // namespace paras_spec_detail
+}
 
 class kernel_handler {
 public:
@@ -76,6 +76,6 @@ public:
     }
 };
 
-} // namespace sycl
+}
 
 #endif

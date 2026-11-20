@@ -21,46 +21,23 @@
 #ifndef __PARAS_GPU_THREADPOOL_EXECUTE_COMMON_HPP__
 #define __PARAS_GPU_THREADPOOL_EXECUTE_COMMON_HPP__
 
+#include "kem_gpu/gpu_runtime_api.hpp"
 #include <thread>
-#include "gpu_utilities.hpp"
-#if (PARAS_CUDA_BACKEND)
-#include <cuda_runtime.h>
-#elif (PARAS_HIP_BACKEND)
-#include <hip/hip_runtime.h>
-#endif
 
 using std::cout;
-#if (PARAS_CUDA_BACKEND)
+
 inline unsigned cuda_threadpool::gpu_get_num_threads() {
 
-    unsigned int devCount = 0, totalThreads;
-    cudaDeviceProp prop;
-    if (cudaGetDeviceProperties(&prop, devCount) != cudaSuccess)
-        return 32;
+  unsigned int totalThreads = 0;
+  try {
+    const cudaDeviceProp &prop = paras_cuda_detail::device_props(0);
+    totalThreads = static_cast<unsigned int>(prop.maxThreadsPerMultiProcessor) *
+                   static_cast<unsigned int>(prop.multiProcessorCount);
+  } catch (...) {
 
-    int maxThreadsPerSM = prop.maxThreadsPerMultiProcessor;
-    int numsSM = prop.multiProcessorCount;
+  }
 
-    totalThreads = maxThreadsPerSM * numsSM;
-
-    return (totalThreads == 0 ? 32 : totalThreads);
+  return (totalThreads == 0 ? 32 : totalThreads);
 }
 
-#elif (PARAS_HIP_BACKEND)
-inline unsigned rocm_threadpool::gpu_get_num_threads() {
-
-    unsigned int devCount = 0, totalThreads;
-    hipDeviceProp_t prop;
-    if (hipGetDeviceProperties(&prop, devCount) != hipSuccess)
-        return 32;
-
-    int maxThreadsPerSM = prop.maxThreadsPerMultiProcessor;
-    int numsSM = prop.multiProcessorCount;
-
-    totalThreads = maxThreadsPerSM * numsSM;
-
-    return (totalThreads == 0 ? 32 : totalThreads);
-}
 #endif
-
-#endif /** End of gpu_threadpool_execute_common >*/
