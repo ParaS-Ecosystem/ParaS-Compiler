@@ -56,6 +56,7 @@ gpu_execute_nd_range_2D_kernel(std::size_t global0, std::size_t global1, sycl::r
 template <typename Func>
 void cuda_threadpool::gpu_execute_nd_range_2D(const sycl::nd_range<2>& r, Func f,
                                               std::size_t sharedMemoryBytes) {
+    if (async_launch()) return paras_ext_nd_range_2D(r, f, sharedMemoryBytes);
     paras_detail::validate_nd_range(r);
     ensure_stream();
     const auto globalRange = r.get_global_range();
@@ -105,6 +106,7 @@ void cuda_threadpool::gpu_execute_nd_range_2D(const sycl::nd_range<2>& r, Func f
 template <typename Func>
 void rocm_threadpool::gpu_execute_nd_range_2D(const sycl::nd_range<2>& r, Func f,
                                               std::size_t sharedMemoryBytes) {
+    if (async_launch()) return paras_ext_nd_range_2D(r, f, sharedMemoryBytes);
     paras_detail::validate_nd_range(r);
     ensure_stream();
     const auto globalRange = r.get_global_range();

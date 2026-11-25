@@ -49,6 +49,7 @@
 #include "utilities/selector_logic.hpp"
 
 #include "gpu_utilities.hpp"
+#include "ext/paras/detail/pool_support.hpp"
 
 #if (PARAS_CUDA_BACKEND)
 #include <cuda_runtime.h>
@@ -103,6 +104,7 @@ public:
     bool operator!=(const cuda_threadpool& rhs) const noexcept { return !(*this == rhs); }
 
     cuda_threadpool(const sycl::queue& q) : dev_(q.get_device()), ctx_(q.get_context()), queue_(q) {
+        queue_.paras_detach_pool();
         initialize_stream_for_device();
     }
 
@@ -120,6 +122,8 @@ public:
     cuda_threadpool(const cuda_threadpool& other)
         : dev_(other.dev_), ctx_(other.ctx_), props_(other.props_), queue_(other.queue_),
           id_(other.id_) {
+        paras_ext_adopt(other);
+        if (stream != nullptr) return;
         initialize_stream_for_device();
     }
 
@@ -135,6 +139,8 @@ public:
         props_ = other.props_;
         queue_ = other.queue_;
         id_ = other.id_;
+        paras_ext_adopt(other);
+        if (stream != nullptr) return *this;
 
         initialize_stream_for_device();
         return *this;
@@ -144,6 +150,7 @@ public:
         : stream(other.stream), ownsStream(other.ownsStream), dev_(std::move(other.dev_)),
           ctx_(std::move(other.ctx_)), props_(std::move(other.props_)),
           queue_(std::move(other.queue_)), id_(other.id_) {
+        paras_ext_take(other);
         other.stream = nullptr;
         other.ownsStream = false;
     }
@@ -157,6 +164,7 @@ public:
 
         stream = other.stream;
         ownsStream = other.ownsStream;
+        paras_ext_take(other);
         dev_ = std::move(other.dev_);
         ctx_ = std::move(other.ctx_);
         props_ = std::move(other.props_);
@@ -173,6 +181,7 @@ public:
         return props_.has_profiling() ? sycl::paras_now_ns() : 0;
     }
     sycl::event paras_finish_event(std::uint64_t t0) const {
+        if (async_launch() || (!props_.has_profiling() && stream != nullptr)) return paras_stream_event();
         if (!props_.has_profiling()) {
             return sycl::event{};
         }
@@ -209,6 +218,7 @@ public:
     void spawn_ND(Func f);
 
     void wait() {
+        if (recording_) fail_recording("queue::wait");
         ensure_stream();
         cudaError_t errSync = cudaStreamSynchronize(stream);
         if (errSync != cudaSuccess) {
@@ -223,10 +233,12 @@ public:
     sycl::event parasSYCL_enqueue_custom_operation(injectCustomFunc cgf) {
         sycl::handler cgh(*this);
         cgh.parasSYCL_enqueue_custom_operation(std::move(cgf));
+        if (stream != nullptr) return paras_stream_event();
         return sycl::event{};
     }
 
     void wait() const {
+        if (recording_) fail_recording("queue::wait");
         if (stream == nullptr) {
             throw sycl::exception("cuda_threadpool::wait called with null CUDA stream");
         }
@@ -299,6 +311,7 @@ public:
     sycl::event memcpy(void* dest, const void* src, size_t numBytes) {
         const std::uint64_t paras_t0 = paras_profiling_start();
         ensure_stream();
+        if (recording_ && !stream_ordered_copy(dest, src)) fail_recording("a copy to or from host memory");
 
         cudaError_t err = cudaMemcpyAsync(dest, src, numBytes, cudaMemcpyDefault, stream);
 
@@ -306,6 +319,8 @@ public:
             throw std::runtime_error(std::string("cudaMemcpyAsync failed: ") +
                                      cudaGetErrorString(err));
         }
+
+        if (stream_ordered_copy(dest, src)) return paras_finish_event(paras_t0);
 
         err = cudaStreamSynchronize(stream);
         if (err != cudaSuccess) {
@@ -320,6 +335,7 @@ public:
     sycl::event copy(const T* src, T* dest, size_t count) {
         const std::uint64_t paras_t0 = paras_profiling_start();
         ensure_stream();
+        if (recording_ && !stream_ordered_copy(dest, src)) fail_recording("a copy to or from host memory");
 
         cudaError_t err = cudaMemcpyAsync(static_cast<void*>(dest), static_cast<const void*>(src),
                                           count * sizeof(T), cudaMemcpyDefault, stream);
@@ -327,6 +343,8 @@ public:
         if (err != cudaSuccess) {
             throw sycl::exception(cudaGetErrorString(err));
         }
+
+        if (stream_ordered_copy(dest, src)) return paras_finish_event(paras_t0);
 
         err = cudaStreamSynchronize(stream);
         if (err != cudaSuccess) {
@@ -348,6 +366,8 @@ public:
                                      cudaGetErrorString(err));
         }
 
+        if (async_launch()) return paras_finish_event(paras_t0);
+
         err = cudaStreamSynchronize(stream);
         if (err != cudaSuccess) {
             throw std::runtime_error(std::string("cudaStreamSynchronize after memset failed: ") +
@@ -358,6 +378,7 @@ public:
     }
 
     ~cuda_threadpool() noexcept { release_stream_noexcept(); }
+#include "ext/paras/detail/cuda_pool_members.hpp"
 
 private:
     sycl::device dev_;
@@ -387,6 +408,7 @@ private:
         if (stream == nullptr) {
             throw std::runtime_error("CUDA operation requested without a valid CUDA stream");
         }
+        paras_order_streams();
 
         if (dev_.is_gpu()) {
             const cudaError_t setErr = cudaSetDevice(dev_.get_native_id());
@@ -410,9 +432,11 @@ private:
             ownsStream = false;
             throw sycl::exception(cudaGetErrorString(err));
         }
+        paras_ext_own_stream();
     }
 
     void release_stream_noexcept() noexcept {
+        if (paras_ext_release_owner()) return;
         if (!ownsStream || stream == nullptr) {
             stream = nullptr;
             ownsStream = false;
@@ -458,6 +482,7 @@ private:
 };
 
 inline cuda_threadpool& sycl::queue::get_or_create_gpu_pool() const {
+    if (!gpu_pool_) gpu_pool_ = paras_ext_slot_.get_or_create([this] { return std::make_shared<cuda_threadpool>(*this); });
     if (!gpu_pool_) {
         gpu_pool_ = std::make_shared<cuda_threadpool>(*this);
     }
@@ -517,6 +542,7 @@ public:
     bool operator!=(const rocm_threadpool& rhs) const noexcept { return !(*this == rhs); }
 
     rocm_threadpool(const sycl::queue& q) : dev_(q.get_device()), ctx_(q.get_context()), queue_(q) {
+        queue_.paras_detach_pool();
         initialize_stream_for_device();
     }
 
@@ -534,6 +560,8 @@ public:
     rocm_threadpool(const rocm_threadpool& other)
         : dev_(other.dev_), ctx_(other.ctx_), props_(other.props_), queue_(other.queue_),
           id_(other.id_) {
+        paras_ext_adopt(other);
+        if (stream != nullptr) return;
         initialize_stream_for_device();
     }
 
@@ -549,6 +577,8 @@ public:
         props_ = other.props_;
         queue_ = other.queue_;
         id_ = other.id_;
+        paras_ext_adopt(other);
+        if (stream != nullptr) return *this;
 
         initialize_stream_for_device();
         return *this;
@@ -558,6 +588,7 @@ public:
         : stream(other.stream), ownsStream(other.ownsStream), dev_(std::move(other.dev_)),
           ctx_(std::move(other.ctx_)), props_(std::move(other.props_)),
           queue_(std::move(other.queue_)), id_(other.id_) {
+        paras_ext_take(other);
         other.stream = nullptr;
         other.ownsStream = false;
     }
@@ -571,6 +602,7 @@ public:
 
         stream = other.stream;
         ownsStream = other.ownsStream;
+        paras_ext_take(other);
         dev_ = std::move(other.dev_);
         ctx_ = std::move(other.ctx_);
         props_ = std::move(other.props_);
@@ -587,6 +619,7 @@ public:
         return props_.has_profiling() ? sycl::paras_now_ns() : 0;
     }
     sycl::event paras_finish_event(std::uint64_t t0) const {
+        if (async_launch() || (!props_.has_profiling() && stream != nullptr)) return paras_stream_event();
         if (!props_.has_profiling()) {
             return sycl::event{};
         }
@@ -623,6 +656,7 @@ public:
     void spawn_ND(Func f);
 
     void wait() {
+        if (recording_) fail_recording("queue::wait");
         ensure_stream();
         hipError_t errSync = hipStreamSynchronize(stream);
         if (errSync != hipSuccess) {
@@ -637,10 +671,12 @@ public:
     sycl::event parasSYCL_enqueue_custom_operation(injectCustomFunc cgf) {
         sycl::handler cgh(*this);
         cgh.parasSYCL_enqueue_custom_operation(std::move(cgf));
+        if (stream != nullptr) return paras_stream_event();
         return sycl::event{};
     }
 
     void wait() const {
+        if (recording_) fail_recording("queue::wait");
         if (stream == nullptr) {
             throw sycl::exception("rocm_threadpool::wait called with null HIP stream");
         }
@@ -712,6 +748,7 @@ public:
     sycl::event memcpy(void* dest, const void* src, size_t numBytes) {
         const std::uint64_t paras_t0 = paras_profiling_start();
         ensure_stream();
+        if (recording_ && !stream_ordered_copy(dest, src)) fail_recording("a copy to or from host memory");
 
         hipError_t err = hipMemcpyAsync(dest, src, numBytes, hipMemcpyDefault, stream);
 
@@ -719,6 +756,8 @@ public:
             throw std::runtime_error(std::string("hipMemcpyAsync failed: ") +
                                      hipGetErrorString(err));
         }
+
+        if (stream_ordered_copy(dest, src)) return paras_finish_event(paras_t0);
 
         err = hipStreamSynchronize(stream);
         if (err != hipSuccess) {
@@ -733,6 +772,7 @@ public:
     sycl::event copy(const T* src, T* dest, size_t count) {
         const std::uint64_t paras_t0 = paras_profiling_start();
         ensure_stream();
+        if (recording_ && !stream_ordered_copy(dest, src)) fail_recording("a copy to or from host memory");
 
         hipError_t err = hipMemcpyAsync(static_cast<void*>(dest), static_cast<const void*>(src),
                                         count * sizeof(T), hipMemcpyDefault, stream);
@@ -740,6 +780,8 @@ public:
         if (err != hipSuccess) {
             throw sycl::exception(hipGetErrorString(err));
         }
+
+        if (stream_ordered_copy(dest, src)) return paras_finish_event(paras_t0);
 
         err = hipStreamSynchronize(stream);
         if (err != hipSuccess) {
@@ -761,6 +803,8 @@ public:
                                      hipGetErrorString(err));
         }
 
+        if (async_launch()) return paras_finish_event(paras_t0);
+
         err = hipStreamSynchronize(stream);
         if (err != hipSuccess) {
             throw std::runtime_error(std::string("hipStreamSynchronize after memset failed: ") +
@@ -771,6 +815,7 @@ public:
     }
 
     ~rocm_threadpool() noexcept { release_stream_noexcept(); }
+#include "ext/paras/detail/hip_pool_members.hpp"
 
 private:
     sycl::device dev_;
@@ -800,6 +845,7 @@ private:
         if (stream == nullptr) {
             throw std::runtime_error("HIP operation requested without a valid HIP stream");
         }
+        paras_order_streams();
 
         if (dev_.is_gpu()) {
             const hipError_t setErr = hipSetDevice(dev_.get_native_id());
@@ -823,9 +869,11 @@ private:
             ownsStream = false;
             throw sycl::exception(hipGetErrorString(err));
         }
+        paras_ext_own_stream();
     }
 
     void release_stream_noexcept() noexcept {
+        if (paras_ext_release_owner()) return;
         if (!ownsStream || stream == nullptr) {
             stream = nullptr;
             ownsStream = false;
@@ -871,6 +919,7 @@ private:
 };
 
 inline rocm_threadpool& sycl::queue::get_or_create_rocm_pool() const {
+    if (!rocm_pool_) rocm_pool_ = paras_ext_slot_.get_or_create([this] { return std::make_shared<rocm_threadpool>(*this); });
     if (!rocm_pool_) {
         rocm_pool_ = std::make_shared<rocm_threadpool>(*this);
     }
@@ -977,6 +1026,7 @@ sycl::event cuda_threadpool::spawn_1D(Func f) {
 
 template <typename Func>
 sycl::event cuda_threadpool::spawn_1D_event(Func f) {
+    if (async_launch()) return spawn_1D(f);
 
     spawn_1D(f);
     return sycl::event();
@@ -1000,6 +1050,7 @@ sycl::event rocm_threadpool::spawn_1D(Func f) {
 
 template <typename Func>
 sycl::event rocm_threadpool::spawn_1D_event(Func f) {
+    if (async_launch()) return spawn_1D(f);
 
     spawn_1D(f);
     return sycl::event();
@@ -1013,8 +1064,20 @@ void rocm_threadpool::spawn_ND(Func f) {
 #endif
 
 #include "kem_gpu/handler_impl.hpp"
+#include "ext/paras/detail/pool_hooks.hpp"
+#include "ext/paras/detail/nd_range.hpp"
+#include "ext/paras/detail/command_graph_impl.hpp"
+
+inline void sycl::queue::paras_ext_share_pool() const {
+#if (PARAS_CUDA_BACKEND)
+    if (!gpu_pool_) gpu_pool_ = paras_ext_slot_.get();
+#elif (PARAS_HIP_BACKEND)
+    if (!rocm_pool_) rocm_pool_ = paras_ext_slot_.get();
+#endif
+}
 
 inline void sycl::queue::wait() const {
+    paras_ext_share_pool();
 #if (PARAS_CUDA_BACKEND)
     if (gpu_pool_) {
         gpu_pool_->wait();
@@ -1027,6 +1090,7 @@ inline void sycl::queue::wait() const {
 }
 
 inline void sycl::queue::wait_and_throw() const {
+    paras_ext_share_pool();
 #if (PARAS_CUDA_BACKEND)
     if (gpu_pool_) {
         gpu_pool_->wait_and_throw();

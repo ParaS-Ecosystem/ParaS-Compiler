@@ -34,6 +34,7 @@
 #include "device.hpp"
 #include "device_selector.hpp"
 #include "event.hpp"
+#include "ext/paras/detail/pool_slot.hpp"
 #include "handler.hpp"
 #include "property_list.hpp"
 #include "utilities/selector_logic.hpp"
@@ -91,9 +92,11 @@ public:
 #if (PARAS_CUDA_BACKEND)
             handler h(get_or_create_gpu_pool());
             cgf(h);
+            return paras_submit_event();
 #elif (PARAS_HIP_BACKEND)
             handler h(get_or_create_rocm_pool());
             cgf(h);
+            return paras_submit_event();
 #endif
         } else {
             handler h;
@@ -148,6 +151,8 @@ public:
     event fill(T* ptr, const T& pattern, std::size_t count, const std::vector<event>&) {
         return fill(ptr, pattern, count);
     }
+
+#include "ext/paras/detail/queue_members.hpp"
 
     void wait() const;
 

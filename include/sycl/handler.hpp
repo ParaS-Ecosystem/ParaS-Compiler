@@ -21,6 +21,7 @@
 #ifndef __PARAS_HANDLER_HPP__
 #define __PARAS_HANDLER_HPP__
 
+#include <memory>
 #include <cstddef>
 #include <functional>
 #include <limits>
@@ -103,6 +104,10 @@ public:
     >*/
     template <typename FunctorT>
     void host_task(FunctorT&& hostFunction) {
+        if constexpr (std::is_invocable_v<FunctorT&, interop_handle>) {
+            paras_ext_interop_host_task(hostFunction);
+        } else if (paras_ext_capture_host_task(std::forward<FunctorT>(hostFunction))) {
+        } else
         hostFunction();
     }
 
@@ -266,6 +271,8 @@ public:
 
     void wait_for_dependencies() const { sycl::event::wait(deps_); }
 
+#include "ext/paras/detail/handler_members.hpp"
+
     template <typename injectCustomFunc>
     void parasSYCL_enqueue_custom_operation(injectCustomFunc&& cgf) {
 #if (PARAS_CUDA_BACKEND)
@@ -278,6 +285,7 @@ public:
         interop_handle ih(static_cast<void*>(gpu_pool_), sycl::backend::cuda);
 
         try {
+            const native_device_scope scope(*this);
             cgf(ih);
             async_mode_ = false;
         } catch (...) {
@@ -295,6 +303,7 @@ public:
         interop_handle ih(static_cast<void*>(rocm_pool_), sycl::backend::hip);
 
         try {
+            const native_device_scope scope(*this);
             cgf(ih);
             async_mode_ = false;
         } catch (...) {

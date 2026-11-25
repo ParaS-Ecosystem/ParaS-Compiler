@@ -35,6 +35,8 @@
 #include "kem_gpu/gpu_utilities.hpp"
 #include "exception.hpp"
 
+#include "ext/paras/detail/device_arch.hpp"
+
 namespace paras_extension {
 struct device_ctor_tag {};
 } // namespace paras_extension
@@ -522,6 +524,7 @@ public:
     bool operator!=(const device& rhs) const noexcept { return !(*this == rhs); }
 
     int get_native_id() const noexcept { return native_id_; }
+    void paras_set_native_id(int id) noexcept { native_id_ = id; }
 
     template <typename Param>
     auto get_info() const;
@@ -1045,6 +1048,7 @@ template <>
 inline auto device::get_info<info::device::sub_group_sizes>() const {
     if (is_gpu_) {
 #if (PARAS_HIP_BACKEND)
+        if (ext::paras::detail::is_four_digit_gfx(version_)) return std::vector<std::size_t>{32};
         return std::vector<std::size_t>{64};
 #elif (PARAS_CUDA_BACKEND)
         return std::vector<std::size_t>{32};
