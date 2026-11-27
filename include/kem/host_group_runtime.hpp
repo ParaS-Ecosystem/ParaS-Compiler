@@ -60,31 +60,30 @@ private:
     std::size_t generation_ = 0;
 };
 
-inline thread_local group_barrier_t* tl_barrier = nullptr;
-inline thread_local unsigned char* tl_local_mem = nullptr;
-inline thread_local unsigned char* tl_group_scratch = nullptr;
-inline thread_local std::size_t tl_local_linear_id = 0;
-inline thread_local std::size_t tl_local_size = 1;
+inline thread_local group_barrier_t* tl_barrier   = nullptr;
+inline thread_local unsigned char*    tl_local_mem = nullptr;
+
+inline thread_local unsigned char*    tl_group_scratch = nullptr;
+inline thread_local std::size_t       tl_local_linear_id = 0;
 
 inline void work_group_barrier() {
-    if (tl_barrier)
-        tl_barrier->arrive_and_wait();
+    if (tl_barrier) tl_barrier->arrive_and_wait();
 }
 
 constexpr std::size_t kHostLocalMemBytes = 65536;
 
 template <typename RunItem>
-void run_work_groups(std::size_t num_groups, std::size_t local_size, RunItem run_item) {
-    if (num_groups == 0 || local_size == 0)
-        return;
+void run_work_groups(std::size_t num_groups, std::size_t local_size,
+                     RunItem run_item) {
+    if (num_groups == 0 || local_size == 0) return;
 
     std::size_t hw = std::thread::hardware_concurrency();
     if (const char* e = std::getenv("PARAS_HOST_THREADS")) {
         const long v = std::atol(e);
-        if (v > 0)
-            hw = static_cast<std::size_t>(v);
+        if (v > 0) hw = static_cast<std::size_t>(v);
     }
     hw = std::max<std::size_t>(1, hw);
+
     const std::size_t teams =
         std::max<std::size_t>(1, std::min(num_groups, (hw + local_size - 1) / local_size));
 
@@ -113,48 +112,44 @@ void run_work_groups(std::size_t num_groups, std::size_t local_size, RunItem run
         team_state* ts = states[t].get();
         for (std::size_t lid = 0; lid < local_size; ++lid) {
             threads.emplace_back([&, ts, lid]() {
-                tl_barrier = &ts->barrier;
+                tl_barrier   = &ts->barrier;
                 tl_local_mem = ts->local_mem.get();
-                tl_group_scratch = ts->group_scratch.get();
+                tl_group_scratch   = ts->group_scratch.get();
                 tl_local_linear_id = lid;
-                tl_local_size = local_size;
                 for (;;) {
+
                     if (lid == 0) {
                         ts->current_group = next_group.fetch_add(1);
                         std::lock_guard<std::mutex> g(error_mutex);
-                        if (first_error)
-                            ts->abort = true;
+                        if (first_error) ts->abort = true;
                     }
                     ts->barrier.arrive_and_wait();
                     const std::size_t grp = ts->current_group;
                     const bool stop = ts->abort || grp >= num_groups;
+
                     ts->barrier.arrive_and_wait();
-                    if (stop)
-                        break;
+                    if (stop) break;
 
                     try {
                         run_item(grp, lid);
                     } catch (...) {
                         std::lock_guard<std::mutex> g(error_mutex);
-                        if (!first_error)
-                            first_error = std::current_exception();
+                        if (!first_error) first_error = std::current_exception();
                     }
+
                     ts->barrier.arrive_and_wait();
                 }
-                tl_barrier = nullptr;
+                tl_barrier   = nullptr;
                 tl_local_mem = nullptr;
                 tl_group_scratch = nullptr;
-                tl_local_size = 1;
             });
         }
     }
-    for (auto& th : threads)
-        th.join();
-    if (first_error)
-        std::rethrow_exception(first_error);
+    for (auto& th : threads) th.join();
+    if (first_error) std::rethrow_exception(first_error);
 }
 
 } // namespace paras_host_detail
 
-#endif // !device pass
-#endif // __PARAS_HOST_GROUP_RUNTIME_HPP__
+#endif
+#endif

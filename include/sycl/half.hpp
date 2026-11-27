@@ -17,7 +17,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
- 
+
 #ifndef __PARAS_HALF_HPP__
 #define __PARAS_HALF_HPP__
 
@@ -266,4 +266,4 @@ public:
 
 } // namespace std
 
-#endif    // End of __PARAS_HALF_HPP__
+#endif

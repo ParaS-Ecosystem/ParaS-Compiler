@@ -31,7 +31,8 @@ constexpr std::size_t kMaxWorkGroupSize = 1024;
 
 PARAS_KERNEL_HD inline std::size_t wg_local_linear_id() {
 #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-    return threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y;
+    return threadIdx.x + threadIdx.y * blockDim.x +
+           threadIdx.z * blockDim.x * blockDim.y;
 #else
     return paras_host_detail::tl_local_linear_id;
 #endif
@@ -88,6 +89,7 @@ template <typename Group, typename T, typename Op>
 PARAS_KERNEL_HD T wg_exclusive_scan(const Group& g, T x, T init, Op op) {
     T* s = wg_scratch<T>();
     const std::size_t lid = wg_local_linear_id();
+
     (void)wg_inclusive_scan(g, x, op);
     const T r = (lid == 0) ? init : op(init, s[lid - 1]);
     paras_syncthreads();
@@ -97,8 +99,7 @@ PARAS_KERNEL_HD T wg_exclusive_scan(const Group& g, T x, T init, Op op) {
 template <typename Group, typename T>
 PARAS_KERNEL_HD T wg_broadcast(const Group&, T x, std::size_t src) {
     T* s = wg_scratch<T>();
-    if (wg_local_linear_id() == src)
-        s[0] = x;
+    if (wg_local_linear_id() == src) s[0] = x;
     paras_syncthreads();
     const T r = s[0];
     paras_syncthreads();
@@ -113,21 +114,13 @@ PARAS_KERNEL_HD std::size_t wg_linearize(const Group& g, const Id& id) {
     return lin;
 }
 
-struct wg_or {
-    PARAS_KERNEL_HD int operator()(int a, int b) const { return a || b; }
-};
-struct wg_and {
-    PARAS_KERNEL_HD int operator()(int a, int b) const { return a && b; }
-};
+struct wg_or  { PARAS_KERNEL_HD int operator()(int a, int b) const { return a || b; } };
+struct wg_and { PARAS_KERNEL_HD int operator()(int a, int b) const { return a && b; } };
 
 template <typename Group>
-PARAS_KERNEL_HD bool wg_any(const Group& g, bool p) {
-    return wg_reduce(g, int(p), wg_or{}) != 0;
-}
+PARAS_KERNEL_HD bool wg_any(const Group& g, bool p) { return wg_reduce(g, int(p), wg_or{}) != 0; }
 template <typename Group>
-PARAS_KERNEL_HD bool wg_all(const Group& g, bool p) {
-    return wg_reduce(g, int(p), wg_and{}) != 0;
-}
+PARAS_KERNEL_HD bool wg_all(const Group& g, bool p) { return wg_reduce(g, int(p), wg_and{}) != 0; }
 
 } // namespace detail
 } // namespace sycl
